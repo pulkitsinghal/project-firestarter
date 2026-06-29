@@ -84,4 +84,4 @@ deploy-down: ## Stop the tunnel
 # ── Security ─────────────────────────────────────────────────────────────────
 .PHONY: secret-scan
 secret-scan: ## Scan the repo for committed secrets (gitleaks in Docker)
-	docker run --rm -v "$$(pwd):/repo" zricethezav/gitleaks:latest dir /repo --no-banner --redact --exit-code 1
+	docker run --rm -v "$$(pwd):/repo" zricethezav/gitleaks:v8.30.1 dir /repo -c /repo/.gitleaks.toml --no-banner --redact --exit-code 1

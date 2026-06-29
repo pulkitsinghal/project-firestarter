@@ -1,0 +1,23 @@
+# gitleaks config for {{ project_name }}. Extends the default ruleset and
+# allowlists build-artifact/cache dirs so local `make secret-scan` on a dirty
+# tree doesn't false-positive (CI scans a clean checkout, so this only matters
+# for local runs). Add your own allowlists here for known public/test fixtures
+# (e.g. a published demo token) — keep them as narrow as possible.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Build artifacts / caches (not committed)"
+paths = [
+  '''node_modules/''',
+  '''\.pnpm-store/''',
+  '''\.next/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''\.dart_tool/''',
+  '''\.venv/''',
+  '''__pycache__/''',
+  '''\.pytest_cache/''',
+  '''\.mypy_cache/''',
+  '''\.ruff_cache/''',
+]
