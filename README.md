@@ -1,86 +1,98 @@
-# Project Firestarter
+<h1 align="center">🔥 Project Firestarter</h1>
 
-A version-controlled **starter template** for new sibling projects. It distills
-the shared developer- and devops-level scaffolding from the existing projects
-([project-pilgrim](../project-pilgrim) and [project-healer](../project-healer))
-into one place so a new repo starts with all the best practices, gotchas, and
-nice-to-haves already wired in — not rediscovered each time.
+<p align="center">
+  <strong>Start every new project already wired for production.</strong><br>
+  A version-controlled template that bakes in the best practices, gotchas, and
+  CI/CD a project usually earns the hard way — so day one looks like month three.
+</p>
 
-It's **cookiecutter-style**: a [`firestarter.config.json`](firestarter.config.json)
-manifest declares the variables, and a generator stamps a new project by
-substituting `{{ tokens }}` into the templates. The generator runs **in Docker**
-(`python:3.12-slim`) so nothing is installed on your host — the same "no host
-SDKs" rule the templates themselves enforce.
+<p align="center">
+  <a href="https://github.com/pulkitsinghal/project-firestarter/actions/workflows/ci.yml"><img src="https://github.com/pulkitsinghal/project-firestarter/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/stacks-2-blue" alt="stacks">
+  <img src="https://img.shields.io/badge/host%20SDKs-0-success" alt="no host SDKs">
+  <img src="https://img.shields.io/badge/PRs-AI%20reviewed%20%26%20auto--merged-purple" alt="AI reviewed">
+</p>
 
-## What you get
+<p align="center"><a href="https://pulkitsinghal.github.io/project-firestarter/"><strong>📄 Read the landing page →</strong></a></p>
 
-- **Universal meta-layer** (`template/`) — identical across every sibling:
-  governance docs (`AGENTS.md`, `CLAUDE.md`, `ARCHITECTURE.md`, `CONTRIBUTING.md`,
-  `PROJECT_STATUS_AND_NEXT_STEPS.md`), opt-in git hooks, the conventional-commit
-  toolchain, and the full CI/CD suite — **AI PR review**, **auto-merge**,
-  **commit-lint**, and a **Playwright storyboard**.
-- **Two ready stack profiles** (`stacks/`):
-  - `fastapi-next` — FastAPI + PostgreSQL/pgvector + Redis backend, Next.js
-    frontend (the project-healer lineage).
-  - `supabase-flutter` — Postgres/PostGIS + PostgREST + GoTrue backend, Flutter
-    app, React/Vite splash, Dart service layer (the project-pilgrim lineage).
+---
 
-See [docs/ANATOMY.md](docs/ANATOMY.md) for a file-by-file map of what each piece
-is, why it exists, and which sibling it was lifted from.
+## Why it exists
 
-## For AI agents
+Every new repo re-pays the same tax: wire up CI, write the commit conventions,
+remember the Docker gotchas, set up review and auto-merge, document the
+onboarding. It takes days, it's inconsistent across projects, and the hard-won
+lessons from the *last* project rarely make it into the next one.
 
-This repo is built to be handed to an AI session of any kind. Drop a Claude Code,
-Codex, Cursor, Aider, or Copilot session into it and it will find its operating
-brief in **[AGENTS.md](AGENTS.md)** (the cross-tool standard) — how to stamp a new
-project, how to extend the template, and the hard rules (no host SDKs, whitelist
-token safety, the CI job-name contract). `CLAUDE.md` and
-`.github/copilot-instructions.md` are thin pointers to it.
+Firestarter pays that tax **once**. It distills the shared developer- and
+devops-level scaffolding from real sibling projects into one cookiecutter-style
+template, so a new repo starts with all of it already in place — and a documented
+process ([LIFT-LOG](docs/LIFT-LOG.md)) for folding new lessons back in.
 
-## Usage
+## The merits
+
+| Merit | What it means for you |
+|-------|----------------------|
+| 🐳 **Zero host SDKs** | Everything runs in Docker. No "install Node/Python/Dart" — `make up` and go. New contributors are productive in one command. |
+| 🤖 **AI-reviewed, auto-merging PRs** | A workflow calls the Anthropic API, posts a verdict, and `auto-merge` squash-merges green PRs. No human-review bottleneck. |
+| ✅ **Green-before-push** | One `make precommit` mirrors every CI gate locally, in Docker. Stop pushing to "see if CI passes." |
+| 📐 **Conventions enforced, not hoped-for** | Conventional Commits + forward-only migrations enforced by git hooks *and* CI. |
+| 🔭 **It documents itself** | A storyboard harness renders a live *planned-vs-implemented* map with screenshots straight from the running app. |
+| 🚀 **Share in one button** | `make deploy` exposes your local app on a public Cloudflare URL — no account, no cloud bill. |
+| 🧩 **Two real stacks + opt-in add-ons** | FastAPI+Next.js or Supabase+Flutter, with the painful gotchas baked into comments. k8s is one flag away when you need it. |
+| 🤝 **AI-agent ready** | A root `AGENTS.md` (the cross-tool standard) lets Claude Code, Codex, Cursor, or Aider drive the repo on sight. |
+
+## Proven, not theoretical
+
+Firestarter **runs its own template on itself.** It has the same CI, AI review,
+and auto-merge it ships — and every feature in it landed through that pipeline:
+4 PRs opened, reviewed, and auto-merged green. The dog food is the dinner.
+
+## Quickstart
+
+You need only Docker — no host language toolchains.
 
 ```bash
 # Interactive — prompts for every value (Enter accepts the default):
 ./bin/firestart.sh
 
-# Non-interactive — accept all defaults:
-./bin/firestart.sh --defaults
+# Non-interactive:
+./bin/firestart.sh --defaults --set project_slug=lighthouse --set stack=fastapi-next
 
-# Override specific values:
-./bin/firestart.sh --set project_name="Project Lighthouse" \
-                   --set project_slug=lighthouse \
-                   --set stack=supabase-flutter \
-                   --output ../project-lighthouse
-
-# Include an optional add-on (off by default):
+# Optional add-on (off by default):
 ./bin/firestart.sh --set include_k8s=yes
-
-# Or feed a JSON answers file:
-./bin/firestart.sh --values my-answers.json
 ```
 
-The generator writes a new project to `../<github_repo>` (override with
-`--output`) and prints the next steps:
+It stamps a new project to `../<github_repo>`, then prints the next steps:
 
 ```bash
 cd ../project-lighthouse
 git init && git add -A && git commit -m "chore: scaffold from firestarter"
-make hook-install
-make up && make migrate
-gh secret set ANTHROPIC_API_KEY   # enable the AI PR reviewer
+make hook-install            # activate the opt-in git hooks
+make up && make migrate      # boot the stack
+gh secret set ANTHROPIC_API_KEY   # turn on the AI reviewer
 ```
 
-## Configuration
+## What's in the box
 
-Every key in [`firestarter.config.json`](firestarter.config.json) is a template
-token. List values are multiple-choice (first = default); string values can
-reference earlier answers (e.g. `db_name` defaults to `{{ project_slug }}`). The
-generator also computes a few derived tokens (`migrations_table`,
-`coauthor_policy`, …) — see [docs/ANATOMY.md](docs/ANATOMY.md#tokens).
+- **Universal meta-layer** (`template/`) — `AGENTS.md`, `CLAUDE.md`,
+  `ARCHITECTURE.md`, `CONTRIBUTING.md`, opt-in git hooks, PR/issue templates,
+  `SECURITY.md`, and the full CI suite: **AI PR review · auto-merge · commit-lint
+  · storyboard**.
+- **Stack profiles** (`stacks/`):
+  - `fastapi-next` — FastAPI + PostgreSQL/pgvector + Redis · Next.js.
+  - `supabase-flutter` — Postgres/PostGIS + PostgREST + GoTrue · Flutter · React.
+- **Optional add-ons** (`addons/`) — e.g. `k8s` Kustomize (opt in with
+  `include_k8s=yes`).
 
-## Keeping it current
+How it works under the hood: a `firestarter.config.json` manifest declares the
+variables; a stdlib-only generator (run **in Docker**, no pip) substitutes
+`{{ tokens }}` and overlays the chosen stack. Token substitution is
+whitelist-only, so GitHub Actions `${{ … }}` is never clobbered.
 
-This template is meant to **absorb learnings over time**. When a sibling project
-discovers a better hook, a CI fix, or a new gotcha worth standardizing, lift it
-back here. The process is in [docs/LIFT-LOG.md](docs/LIFT-LOG.md). Adding a whole
-new stack profile is in [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md).
+## Learn more
+
+- 🗺️ [docs/ANATOMY.md](docs/ANATOMY.md) — file-by-file map: what each piece is, why it exists, and which sibling it came from
+- ➕ [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md) — author a new stack profile
+- ♻️ [docs/LIFT-LOG.md](docs/LIFT-LOG.md) — how learnings get harvested back into the template
+- 🤖 [AGENTS.md](AGENTS.md) — operating brief for any AI session
