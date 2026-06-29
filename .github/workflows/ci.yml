@@ -1,0 +1,81 @@
+name: CI
+
+# Self-CI for the firestarter generator. Job display names (Tests, Lint &
+# Typecheck) match the contract auto-merge.yml gates on.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stamp both example stacks and assert no leaks
+        run: |
+          set -euo pipefail
+          OUT="$(mktemp -d)"
+          # FIRESTARTER_NATIVE path: the runner already has python3; the
+          # generator is stdlib-only. (Devs use the Docker wrapper.)
+          for ex in healer pilgrim; do
+            python3 bin/generate.py --values "examples/$ex.answers.json" --output "$OUT/$ex"
+          done
+
+          # 1. No unsubstituted tokens leaked. The only legitimate {{ matches are
+          #    GitHub Actions ${{ }} and JSX style={{ }}.
+          if grep -rn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::unsubstituted {{ token }} leaked into generated output"
+            exit 1
+          fi
+          echo "✓ no token leaks"
+
+          # 2. GitHub Actions expressions must survive substitution untouched.
+          test "$(grep -c '\${{' "$OUT/healer/.github/workflows/auto-merge.yml")" -gt 0
+          echo "✓ \${{ }} expressions preserved"
+
+          # 3. Generated shell parses.
+          bash -n "$OUT/healer/backend/scripts/migrate.sh"
+          bash -n "$OUT/pilgrim/backend/scripts/migrate.sh"
+          for h in commit-msg pre-commit pre-push; do
+            sh -n "$OUT/healer/.githooks/$h"
+          done
+          echo "✓ generated scripts parse"
+
+          # 4. Generated workflow YAML parses.
+          python3 -m pip install --quiet pyyaml
+          python3 - "$OUT" <<'PY'
+          import glob, sys, yaml
+          out = sys.argv[1]
+          for f in glob.glob(f"{out}/*/.github/workflows/*.yml"):
+              yaml.safe_load(open(f))
+          print("✓ generated workflow YAML parses")
+          PY
+
+  lint:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile the generator
+        run: python3 -m py_compile bin/generate.py
+
+      - name: Shell-check the entrypoint
+        run: bash -n bin/firestart.sh
+
+      - name: Validate firestarter's own workflow YAML
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import glob, yaml
+          for f in glob.glob(".github/workflows/*.yml"):
+              yaml.safe_load(open(f))
+          print("✓ workflow YAML parses")
+          PY
