@@ -22,6 +22,12 @@ make precommit
 runs every lint / type-check / test gate, all in Docker. A green run is a good
 predictor of green CI.
 
+For a fast self-review before opening the PR, pipe your diff into a review chat:
+
+```
+bash scripts/ai-review.sh        # prints diff vs origin/master + a reviewer prompt
+```
+
 ## Commits
 
 Conventional Commits, enforced by the `commit-msg` hook and CI:

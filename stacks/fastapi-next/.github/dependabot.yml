@@ -1,0 +1,55 @@
+version: 2
+updates:
+  # Backend Python deps.
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "backend"]
+    groups:
+      dev-tooling:
+        patterns: ["ruff", "mypy", "pytest", "httpx"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # Frontend Node deps.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "frontend"]
+    groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "next"]
+      ts-tooling:
+        patterns: ["typescript", "@types/node"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # Storyboard runner.
+  - package-ecosystem: npm
+    directory: /storyboard
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # GitHub Actions.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: ci
+      include: scope

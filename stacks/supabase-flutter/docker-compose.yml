@@ -97,6 +97,18 @@ services:
     volumes:
       - ./storyboard/output:/out
 
+  # One-button beta deploy: expose a service on a public Cloudflare quick-tunnel
+  # URL. No account, no token, free TLS. `make deploy` prints a
+  # https://<words>.trycloudflare.com URL. Defaults to the PostgREST API so a
+  # remote client can reach the backend; repoint at your served web app (Flutter
+  # web build / splash dev) by editing the --url below. See DEPLOY.md.
+  cloudflared:
+    profiles: ["deploy"]
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://postgrest:3000
+    depends_on:
+      - postgrest
+
 volumes:
   {{ pgdata_volume }}:
   flutter_pub_cache:

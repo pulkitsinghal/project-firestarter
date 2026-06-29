@@ -82,3 +82,12 @@ storyboard: ## Generate UI storyboard screenshots (Playwright in Docker → stor
 hook-install: ## Activate the opt-in git hooks in .githooks/
 	git config core.hooksPath .githooks
 	@echo "✓ hooks active (core.hooksPath=.githooks). Disable: git config --unset core.hooksPath"
+
+# ── Beta deploy (Cloudflare quick-tunnel) ────────────────────────────────────
+.PHONY: deploy
+deploy: ## Expose a service on a public URL (run `make up` first). See DEPLOY.md
+	$(DC) --profile deploy up cloudflared
+
+.PHONY: deploy-down
+deploy-down: ## Stop the tunnel
+	$(DC) --profile deploy rm -sf cloudflared
