@@ -1,0 +1,15 @@
+{
+  "project_name": "Project Pilgrim",
+  "project_slug": "pilgrim",
+  "project_tagline": "Location-based game that gamifies religious tourism.",
+  "github_owner": "pulkitsinghal",
+  "github_repo": "project-pilgrim",
+  "stack": "supabase-flutter",
+  "commit_scopes": "backend app splash services migrations docs ci build",
+  "require_coauthor": "yes",
+  "coauthor_footer": "Co-Authored-By: Oz <oz@example.com>",
+  "port_db": "5432",
+  "port_redis": "6379",
+  "port_api": "3001",
+  "port_web": "5173"
+}

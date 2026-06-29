@@ -1,0 +1,27 @@
+#!/bin/sh
+#
+# Pre-push hook: emits a one-line reminder when the current branch is ahead of
+# origin/master. Intentionally does NOT block the push or auto-run a reviewer;
+# the GitHub Action (.github/workflows/ai-pr-review.yml) does the server-side
+# review.
+#
+# Skip with: git push --no-verify
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Don't fire on the trunk itself.
+if [ "$BRANCH" = "master" ] || [ "$BRANCH" = "main" ]; then
+    exit 0
+fi
+
+# Only suggest when we're actually ahead of origin/master.
+if git rev-parse --verify --quiet origin/master >/dev/null; then
+    AHEAD=$(git rev-list --count origin/master.."$BRANCH" 2>/dev/null)
+    if [ -n "$AHEAD" ] && [ "$AHEAD" -gt 0 ]; then
+        echo "▶ pre-push: $BRANCH is $AHEAD commits ahead of origin/master."
+        echo "  Once pushed, ai-pr-review.yml will run on PR open."
+        echo ""
+    fi
+fi
+
+exit 0

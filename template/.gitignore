@@ -1,0 +1,46 @@
+# ── Env / secrets ────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Node / Next.js / Vite ────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+.pnpm-store/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+
+# ── Dart / Flutter ───────────────────────────────────────────────────────────
+.dart_tool/
+.packages
+build/
+*.iml
+
+# ── Docker volume scratch ────────────────────────────────────────────────────
+.docker-data/
+
+# ── Storyboard output (generated screenshots) ────────────────────────────────
+storyboard/output/*.png
+
+# ── Editor / OS ──────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp

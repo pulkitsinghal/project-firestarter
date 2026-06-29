@@ -1,0 +1,27 @@
+name: Splash CI
+
+# Path-gated: only runs (and is only required by auto-merge) when the splash
+# page changes. Builds in Docker via the `splash` profile — no host Node.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "splash/**"
+      - ".github/workflows/splash-ci.yml"
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "splash/**"
+      - ".github/workflows/splash-ci.yml"
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Type-check and build (Docker, no host SDK)
+        run: docker compose --profile splash run --rm splash sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm check && pnpm build"

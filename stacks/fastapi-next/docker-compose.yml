@@ -1,0 +1,91 @@
+# {{ project_name }} — local dev + CI stack (fastapi-next).
+#
+# Principle: no host SDKs. Python, Node, and psql all run in containers. App
+# services run by default; lint/type/test toolchains live behind the `tools`
+# (Python) and `node` (frontend) profiles and are invoked with
+# `docker compose --profile <p> run --rm <svc> <cmd>` via the Makefile.
+
+services:
+  postgres:
+    # pgvector/pgvector is multi-arch (runs on Apple-Silicon hosts) and ships
+    # the `vector` extension migration 001 can enable. Swap to postgres:16 if you
+    # don't need vectors.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: {{ db_name }}
+    ports:
+      # Host port offset so this stack coexists with other local Docker stacks.
+      - "{{ port_db }}:5432"
+    volumes:
+      - {{ pgdata_volume }}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d {{ db_name }}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "{{ port_redis }}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/{{ db_name }}
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "{{ port_api }}:8000"
+
+  frontend:
+    build: ./frontend
+    environment:
+      # The browser calls same-origin /api/*; Next proxies it to the backend
+      # service over the compose network (see frontend/next.config.mjs).
+      BACKEND_INTERNAL_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "{{ port_web }}:3000"
+
+  # ── Tooling (no host SDKs). Baked images include source + dev deps. ──────────
+  # Override the command at call time, e.g.:
+  #   docker compose --profile tools run --rm backend-tools ruff check .
+  backend-tools:
+    profiles: ["tools"]
+    build: ./backend
+    command: ["pytest", "-q"]
+
+  frontend-tools:
+    profiles: ["node"]
+    build: ./frontend
+    command: ["npm", "run", "typecheck"]
+
+  # Storyboard runner (Playwright). Drives the live frontend over the compose
+  # network and writes screenshots to ./storyboard/output.
+  storyboard:
+    profiles: ["storyboard"]
+    build: ./storyboard
+    environment:
+      FRONTEND_URL: http://frontend:3000
+      OUT_DIR: /out
+    depends_on:
+      - frontend
+    volumes:
+      - ./storyboard/output:/out
+
+volumes:
+  {{ pgdata_volume }}:

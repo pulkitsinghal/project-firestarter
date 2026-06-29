@@ -1,0 +1,42 @@
+# Lift Log — harvesting learnings back into the template
+
+This template is a living distillation, not a one-time snapshot. When a sibling
+project discovers something worth standardizing, lift it back here so the *next*
+project starts with it.
+
+## When to lift
+
+Lift something when it's **process or infrastructure that every sibling would
+want**, not project-specific behaviour. Good candidates:
+
+- A CI workflow fix (a race, a permissions bug, a better cache key).
+- A new git hook or a hardening of an existing one.
+- A documented gotcha (an image pin, a startup-ordering quirk, an SDK flag).
+- A better `make` target or a clearer doc section.
+
+Do **not** lift: domain logic, product copy, anything tied to one project's
+schema or features.
+
+## How to lift
+
+1. Generalize it: replace project-specific names with `{{ tokens }}`.
+2. Decide where it belongs:
+   - Universal? → `template/`.
+   - Stack-specific? → the relevant `stacks/<stack>/`.
+3. If it's a gotcha, bake it as an **inline comment** next to the code it guards,
+   and add a row to `docs/ANATOMY.md`.
+4. Add an entry to the log below.
+5. Re-stamp a throwaway project (`./bin/firestart.sh --defaults --output /tmp/smoke`)
+   and confirm it still generates cleanly.
+
+## Periodic sweep
+
+Every so often (e.g. when starting a new project), skim the siblings'
+`PROJECT_STATUS_AND_NEXT_STEPS.md`, recent CI changes, and any new
+`docs/postmortems/` for things worth lifting.
+
+## Log
+
+| Date | Lifted | From | Into |
+|------|--------|------|------|
+| 2026-06-29 | Initial distillation: meta-layer + two stack profiles | pilgrim + healer | template/ + stacks/ |

@@ -1,0 +1,27 @@
+{
+  "_comment": "Cookiecutter-style variable manifest. Each key is a template token referenced as {{ key }} in template/ and stacks/. List values are multiple-choice (first = default). String values may reference earlier keys (e.g. {{ project_slug }}) to derive a default. The generator (bin/generate.py) also computes a handful of derived tokens — see docs/ANATOMY.md.",
+
+  "project_name": "Project Acme",
+  "project_slug": "acme",
+  "project_tagline": "One-line description of what this project does.",
+
+  "github_owner": "pulkitsinghal",
+  "github_repo": "project-acme",
+
+  "stack": ["fastapi-next", "supabase-flutter"],
+
+  "db_name": "{{ project_slug }}",
+  "commit_scopes": "backend frontend migrations docs ci build",
+
+  "require_coauthor": ["no", "yes"],
+  "coauthor_footer": "Co-Authored-By: Oz <oz@example.com>",
+
+  "claude_model": "claude-sonnet-4-6",
+
+  "port_db": "5433",
+  "port_redis": "6380",
+  "port_api": "8010",
+  "port_web": "3010",
+
+  "year": "2026"
+}

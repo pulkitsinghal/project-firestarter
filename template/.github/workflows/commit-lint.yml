@@ -1,0 +1,51 @@
+name: Commit Lint
+
+on:
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  conventional-commits:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need the full history of the PR branch + base to inspect each commit.
+          fetch-depth: 0
+
+      - name: Validate commit subjects
+        run: |
+          BASE="origin/${{ github.base_ref }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+
+          echo "Validating commits in ${BASE}..${HEAD}"
+          COMMITS=$(git log --format=%H "${BASE}..${HEAD}")
+          if [ -z "${COMMITS}" ]; then
+            echo "No commits to validate."
+            exit 0
+          fi
+
+          # Subject ≤100 chars after the type/scope prefix. Aim for 72; the
+          # softer cap keeps summary-heavy docs commits from blocking CI.
+          PATTERN='^(feat|fix|refactor|chore|docs|test|ci|build)(\([a-z0-9._,/-]+\))?!?: .{1,100}$'
+
+          STATUS=0
+          for sha in ${COMMITS}; do
+            subject=$(git log -1 --format=%s "${sha}")
+
+            # Skip machine-generated commits that don't follow conventional format.
+            case "${subject}" in
+              Revert\ *|Merge\ *|fixup!\ *|squash!\ *) continue ;;
+            esac
+
+            if ! echo "${subject}" | grep -Eq "${PATTERN}"; then
+              echo "::error::${sha} subject does not match Conventional Commits:"
+              echo "    ${subject}"
+              echo "    Expected: <type>(<scope>): <subject>  (types: feat fix refactor chore docs test ci build)"
+              STATUS=1
+            fi
+          done
+
+          exit ${STATUS}

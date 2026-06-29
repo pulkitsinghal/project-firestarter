@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+# Commit-msg hook: enforces Conventional Commits subject. Mirrors
+# `.github/workflows/commit-lint.yml` so a commit that passes locally also
+# passes CI.
+#
+# Skip with: git commit --no-verify
+
+MSG_FILE="$1"
+[ -z "$MSG_FILE" ] && exit 0
+
+# Strip comment lines (the .gitmessage template includes them).
+SUBJECT=$(grep -v '^#' "$MSG_FILE" | sed -n '1p')
+
+# Allow merge / revert / fixup commits to bypass the regex.
+case "$SUBJECT" in
+    Merge*|Revert*|fixup!*|squash!*) exit 0 ;;
+esac
+
+PATTERN='^(feat|fix|refactor|chore|docs|test|ci|build)(\([a-z0-9._/-]+\))?!?: .{1,100}$'
+
+if ! printf '%s\n' "$SUBJECT" | grep -Eq "$PATTERN"; then
+    echo "✗ commit-msg: subject does not match Conventional Commits."
+    echo "    Subject: $SUBJECT"
+    echo "    Expected: <type>(<scope>): <subject>  (types: feat fix refactor chore docs test ci build)"
+    echo "    Subject description must be 1-100 chars; see AGENTS.md."
+    exit 1
+fi
+
+exit 0

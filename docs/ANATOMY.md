@@ -1,0 +1,106 @@
+# Anatomy — what every piece is and where it came from
+
+This is the componentization map. The template is split into a **universal
+meta-layer** (identical for every project) and **stack profiles** (the parts
+that differ by tech stack). The generator overlays the chosen stack on top of
+the meta-layer.
+
+## Repo layout
+
+```
+firestarter.config.json   variable manifest (the "cookiecutter.json")
+bin/
+  firestart.sh            Dockerized entrypoint (no host SDK)
+  generate.py             the generator (stdlib only)
+template/                 UNIVERSAL meta-layer — copied for every project
+stacks/
+  fastapi-next/           FastAPI + Next.js (project-healer lineage)
+  supabase-flutter/       Supabase + Flutter + React (project-pilgrim lineage)
+docs/                     this map, plus how-to guides
+```
+
+## The universal meta-layer (`template/`)
+
+| File | What it is | Lifted from |
+|------|-----------|-------------|
+| `AGENTS.md` | Standing brief for AI agents: branch/commit/merge workflow, push policy, gates | both (healer phrasing) |
+| `CLAUDE.md` | Claude Code context: owner preferences, invariants, CI table | both |
+| `CONTRIBUTING.md` | Human-facing short version of the workflow | both |
+| `ARCHITECTURE.md` | Scaffold for layers/data-model/invariants | both (genericized) |
+| `PROJECT_STATUS_AND_NEXT_STEPS.md` | Living "where are we" doc | both |
+| `README.md` | Project front page with quickstart | both |
+| `.gitmessage` | Conventional-commit template (`git config commit.template`) | both |
+| `.gitignore` | Covers Python, Node, Dart/Flutter, Docker, storyboard output | union of both |
+| `.githooks/commit-msg` | Enforces conventional-commit subject (mirrors CI) | both |
+| `.githooks/pre-commit` | Runs `make precommit` when source changes | both |
+| `.githooks/pre-push` | Non-blocking "you're N commits ahead" reminder | both |
+| `.githooks/README.md` | Why hooks are opt-in + how to enable | both |
+| `.github/workflows/ai-pr-review.yml` | **Crown jewel** — calls the Anthropic API directly, posts a BLOCKING/NON-BLOCKING/LGTM verdict, breaks BLOCKING loops after 3 cycles | both |
+| `.github/workflows/auto-merge.yml` | Squash-merges `auto-merge`-labelled PRs when checks are green and the verdict isn't BLOCKING | both |
+| `.github/workflows/commit-lint.yml` | Validates every commit subject in a PR | both |
+| `.github/workflows/storyboard.yml` | Boots the stack, runs Playwright, uploads screenshots (non-blocking) | both (pilgrim origin) |
+| `docs/ci-secrets.md` | How to set `ANTHROPIC_API_KEY` without leaking it | healer |
+| `docs/OPEN_QUESTIONS.md` | Template for the deferred-decisions log | both |
+| `docs/storyboard.md` | What the storyboard is and how to extend it | both |
+
+### Why these are universal
+They encode *process*, not *stack*: conventional commits, forward-only
+migrations, AI-reviewed auto-merge, no host SDKs, opt-in hooks. Every sibling
+project wants all of it regardless of language.
+
+## Stack profile: `fastapi-next` (project-healer lineage)
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yml` | postgres (pgvector) + redis + backend + frontend; `tools`/`node`/`storyboard` profiles |
+| `Makefile` | `up/down/migrate/test/lint/precommit/storyboard/hook-install` — all via Docker |
+| `.github/workflows/ci.yml` | Jobs **Tests**, **Lint & Typecheck**, **Build** (names matched by auto-merge) |
+| `backend/` | FastAPI app, `pyproject.toml` (ruff/mypy/pytest), `001_init.sql`, `scripts/migrate.sh`, a smoke test |
+| `frontend/` | Next.js App Router skeleton with an `/api` proxy to the backend |
+| `storyboard/` | Playwright runner pinned to `mcr.microsoft.com/playwright` |
+
+## Stack profile: `supabase-flutter` (project-pilgrim lineage)
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yml` | postgis (ARM64-safe `imresamu/postgis`) + redis + postgrest + gotrue; `dart`/`flutter`/`splash`/`storyboard` profiles, with the key gotchas inline |
+| `Makefile` | Adds `flutter-analyze`, `flutter-format-check`, `dart-test`, `splash-build`, `pgrst-reload` |
+| `.github/workflows/ci.yml` | Jobs **Tests** (Dart) + **Lint & Typecheck** (flutter analyze + format) |
+| `.github/workflows/splash-ci.yml` | Path-gated **Build** for the splash page (Docker, no host Node) |
+| `backend/` | PostGIS `001_init.sql` (+ `anon` role/grant pattern), `scripts/migrate.sh` |
+| `app/` | Flutter skeleton |
+| `services/` | Dart service-layer package + smoke test (the domain source of truth) |
+| `splash/` | Minimal Vite + React + TS landing page that actually builds |
+| `storyboard/` | Playwright runner pointed at the splash service |
+
+### Documented gotchas baked into this stack
+- **ARM64 PostGIS:** `imresamu/postgis:15-3.4`, not `postgis/postgis` (amd64-only).
+- **PostgREST schema cache:** restart `postgrest` after every migration (`make pgrst-reload`).
+- **GoTrue `search_path=auth`:** so its queries resolve to `auth.users`; pin the version.
+- **Flutter format-check is read-only:** exits 1 but doesn't write; a separate target applies.
+
+## Tokens
+
+Declared in `firestarter.config.json` and substituted as `{{ key }}`:
+
+| Token | Meaning |
+|-------|---------|
+| `project_name` | Human name, e.g. "Project Lighthouse" |
+| `project_slug` | lowercase id; drives db name, container prefix, package names |
+| `project_tagline` | one-liner used across docs |
+| `github_owner` / `github_repo` | for secret/clone commands |
+| `stack` | which profile to overlay (`fastapi-next` \| `supabase-flutter`) |
+| `db_name` | defaults to `project_slug` |
+| `commit_scopes` | allowed conventional-commit scopes |
+| `require_coauthor` / `coauthor_footer` | whether commits need a co-author line |
+| `claude_model` | default model for the AI reviewer |
+| `port_db/redis/api/web` | offset host ports so stacks coexist |
+
+**Derived** (computed by `generate.py`, no need to declare):
+`migrations_table` (`<slug>_migrations`), `pgdata_volume`, `container_prefix`,
+`coauthor_policy`, `coauthor_commit_footer`.
+
+### Token safety
+The generator replaces only the **exact declared keys**, so GitHub Actions
+expressions like `${{ github.sha }}` are never touched — they aren't in the
+whitelist.

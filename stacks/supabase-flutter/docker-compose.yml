@@ -1,0 +1,103 @@
+# {{ project_name }} — local dev + CI stack (supabase-flutter).
+#
+# Principle: no host SDKs. Postgres/PostGIS, PostgREST, GoTrue, Dart, Flutter,
+# and the splash toolchain all run in containers. App/data services run by
+# default; language toolchains live behind profiles (`dart`, `flutter`,
+# `splash`, `storyboard`) invoked via the Makefile.
+#
+# This is a lean Supabase-style stack. Add Kong (API gateway) and Studio if you
+# want the full Supabase surface — see project-pilgrim for a fuller example.
+
+services:
+  postgres:
+    # GOTCHA (Apple Silicon): use imresamu/postgis (multi-arch), NOT
+    # postgis/postgis (amd64-only) — the latter fails to start on ARM64 hosts.
+    image: imresamu/postgis:15-3.4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: {{ db_name }}
+    ports:
+      - "{{ port_db }}:5432"
+    volumes:
+      - {{ pgdata_volume }}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d {{ db_name }}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "{{ port_redis }}:6379"
+
+  postgrest:
+    # GOTCHA: PostgREST caches the schema at startup. After `make migrate`,
+    # always `docker compose restart postgrest` (or `make pgrst-reload`).
+    image: postgrest/postgrest:v12.0.1
+    environment:
+      PGRST_DB_URI: postgres://postgres:postgres@postgres:5432/{{ db_name }}
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "{{ port_api }}:3000"
+
+  gotrue:
+    # GOTCHA: GoTrue must connect with ?search_path=auth so its queries resolve
+    # to auth.users (not public.users). Pin the version — binary/schema drift
+    # between GoTrue versions is a classic time-sink.
+    image: supabase/gotrue:v2.191.0
+    environment:
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@postgres:5432/{{ db_name }}?search_path=auth
+      GOTRUE_SITE_URL: http://localhost:{{ port_web }}
+      GOTRUE_JWT_SECRET: super-secret-jwt-token-change-me
+      API_EXTERNAL_URL: http://localhost:9999
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Tooling (no host SDKs). Override the command at call time. ───────────────
+  dart:
+    profiles: ["dart"]
+    image: dart:stable
+    working_dir: /pkg
+    volumes:
+      - ./services:/pkg
+    command: ["dart", "test"]
+
+  flutter:
+    profiles: ["flutter"]
+    image: ghcr.io/cirruslabs/flutter:stable
+    working_dir: /app
+    volumes:
+      - ./app:/app
+      - flutter_pub_cache:/root/.pub-cache
+    command: ["flutter", "analyze"]
+
+  splash:
+    profiles: ["splash"]
+    image: node:20-alpine
+    working_dir: /splash
+    volumes:
+      - ./splash:/splash
+      - splash_node_modules:/splash/node_modules
+    command: ["sh", "-c", "corepack enable && pnpm install && pnpm build"]
+
+  storyboard:
+    profiles: ["storyboard"]
+    build: ./storyboard
+    environment:
+      FRONTEND_URL: http://splash:5173
+      OUT_DIR: /out
+    volumes:
+      - ./storyboard/output:/out
+
+volumes:
+  {{ pgdata_volume }}:
+  flutter_pub_cache:
+  splash_node_modules:
