@@ -46,7 +46,7 @@ process ([LIFT-LOG](docs/LIFT-LOG.md)) for folding new lessons back in.
 
 Firestarter **runs its own template on itself.** It has the same CI, AI review,
 and auto-merge it ships — and every feature in it landed through that pipeline:
-4 PRs opened, reviewed, and auto-merged green. The dog food is the dinner.
+opened, AI-reviewed, and auto-merged green. The dog food is the dinner.
 
 ## Quickstart
 
