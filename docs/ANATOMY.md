@@ -41,6 +41,7 @@ docs/                     this map, plus how-to guides
 | `.github/workflows/auto-merge.yml` | Squash-merges `auto-merge`-labelled PRs when checks are green and the verdict isn't BLOCKING | both |
 | `.github/workflows/commit-lint.yml` | Validates every commit subject in a PR | both |
 | `.github/workflows/storyboard.yml` | Boots the stack, runs Playwright, uploads screenshots (non-blocking) | both (pilgrim origin) |
+| `.github/workflows/secret-scan.yml` | gitleaks-in-Docker secret scan; **required** by auto-merge. Free push-protection equivalent for private repos without paid GitHub Secret Protection | best-practice |
 | `docs/ci-secrets.md` | How to set `ANTHROPIC_API_KEY` without leaking it | healer |
 | `docs/OPEN_QUESTIONS.md` | Template for the deferred-decisions log | both |
 | `docs/storyboard-harness.md` | What the storyboard/manifest harness is and how to extend it | both |

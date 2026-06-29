@@ -91,3 +91,8 @@ deploy: ## Expose a service on a public URL (run `make up` first). See DEPLOY.md
 .PHONY: deploy-down
 deploy-down: ## Stop the tunnel
 	$(DC) --profile deploy rm -sf cloudflared
+
+# ── Security ─────────────────────────────────────────────────────────────────
+.PHONY: secret-scan
+secret-scan: ## Scan the repo for committed secrets (gitleaks in Docker)
+	docker run --rm -v "$$(pwd):/repo" zricethezav/gitleaks:latest dir /repo --no-banner --redact --exit-code 1
