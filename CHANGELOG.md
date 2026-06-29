@@ -21,3 +21,19 @@ All notable changes to the firestarter template. See
   compose with ARM64/PostgREST/GoTrue gotchas, Makefile, CI + splash-ci, PostGIS
   migration, Flutter app, Dart service layer, Vite/React splash, storyboard.
 - Docs: `ANATOMY.md` (file-by-file map), `ADDING-A-STACK.md`, `LIFT-LOG.md`.
+- **Self-CI**: firestarter runs the same ci / ai-pr-review / auto-merge it ships,
+  with lenient (free-tier-friendly) branch protection.
+- **Sibling-gleaned tooling** in the template: PR + issue templates, a local
+  `scripts/ai-review.sh`, blameless postmortem template, `.editorconfig`,
+  `SECURITY.md`, per-stack `dependabot.yml`, and a one-button Cloudflare-tunnel
+  `make deploy`.
+- **Storyboard upgraded** to a manifest-driven planned-vs-implemented map
+  (`storyboard/manifest.json` → committed `docs/STORYBOARD.md`) with hard content
+  assertions as a regression guard.
+- **Optional add-ons** (`addons/`) via `include_<name>` flags — first one: `k8s`
+  (Kustomize base + staging/production overlays per stack, `include_k8s=yes`).
+- **Secret scanning**: gitleaks-in-Docker (`Secret Scan`, pinned `v8.30.1`),
+  required by auto-merge, with a `.gitleaks.toml` — free push-protection
+  equivalent for private repos without paid GitHub Secret Protection.
+- Marketing: a GitHub Pages landing page (`docs/index.html`) and a
+  merit-forward README.
