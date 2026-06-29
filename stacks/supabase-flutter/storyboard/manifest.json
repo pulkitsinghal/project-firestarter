@@ -1,0 +1,19 @@
+{
+  "_comment": "Planned-vs-implemented map for {{ project_name }}. Hand-edited as the product evolves; rendered into docs/STORYBOARD.md by storyboard.mjs on every `make storyboard`. 'shot' is a PNG the harness captures into storyboard/output/ (gitignored); null = no captured screen yet. status: done | partial | planned | changed.",
+  "versions": [
+    {
+      "title": "v0.1 — Scaffold",
+      "subtitle": "The starter slice. Replace these rows with real screens as they land.",
+      "groups": [
+        {
+          "name": "Onboarding",
+          "rows": [
+            { "screen": "Splash landing", "shot": "01-landing.png", "story": "—", "status": "done", "note": "Vite + React splash page." },
+            { "screen": "Choose identity", "shot": null, "story": "—", "status": "planned", "note": "Anonymous device-id identity (no email/password)." },
+            { "screen": "First real Flutter screen", "shot": null, "story": "—", "status": "planned", "note": "Drive the Flutter web build here once it's served." }
+          ]
+        }
+      ]
+    }
+  ]
+}
