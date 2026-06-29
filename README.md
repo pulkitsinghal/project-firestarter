@@ -52,6 +52,9 @@ token safety, the CI job-name contract). `CLAUDE.md` and
                    --set stack=supabase-flutter \
                    --output ../project-lighthouse
 
+# Include an optional add-on (off by default):
+./bin/firestart.sh --set include_k8s=yes
+
 # Or feed a JSON answers file:
 ./bin/firestart.sh --values my-answers.json
 ```
