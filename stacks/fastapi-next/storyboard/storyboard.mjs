@@ -84,6 +84,17 @@ async function shot(name) {
   console.log(`captured ${name}.png`);
 }
 
+// Hard assertions — once a screen is stable, assert its key content so a
+// regression fails the run (and the Storyboard check). Failures are collected so
+// every step still runs and the doc still renders; the run exits non-zero at the
+// end. Promote the Storyboard workflow to a required check in auto-merge.yml when
+// you want these to block merges.
+const failures = [];
+function assert(label, ok) {
+  if (ok) { console.log(`✓ assert: ${label}`); }
+  else { failures.push(label); console.error(`✗ assert: ${label}`); }
+}
+
 try {
   // Wait for the app (and its backend proxy) to be reachable.
   let ready = false;
@@ -97,11 +108,17 @@ try {
   // 1. Landing — home page with the items list.
   await page.goto(FRONTEND_URL, { waitUntil: "networkidle" });
   await shot("01-landing");
+  const heading = (await page.locator("h1").first().textContent().catch(() => "")) || "";
+  assert("landing renders the project name in <h1>", heading.includes("{{ project_name }}"));
 } catch (e) {
   console.error("storyboard error: " + e.message);
   process.exitCode = 1;
 } finally {
   generateStoryboard();
   await browser.close();
+  if (failures.length) {
+    process.exitCode = 1;
+    console.error(`storyboard: ${failures.length} assertion(s) failed: ${failures.join(", ")}`);
+  }
   console.log(`storyboard complete → ${OUT}`);
 }
