@@ -40,3 +40,5 @@ Every so often (e.g. when starting a new project), skim the siblings'
 | Date | Lifted | From | Into |
 |------|--------|------|------|
 | 2026-06-29 | Initial distillation: meta-layer + two stack profiles | pilgrim + healer | template/ + stacks/ |
+| 2026-06-29 | Self-CI: firestarter runs its own ci/review/auto-merge + lenient branch protection | (best-practice) | .github/workflows/ |
+| 2026-06-29 | Sibling glean: dependabot, PR + issue templates, local ai-review.sh, postmortem template, .editorconfig, SECURITY.md, one-button Cloudflare deploy | pilgrim | template/ + stacks/ |

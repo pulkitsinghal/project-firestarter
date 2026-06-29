@@ -87,5 +87,15 @@ services:
     volumes:
       - ./storyboard/output:/out
 
+  # One-button beta deploy: expose the running frontend on a public Cloudflare
+  # quick-tunnel URL. No account, no token, free TLS. `make deploy` prints a
+  # https://<words>.trycloudflare.com URL. Run `make up` first.
+  cloudflared:
+    profiles: ["deploy"]
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://frontend:3000
+    depends_on:
+      - frontend
+
 volumes:
   {{ pgdata_volume }}:

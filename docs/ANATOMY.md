@@ -42,6 +42,12 @@ docs/                     this map, plus how-to guides
 | `docs/ci-secrets.md` | How to set `ANTHROPIC_API_KEY` without leaking it | healer |
 | `docs/OPEN_QUESTIONS.md` | Template for the deferred-decisions log | both |
 | `docs/storyboard.md` | What the storyboard is and how to extend it | both |
+| `docs/postmortems/TEMPLATE.md` | Blameless postmortem template | pilgrim |
+| `.github/pull_request_template.md` | Summary / Why / Migration impact / Test plan + checklist | pilgrim |
+| `.github/ISSUE_TEMPLATE/{bug,feature,safety-concern,config}.yml` | Issue forms incl. a generic safety/privacy form | pilgrim |
+| `scripts/ai-review.sh` | Local pre-PR review helper (diff + reviewer prompt to pipe into a chat) | pilgrim |
+| `.editorconfig` | Cross-editor whitespace/indent consistency | best-practice |
+| `SECURITY.md` | Private vuln-disclosure policy + secret-handling rules | best-practice |
 
 ### Why these are universal
 They encode *process*, not *stack*: conventional commits, forward-only
@@ -58,6 +64,8 @@ project wants all of it regardless of language.
 | `backend/` | FastAPI app, `pyproject.toml` (ruff/mypy/pytest), `001_init.sql`, `scripts/migrate.sh`, a smoke test |
 | `frontend/` | Next.js App Router skeleton with an `/api` proxy to the backend |
 | `storyboard/` | Playwright runner pinned to `mcr.microsoft.com/playwright` |
+| `.github/dependabot.yml` | Grouped weekly updates (pip + npm + github-actions), `chore:`/`ci:` prefixes |
+| `DEPLOY.md` + `cloudflared` deploy profile | One-button Cloudflare quick-tunnel to expose the frontend publicly (no account) |
 
 ## Stack profile: `supabase-flutter` (project-pilgrim lineage)
 
@@ -72,6 +80,8 @@ project wants all of it regardless of language.
 | `services/` | Dart service-layer package + smoke test (the domain source of truth) |
 | `splash/` | Minimal Vite + React + TS landing page that actually builds |
 | `storyboard/` | Playwright runner pointed at the splash service |
+| `.github/dependabot.yml` | Grouped weekly updates (pub + npm + github-actions), `chore:`/`ci:` prefixes |
+| `DEPLOY.md` + `cloudflared` deploy profile | One-button Cloudflare quick-tunnel (defaults to the PostgREST API) |
 
 ### Documented gotchas baked into this stack
 - **ARM64 PostGIS:** `imresamu/postgis:15-3.4`, not `postgis/postgis` (amd64-only).

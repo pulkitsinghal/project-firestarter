@@ -1,0 +1,55 @@
+version: 2
+updates:
+  # Dart service-layer deps.
+  - package-ecosystem: pub
+    directory: /services
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "dart"]
+    groups:
+      test-tooling:
+        patterns: ["test", "lints", "coverage"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # Splash page Node deps.
+  - package-ecosystem: npm
+    directory: /splash
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "splash"]
+    groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      vite-tooling:
+        patterns: ["vite", "@vitejs/*", "typescript"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # Storyboard runner.
+  - package-ecosystem: npm
+    directory: /storyboard
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # GitHub Actions.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: ci
+      include: scope
