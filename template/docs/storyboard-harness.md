@@ -33,8 +33,21 @@ stale.
 calling `shot('NN-name')`, then add a matching row in `manifest.json` referencing
 `NN-name.png`. Keep step names stable so diffs across runs line up.
 
+## Hard assertions (promote a flow when it stabilizes)
+
+The harness ships an `assert(label, condition)` helper. Screenshots stay
+advisory, but you can assert the *content* of a stable screen so a regression
+fails the run. The seed asserts the landing page renders the project name; add
+more as flows settle. Assertion failures are collected (so every step still runs
+and the doc still renders) and the run exits non-zero at the end.
+
+By default the Storyboard workflow is still **non-blocking** (not in
+`auto-merge.yml`'s required checks). To make assertion failures *block* merges,
+add `Generate storyboard` / the workflow's check name to the `alwaysRequired`
+list in `.github/workflows/auto-merge.yml`.
+
 ## Why screenshots, not pixel-diff assertions
 
 Auto-failing on any pixel change is noisy for an app under active development.
-The storyboard makes change *visible and reviewable* instead of *blocking*.
-Promote specific flows to hard assertions later if a screen stabilizes.
+The storyboard makes change *visible and reviewable* instead of *blocking*;
+content assertions (above) are the targeted alternative to brittle pixel diffs.
