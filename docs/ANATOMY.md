@@ -16,6 +16,8 @@ template/                 UNIVERSAL meta-layer — copied for every project
 stacks/
   fastapi-next/           FastAPI + Next.js (project-healer lineage)
   supabase-flutter/       Supabase + Flutter + React (project-pilgrim lineage)
+addons/                   OPTIONAL modules, overlaid only when opted in
+  k8s/<stack>/            Kustomize manifests (include_k8s=yes)
 docs/                     this map, plus how-to guides
 ```
 
@@ -91,6 +93,23 @@ project wants all of it regardless of language.
 - **PostgREST schema cache:** restart `postgrest` after every migration (`make pgrst-reload`).
 - **GoTrue `search_path=auth`:** so its queries resolve to `auth.users`; pin the version.
 - **Flutter format-check is read-only:** exits 1 but doesn't write; a separate target applies.
+
+## Optional add-ons (`addons/`)
+
+Add-ons are opinionated or heavy modules kept **out of the default scaffold** and
+overlaid only when opted in. The generator overlays `addons/<name>/<stack>/` when
+the matching `include_<name>` flag is `yes`.
+
+| Add-on | Flag | What it ships | From |
+|--------|------|---------------|------|
+| `k8s` | `include_k8s` (default `no`) | Kustomize base + staging/production overlays per stack (Deployments/Services, ingress, secret example). Cloud-native: managed DB out-of-cluster, secrets out-of-band. **Not free-tier.** | pilgrim |
+
+To include one: `./bin/firestart.sh --set include_k8s=yes` (or answer `yes` at the
+prompt). To add a new add-on: create `addons/<name>/<stack>/` whose contents
+**mirror the project layout** (e.g. `addons/k8s/<stack>/k8s/base/...` lands at
+`<project>/k8s/base/...`), add an `include_<name>` flag to
+`firestarter.config.json`, and register `<name>` in the add-on loop in
+`bin/generate.py`.
 
 ## Tokens
 

@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: {{ project_slug }}-base
+
+namespace: {{ project_slug }}
+
+resources:
+  - namespace.yaml
+  - postgrest.yaml
+  - gotrue.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: {{ project_slug }}
+
+# Secrets are NOT listed here — provide {{ project_slug }}-secrets out-of-band
+# (sealed-secrets / external-secrets). See base/secret.example.yaml for the keys.

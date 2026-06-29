@@ -1,0 +1,20 @@
+# Routes the public hostname to the frontend (which proxies /api to the backend).
+# Adjust the ingressClassName + host + TLS for your cluster/controller.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ project_slug }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: {{ project_slug }}.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000

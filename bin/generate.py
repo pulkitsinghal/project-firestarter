@@ -180,6 +180,18 @@ def main() -> int:
     n = stamp(ROOT / "template", out_root, values)
     n += stamp(stack_dir, out_root, values)
 
+    # Optional add-ons: overlay addons/<name>/<stack>/ when the matching
+    # include_<name> flag is "yes". Keeps opinionated/heavy modules (e.g. k8s)
+    # out of the default scaffold.
+    for addon in ("k8s",):
+        if values.get(f"include_{addon}") == "yes":
+            addon_dir = ROOT / "addons" / addon / stack
+            if addon_dir.is_dir():
+                n += stamp(addon_dir, out_root, values)
+                print(f"  + addon: {addon}")
+            else:
+                print(f"  (addon '{addon}' has no profile for stack '{stack}', skipped)")
+
     print(f"\n✓ Wrote {n} files.\n")
     print("Next steps:")
     print(f"  cd {out_root}")
