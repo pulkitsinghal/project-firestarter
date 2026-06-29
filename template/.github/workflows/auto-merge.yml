@@ -115,7 +115,7 @@ jobs:
           script: |
             const sha = '${{ steps.pr.outputs.head_sha }}';
             // Always-required checks — must be green on every PR.
-            const alwaysRequired = ['Tests', 'Lint & Typecheck', 'Conventional Commits'];
+            const alwaysRequired = ['Tests', 'Lint & Typecheck', 'Conventional Commits', 'Secret Scan'];
             // Path-gated check — only required when the job actually ran for this commit.
             const conditionalRequired = ['Build'];
             const { data } = await github.rest.checks.listForRef({
