@@ -28,6 +28,15 @@ SDKs" rule the templates themselves enforce.
 See [docs/ANATOMY.md](docs/ANATOMY.md) for a file-by-file map of what each piece
 is, why it exists, and which sibling it was lifted from.
 
+## For AI agents
+
+This repo is built to be handed to an AI session of any kind. Drop a Claude Code,
+Codex, Cursor, Aider, or Copilot session into it and it will find its operating
+brief in **[AGENTS.md](AGENTS.md)** (the cross-tool standard) — how to stamp a new
+project, how to extend the template, and the hard rules (no host SDKs, whitelist
+token safety, the CI job-name contract). `CLAUDE.md` and
+`.github/copilot-instructions.md` are thin pointers to it.
+
 ## Usage
 
 ```bash
