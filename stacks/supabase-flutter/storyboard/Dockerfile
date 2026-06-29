@@ -8,5 +8,5 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 COPY package.json ./
 RUN npm install
 
-COPY storyboard.mjs ./
+COPY storyboard.mjs manifest.json ./
 CMD ["node", "storyboard.mjs"]

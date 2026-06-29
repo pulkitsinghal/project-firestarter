@@ -96,6 +96,9 @@ services:
       OUT_DIR: /out
     volumes:
       - ./storyboard/output:/out
+      # ./docs is mounted so the harness can (re)generate docs/STORYBOARD.md and
+      # the committed previews under docs/assets/storyboard/.
+      - ./docs:/docs
 
   # One-button beta deploy: expose a service on a public Cloudflare quick-tunnel
   # URL. No account, no token, free TLS. `make deploy` prints a

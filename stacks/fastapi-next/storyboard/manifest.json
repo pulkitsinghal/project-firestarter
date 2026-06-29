@@ -1,0 +1,19 @@
+{
+  "_comment": "Planned-vs-implemented map for {{ project_name }}. Hand-edited as the product evolves; rendered into docs/STORYBOARD.md by storyboard.mjs on every `make storyboard`. 'shot' is a PNG the harness captures into storyboard/output/ (gitignored); null = no captured screen yet. status: done | partial | planned | changed.",
+  "versions": [
+    {
+      "title": "v0.1 — Scaffold",
+      "subtitle": "The starter slice. Replace these rows with real screens as they land.",
+      "groups": [
+        {
+          "name": "Core",
+          "rows": [
+            { "screen": "Landing", "shot": "01-landing.png", "story": "—", "status": "done", "note": "Home page + items list, served by the Next.js skeleton." },
+            { "screen": "Sign in", "shot": null, "story": "—", "status": "planned", "note": "Not built yet." },
+            { "screen": "Your first real feature", "shot": null, "story": "—", "status": "planned", "note": "Add a capture step in storyboard.mjs and flip this to done." }
+          ]
+        }
+      ]
+    }
+  ]
+}
