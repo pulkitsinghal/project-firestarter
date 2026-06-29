@@ -79,8 +79,23 @@ Then sanity-check generated shell (`bash -n .../migrate.sh`), and that
 - **Conventional Commits**: `type(scope): subject` (≤100 chars). Scopes:
   `template stacks bin docs ci build`.
 - Branch off `master`; open a PR; squash-merge. Don't push straight to `master`.
-- This repo has no AI-review workflow of its own yet — it's a template *source*.
-  If you add one, mirror `template/.github/workflows/ai-pr-review.yml`.
+- This repo runs the same CI it ships: `ci.yml` (Tests + Lint & Typecheck),
+  `commit-lint.yml`, `ai-pr-review.yml`, `auto-merge.yml`. Label a PR
+  `auto-merge` and it squash-merges once checks are green and the AI verdict
+  isn't BLOCKING. Real reviews need the `ANTHROPIC_API_KEY` secret; without it
+  the reviewer degrades to a NON-BLOCKING stub.
+- `master` has **lenient branch protection** (free-tier friendly): required
+  checks `Tests` / `Lint & Typecheck` / `Conventional Commits`, **0 required
+  approvals** (no human reviewer — the AI review + auto-merge gate instead),
+  admins exempt, no strict/up-to-date requirement.
+
+### Free-account note
+Branch protection and required checks are free on **public** repos but need a
+paid plan on **private** ones. The `auto-merge.yml` workflow doesn't depend on
+branch protection — it merges via the API based on its own check + verdict
+logic — so generated projects auto-merge even on free private repos. Branch
+protection just enforces the same rules server-side when available. Don't make
+any generated stack *require* a paid feature to function.
 
 ## Map
 - [README.md](README.md) — overview + usage
