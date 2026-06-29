@@ -103,8 +103,8 @@ jobs:
                  present in the diff) ─────────────────────────────────────────────────
                 • Token substitution stays WHITELIST-ONLY (keys from
                   firestarter.config.json). A change that would substitute arbitrary
-                  {{ ... }} — and thus clobber GitHub Actions ${{ ... }} or JSX
-                  style={{ ... }} — is BLOCKING.
+                  {{ ... }} — and thus clobber GitHub Actions expression syntax or
+                  JSX style={{ ... }} object literals — is BLOCKING.
                 • No host SDKs: the generator runs in Docker (bin/firestart.sh). The
                   only sanctioned host-python path is FIRESTARTER_NATIVE / CI.
                 • The generator stays stdlib-only (no pip dependency to run it).

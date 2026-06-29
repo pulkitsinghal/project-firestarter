@@ -28,7 +28,7 @@ jobs:
           done
 
           # 1. No unsubstituted tokens leaked. The only legitimate {{ matches are
-          #    GitHub Actions ${{ }} and JSX style={{ }}.
+          #    GitHub Actions expression syntax and JSX style={{ }} object literals.
           if grep -rn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
             echo "::error::unsubstituted {{ token }} leaked into generated output"
             exit 1
@@ -36,8 +36,9 @@ jobs:
           echo "✓ no token leaks"
 
           # 2. GitHub Actions expressions must survive substitution untouched.
-          test "$(grep -c '\${{' "$OUT/healer/.github/workflows/auto-merge.yml")" -gt 0
-          echo "✓ \${{ }} expressions preserved"
+          #    [$]{{ matches a literal dollar-brace-brace without itself being one.
+          test "$(grep -c '[$]{{' "$OUT/healer/.github/workflows/auto-merge.yml")" -gt 0
+          echo "✓ GitHub expressions preserved"
 
           # 3. Generated shell parses.
           bash -n "$OUT/healer/backend/scripts/migrate.sh"
