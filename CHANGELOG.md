@@ -3,6 +3,15 @@
 All notable changes to the firestarter template. See
 [docs/LIFT-LOG.md](docs/LIFT-LOG.md) for the harvesting process.
 
+## [Unreleased]
+
+### Changed
+- Elevated **storyboarding** from a documented merit to a stated **precept**:
+  added hard rule #6 in `AGENTS.md` (every stack must ship a working storyboard
+  harness — `storyboard/` + profile + `make storyboard` + `storyboard.yml`), plus
+  a matching "keep it current" precept, domain-invariant bullet, and
+  cross-reference in `template/AGENTS.md`.
+
 ## [0.1.0] — 2026-06-29
 
 ### Added
