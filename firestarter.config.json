@@ -11,6 +11,7 @@
   "stack": ["fastapi-next", "supabase-flutter"],
 
   "include_k8s": ["no", "yes"],
+  "include_auth": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",

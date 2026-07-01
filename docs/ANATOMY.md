@@ -115,6 +115,7 @@ the matching `include_<name>` flag is `yes`.
 | Add-on | Flag | What it ships | From |
 |--------|------|---------------|------|
 | `k8s` | `include_k8s` (default `no`) | Kustomize base + staging/production overlays per stack (Deployments/Services, ingress, secret example). Cloud-native: managed DB out-of-cluster, secrets out-of-band. **Not free-tier.** | pilgrim |
+| `auth` | `include_auth` (default `no`) | Passwordless OTP sign-in for `fastapi-next`: models/store/flows/delivery/router + an auth-aware `main.py` + `docs/AUTH.md` + a smoke test. In-memory + zero new deps; durable store, OAuth flow, and the frontend widget are documented follow-ups | healer |
 
 To include one: `./bin/firestart.sh --set include_k8s=yes` (or answer `yes` at the
 prompt). To add a new add-on: create `addons/<name>/<stack>/` whose contents
