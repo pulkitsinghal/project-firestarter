@@ -47,6 +47,7 @@ docs/                     this map, plus how-to guides
 | `.github/workflows/deploy.yml` | `workflow_dispatch` one-button beta deploy on a **self-hosted** runner: `make up` + `make deploy` (Cloudflare quick-tunnel, no secrets). Universal because both stacks share those targets | pilgrim |
 | `.gitleaks.toml` | gitleaks config: extends default rules + allowlists build-artifact dirs (so local `make secret-scan` on a dirty tree is clean). Add narrow allowlists for known public/test fixtures | best-practice |
 | `docs/ci-secrets.md` | How to set `ANTHROPIC_API_KEY` without leaking it | healer |
+| `docs/HOST_REQUIREMENTS.md` | Onboarding: the few tools that live on the host (Docker/git/make/gh) + a "do NOT install on host" table + opt-in native-mobile sections | pilgrim |
 | `docs/OPEN_QUESTIONS.md` | Template for the deferred-decisions log (incl. a backup-strategy stub) | both |
 | `docs/GO_LIVE.md` | Clean-slate run/verify/go-live checklist tying together secrets, release, deploy, backups | healer |
 | `docs/COMPLIANCE_POSTURE.md` | Fill-in template: which regimes you're in/out of scope for + a risk→control→where table | healer |

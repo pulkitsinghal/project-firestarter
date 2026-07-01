@@ -7,7 +7,8 @@ on the **{{ stack }}** stack.
 
 ## Quickstart
 
-You need only Docker — no host language toolchains.
+You need only Docker — no host language toolchains
+([full host requirements](docs/HOST_REQUIREMENTS.md)).
 
 ```bash
 make up            # boot the stack (db + app services)
