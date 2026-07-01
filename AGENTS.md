@@ -54,6 +54,13 @@ Adding a whole new stack: [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md).
 5. **Tokens, not literals, in `template/` and `stacks/`.** Use
    `{{ project_name }}`, `{{ db_name }}`, ports, etc. Filenames may carry tokens
    too (e.g. `{{ project_slug }}_services.dart`).
+6. **Storyboarding is a precept, not an optional extra.** Every stack must ship a
+   working storyboard harness — `storyboard/` + the `storyboard` Compose profile +
+   `make storyboard` + `.github/workflows/storyboard.yml` — that renders the
+   *planned-vs-implemented* map (`docs/STORYBOARD.md`) from real screenshots of the
+   running app. A project documenting itself is one of firestarter's merits; don't
+   drop it, hide it behind a flag, or let a stack regress it. New stacks
+   ([docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md)) must wire their own.
 
 ## Verify before you commit
 
