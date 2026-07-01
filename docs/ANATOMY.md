@@ -31,6 +31,8 @@ docs/                     this map, plus how-to guides
 | `ARCHITECTURE.md` | Scaffold for layers/data-model/invariants | both (genericized) |
 | `PROJECT_STATUS_AND_NEXT_STEPS.md` | Living "where are we" doc | both |
 | `README.md` | Project front page with quickstart | both |
+| `VERSION` | Canonical SemVer string; `make version-sync` propagates it into the stack's package manifests | healer |
+| `CHANGELOG.md` | Keep-a-Changelog seed (`[Unreleased]` + `[0.1.0]`), tied to `/VERSION` | healer |
 | `.gitmessage` | Conventional-commit template (`git config commit.template`) | both |
 | `.gitignore` | Covers Python, Node, Dart/Flutter, Docker, storyboard output | union of both |
 | `.githooks/commit-msg` | Enforces conventional-commit subject (mirrors CI) | both |
@@ -65,6 +67,7 @@ project wants all of it regardless of language.
 |------|---------|
 | `docker-compose.yml` | postgres (pgvector) + redis + backend + frontend; `tools`/`node`/`storyboard` profiles |
 | `Makefile` | `up/down/migrate/test/lint/precommit/storyboard/hook-install` — all via Docker |
+| `scripts/sync_version.sh` + `make version-sync` | Propagate `/VERSION` into `backend/pyproject.toml` + `frontend/package.json` (host coreutils, no SDK) |
 | `.github/workflows/ci.yml` | Jobs **Tests**, **Lint & Typecheck**, **Build** (names matched by auto-merge) |
 | `backend/` | FastAPI app, `pyproject.toml` (ruff/mypy/pytest), `001_init.sql`, `scripts/migrate.sh`, a smoke test |
 | `frontend/` | Next.js App Router skeleton with an `/api` proxy to the backend |
@@ -79,6 +82,7 @@ project wants all of it regardless of language.
 |------|---------|
 | `docker-compose.yml` | postgis (ARM64-safe `imresamu/postgis`) + redis + postgrest + gotrue; `dart`/`flutter`/`splash`/`storyboard` profiles, with the key gotchas inline |
 | `Makefile` | Adds `flutter-analyze`, `flutter-format-check`, `dart-test`, `splash-build`, `pgrst-reload` |
+| `scripts/sync_version.sh` + `make version-sync` | Propagate `/VERSION` into both `pubspec.yaml` + `splash/package.json` (host coreutils, no SDK) |
 | `.github/workflows/ci.yml` | Jobs **Tests** (Dart) + **Lint & Typecheck** (flutter analyze + format) |
 | `.github/workflows/splash-ci.yml` | Path-gated **Build** for the splash page (Docker, no host Node) |
 | `backend/` | PostGIS `001_init.sql` (+ `anon` role/grant pattern), `scripts/migrate.sh` |

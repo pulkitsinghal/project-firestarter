@@ -96,3 +96,8 @@ deploy-down: ## Stop the tunnel
 .PHONY: secret-scan
 secret-scan: ## Scan the repo for committed secrets (gitleaks in Docker)
 	docker run --rm -v "$$(pwd):/repo" zricethezav/gitleaks:v8.30.1 dir /repo -c /repo/.gitleaks.toml --no-banner --redact --exit-code 1
+
+# ── Release / versioning ─────────────────────────────────────────────────────
+.PHONY: version-sync
+version-sync: ## Propagate /VERSION into pubspec.yaml + splash package.json (host coreutils, no SDK)
+	bash scripts/sync_version.sh
