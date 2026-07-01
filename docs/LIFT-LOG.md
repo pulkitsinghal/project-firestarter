@@ -53,3 +53,4 @@ Every so often (e.g. when starting a new project), skim the siblings'
 | 2026-06-30 | CI cost: `concurrency: cancel-in-progress` on every workflow except auto-merge (unsafe to cancel a merge); required checks keep running on every PR (no risky path-filters) | pilgrim | template/ + stacks/ |
 | 2026-06-30 | Go-Live runbook (genericized): clean-slate run/verify + a pre-launch checklist wiring secrets, release, deploy, and backups together | healer | template/docs/ |
 | 2026-06-30 | Compliance-posture template (generalized from HIPAA_POSTURE): in/out-of-scope stance + risk→control→where table | healer | template/docs/ |
+| 2026-06-30 | RPC catalog convention (seed + entry template): documents PostgREST RPC grants + signatures; reinforces the deny-by-default posture | pilgrim | stacks/supabase-flutter/docs/ |
