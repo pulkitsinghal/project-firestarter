@@ -17,7 +17,9 @@ in-app  →  report_bug RPC (anon)  →  public.bug_reports (JSONB)
 
 1. **Capture (client).** `app/lib/bug_report/` — a global `bugTrail` ring buffer
    (fed by `BugTrailObserver`, plus your own `bugTrail.add(...)` calls at key
-   actions) and a `BugReportSheet` that POSTs to the `report_bug` RPC. No extra
+   actions), a **`ScreenshotBoundary`** that snapshots the current screen to a
+   base64 PNG (dependency-free — a keyed `RepaintBoundary`, no `screenshot`
+   package), and a `BugReportSheet` that POSTs to the `report_bug` RPC. No extra
    packages: it uses `dart:io` HttpClient against PostgREST's anon role.
 2. **Store (DB).** `backend/migrations/002_bug_reports.sql` — a `bug_reports`
    table plus two RPCs. Security mirrors `001_init.sql`'s deny-by-default posture:
@@ -36,10 +38,17 @@ in-app  →  report_bug RPC (anon)  →  public.bug_reports (JSONB)
 - **Device id:** a random v4 per launch in this skeleton. Persist it (e.g.
   `shared_preferences`) if you want a stable id across sessions.
 
+## Screenshots
+
+Built in and dependency-free. `main.dart` wraps the screen in a
+`ScreenshotBoundary`; `openBugReport` captures it *before* the sheet opens (so you
+grab the screen the user was on), and the sheet shows a thumbnail + an attach
+toggle. Capture is best-effort — a null shot just means "no screenshot", never an
+error. To make more of the app capturable, wrap the relevant subtree in a
+`ScreenshotBoundary` (or move it up to your root scaffold).
+
 ## Extending it
 
-- **Screenshot:** the RPC + table already accept a base64 PNG (`p_screenshot`);
-  wire a capture (e.g. the `screenshot` package) and pass it in `submitBugReport`.
 - **Richer snapshot:** pass your own map to `submitBugReport(snapshot: …)` — route,
   feature flags, the last network call, whatever makes the bug diagnosable.
 - **Hosted Supabase:** call `get_open_bug_reports` via the `service_role` REST
