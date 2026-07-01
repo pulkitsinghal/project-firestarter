@@ -47,17 +47,28 @@ Pluggable; nothing paid required.
 - Session tokens are 256-bit url-safe randoms; only their SHA-256 is stored.
 - Requesting a code never reveals whether an account exists.
 
+## Durable sessions (Postgres)
+
+By default the store is **in-memory** (resets on restart, fine for dev/demo). For
+sessions that survive restarts and span workers:
+
+1. Apply the auth schema: it ships as `backend/migrations/002_auth.sql`
+   (`users` / `auth_identities` / `auth_otp` / `auth_sessions` / `device_links` /
+   `auth_rate_hits`) and is applied by `make migrate` like any other migration.
+2. Set **`AUTH_STORE=postgres`** on the backend service. `main.py` then wires
+   `PostgresAuthStore` (psycopg3 async, no extra dependency) against `DATABASE_URL`.
+
+`PostgresAuthStore` mirrors the in-memory store's semantics exactly; an
+integration test (`tests/test_auth_postgres.py`) drives the full OTP flow through
+it and is skipped automatically when no migrated Postgres is reachable.
+
 ## What's a follow-up (not in this add-on yet)
 
 The store's identity/session seam is designed for these; wiring them is the next
 step, not a rewrite:
 
-1. **Durable sessions.** The default store is in-memory (resets on restart). A
-   Postgres-backed `AuthStore` + a migration (`users` / `auth_identities` /
-   `auth_sessions` / `auth_otp` / `device_links`) is the durability upgrade —
-   swap it in inside `app/main.py`'s lifespan.
-2. **OAuth (Google/GitHub).** The store already supports `find_user_by_identity`
+1. **OAuth (Google/GitHub).** The store already supports `find_user_by_identity`
    / `link_identity`; add the provider redirect + token-exchange flow (config-
    gated, off until you set client id/secret) and the `/auth/oauth/*` routes.
-3. **Frontend sign-in widget.** A small account/OTP widget for the Next.js
+2. **Frontend sign-in widget.** A small account/OTP widget for the Next.js
    frontend calling the endpoints above.
