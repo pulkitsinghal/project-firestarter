@@ -4,6 +4,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 # Path-gated: only runs (and is only required by auto-merge) when the splash
 # page changes. Builds in Docker via the `splash` profile — no host Node.
 
