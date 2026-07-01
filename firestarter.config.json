@@ -12,6 +12,7 @@
 
   "include_k8s": ["no", "yes"],
   "include_auth": ["no", "yes"],
+  "include_bug_report": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",
