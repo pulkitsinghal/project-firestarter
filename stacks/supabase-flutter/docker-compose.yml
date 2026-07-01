@@ -61,7 +61,11 @@ services:
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@postgres:5432/{{ db_name }}?search_path=auth
       GOTRUE_SITE_URL: http://localhost:{{ port_web }}
-      GOTRUE_JWT_SECRET: super-secret-jwt-token-change-me
+      # Dev-only default — MUST be overridden in any shared/prod deploy by
+      # setting JWT_SECRET in the environment. Never bake a usable secret into
+      # the image (see SECURITY.md). PostgREST needs the SAME value in
+      # PGRST_JWT_SECRET to validate GoTrue-minted tokens once you wire auth.
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-change-me-min-32-characters}
       API_EXTERNAL_URL: http://localhost:9999
       # Local-dev only: complete email/phone OTP signup without a real SMTP/SMS
       # provider (otherwise sign-up stalls on "confirm your email"). Never enable
