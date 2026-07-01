@@ -92,6 +92,7 @@ project wants all of it regardless of language.
 | `backend/` | PostGIS `001_init.sql` (+ `anon` role/grant pattern), `scripts/migrate.sh` |
 | `app/` | Flutter skeleton + a widget smoke test (`app/test/smoke_test.dart`) so `flutter test` runs in the **Tests** job |
 | `services/` | Dart service-layer package + smoke test (the domain source of truth) |
+| `docs/rpc-catalog.md` | Contract for PostgREST RPCs (grants + signatures); seeds the deny-by-default convention with an entry template |
 | `splash/` | Minimal Vite + React + TS landing page that actually builds |
 | `storyboard/` | Playwright runner + manifest renderer pointed at the splash service |
 | `.github/dependabot.yml` | Grouped weekly updates (pub + npm + github-actions), `chore:`/`ci:` prefixes |
