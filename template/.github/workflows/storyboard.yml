@@ -4,6 +4,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 # Non-blocking visual regression aid: boots the stack, drives the UI with
 # Playwright, and uploads the screenshot storyboard as a build artifact.
 
