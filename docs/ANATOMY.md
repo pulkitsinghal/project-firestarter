@@ -44,6 +44,7 @@ docs/                     this map, plus how-to guides
 | `.github/workflows/commit-lint.yml` | Validates every commit subject in a PR | both |
 | `.github/workflows/storyboard.yml` | Boots the stack, runs Playwright, uploads screenshots (non-blocking) | both (pilgrim origin) |
 | `.github/workflows/secret-scan.yml` | gitleaks-in-Docker secret scan (pinned `v8.30.1`); **required** by auto-merge. Free push-protection equivalent for private repos without paid GitHub Secret Protection | best-practice |
+| `.github/workflows/deploy.yml` | `workflow_dispatch` one-button beta deploy on a **self-hosted** runner: `make up` + `make deploy` (Cloudflare quick-tunnel, no secrets). Universal because both stacks share those targets | pilgrim |
 | `.gitleaks.toml` | gitleaks config: extends default rules + allowlists build-artifact dirs (so local `make secret-scan` on a dirty tree is clean). Add narrow allowlists for known public/test fixtures | best-practice |
 | `docs/ci-secrets.md` | How to set `ANTHROPIC_API_KEY` without leaking it | healer |
 | `docs/OPEN_QUESTIONS.md` | Template for the deferred-decisions log (incl. a backup-strategy stub) | both |
