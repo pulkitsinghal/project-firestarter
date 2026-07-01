@@ -87,7 +87,7 @@ project wants all of it regardless of language.
 | `.github/workflows/ci.yml` | Jobs **Tests** (Dart) + **Lint & Typecheck** (flutter analyze + format) |
 | `.github/workflows/splash-ci.yml` | Path-gated **Build** for the splash page (Docker, no host Node) |
 | `backend/` | PostGIS `001_init.sql` (+ `anon` role/grant pattern), `scripts/migrate.sh` |
-| `app/` | Flutter skeleton |
+| `app/` | Flutter skeleton + a widget smoke test (`app/test/smoke_test.dart`) so `flutter test` runs in the **Tests** job |
 | `services/` | Dart service-layer package + smoke test (the domain source of truth) |
 | `splash/` | Minimal Vite + React + TS landing page that actually builds |
 | `storyboard/` | Playwright runner + manifest renderer pointed at the splash service |

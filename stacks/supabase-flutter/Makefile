@@ -64,13 +64,13 @@ splash-build: ## Production build of the splash page
 
 # ── Aggregate gates ──────────────────────────────────────────────────────────
 .PHONY: test
-test: dart-test ## Run the test suite (CI "Tests" job)
+test: dart-test flutter-test ## Run the test suite (CI "Tests" job)
 
 .PHONY: lint
 lint: flutter-analyze flutter-format-check ## All lint/type checks (CI "Lint & Typecheck" job)
 
 .PHONY: precommit
-precommit: flutter-analyze flutter-format-check dart-test ## Mirror CI gates locally
+precommit: flutter-analyze flutter-format-check dart-test flutter-test ## Mirror CI gates locally
 	@echo "✓ precommit gates passed"
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────
