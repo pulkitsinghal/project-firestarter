@@ -1,5 +1,9 @@
 name: AI PR Review
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # Reviews PRs using the Anthropic API directly (no GitHub App required).
 # Requires a repo secret: ANTHROPIC_API_KEY (Settings → Secrets → Actions).
 # Optional repo variable: CLAUDE_MODEL (defaults to {{ claude_model }}).
