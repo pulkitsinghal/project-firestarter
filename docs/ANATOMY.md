@@ -118,6 +118,7 @@ the matching `include_<name>` flag is `yes`.
 |--------|------|---------------|------|
 | `k8s` | `include_k8s` (default `no`) | Kustomize base + staging/production overlays per stack (Deployments/Services, ingress, secret example). Cloud-native: managed DB out-of-cluster, secrets out-of-band. **Not free-tier.** | pilgrim |
 | `auth` | `include_auth` (default `no`) | Passwordless OTP sign-in for `fastapi-next`: models/store/flows/delivery/router + an auth-aware `main.py` + `docs/AUTH.md` + tests. In-memory default **or** a durable `PostgresAuthStore` (`AUTH_STORE=postgres` + `002_auth.sql`, psycopg3 async, no new deps). Ships a Next.js OTP sign-in widget (`auth-widget.tsx` + `layout.tsx`/`next.config.mjs` overlays). OAuth flow is a documented follow-up | healer |
+| `ssrf_fetch` | `include_ssrf_fetch` (default `no`) | Dependency-free SSRF-guarded server-side URL fetch (`app/services/safe_fetch.py`): http/https-only, resolves to public IPs only, re-validates redirects, size/time-bounded, stdlib HTML→text + offline tests + `docs/SAFE_FETCH.md` | healer |
 | `bug_report` | `include_bug_report` (default `no`) | In-app bug capture for `supabase-flutter`: `bug_reports` migration (deny-by-default RPCs) + a `dart:io` capture sheet/breadcrumb trail + dependency-free screenshot capture (`RepaintBoundary`) + a SQL-formatted `pull-bug-reports.sh` (→ `gh issue create`) + `docs/BUG_REPORT.md`. No new Flutter deps | pilgrim |
 
 To include one: `./bin/firestart.sh --set include_k8s=yes` (or answer `yes` at the
