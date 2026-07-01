@@ -55,3 +55,4 @@ Every so often (e.g. when starting a new project), skim the siblings'
 | 2026-06-30 | Compliance-posture template (generalized from HIPAA_POSTURE): in/out-of-scope stance + risk→control→where table | healer | template/docs/ |
 | 2026-06-30 | RPC catalog convention (seed + entry template): documents PostgREST RPC grants + signatures; reinforces the deny-by-default posture | pilgrim | stacks/supabase-flutter/docs/ |
 | 2026-06-30 | SECURITY.md: "no default/guessable secret in deploy configs" rule (fail-closed, read from env) — from pilgrim's demo-JWT deploy bug | pilgrim | template/ |
+| 2026-06-30 | `include_auth` add-on (fastapi-next): passwordless OTP core (models/store/flows/delivery/router/main + smoke test), in-memory & dependency-free; OAuth flow, durable store, frontend widget deferred | healer | addons/auth/ + bin/generate.py |
