@@ -62,13 +62,21 @@ sessions that survive restarts and span workers:
 integration test (`tests/test_auth_postgres.py`) drives the full OTP flow through
 it and is skipped automatically when no migrated Postgres is reachable.
 
+## Frontend sign-in widget
+
+The add-on ships a Next.js widget (`frontend/app/auth-widget.tsx`) rendered in a
+header by the overlaid `layout.tsx`: enter an email → receive a code → verify →
+signed in (with a sign-out button). It calls the `/auth/*` endpoints through the
+same-origin proxy — the overlaid `next.config.mjs` adds the `/auth/:path*`
+rewrite alongside `/api/*`. The session token lives in `localStorage` and is sent
+as `X-Session-Token`. In dev (`AUTH_EXPOSE_DEBUG_OTP=true`) the widget shows the
+returned code so you can sign in without real email.
+
 ## What's a follow-up (not in this add-on yet)
 
-The store's identity/session seam is designed for these; wiring them is the next
+The store's identity/session seam is designed for this; wiring it is the next
 step, not a rewrite:
 
 1. **OAuth (Google/GitHub).** The store already supports `find_user_by_identity`
    / `link_identity`; add the provider redirect + token-exchange flow (config-
    gated, off until you set client id/secret) and the `/auth/oauth/*` routes.
-2. **Frontend sign-in widget.** A small account/OTP widget for the Next.js
-   frontend calling the endpoints above.
