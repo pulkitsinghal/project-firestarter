@@ -12,6 +12,24 @@ BEGIN
     END IF;
 END $$;
 
+-- ── Security: deny-by-default for functions (RPCs) ───────────────────────────
+-- GOTCHA (a verified, reproduced exploit in a sibling project): Postgres grants
+-- EXECUTE on every function to PUBLIC by default, and PostgREST exposes any
+-- function the `anon`/PUBLIC role can execute as an UNAUTHENTICATED
+-- POST /rpc/<name>. So a lone `REVOKE ... FROM anon` is a no-op — PUBLIC still
+-- holds EXECUTE, and an anonymous caller can invoke your internal RPCs. Strip
+-- that implicit grant here so a future function is NOT reachable until you opt
+-- it in. Runs cleanly even with zero functions defined yet, and is idempotent.
+--
+-- To expose one specific RPC to anonymous callers, grant it explicitly:
+--     GRANT EXECUTE ON FUNCTION my_public_rpc(args) TO anon;
+-- Keep internal/admin functions ungranted. For a privileged operation an anon
+-- flow legitimately needs, wrap it in a SECURITY DEFINER function owned by a
+-- privileged role and grant EXECUTE only on that wrapper.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM anon;
+
 CREATE TABLE IF NOT EXISTS locations (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name         TEXT NOT NULL,

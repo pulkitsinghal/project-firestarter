@@ -95,6 +95,7 @@ project wants all of it regardless of language.
 - **PostgREST schema cache:** restart `postgrest` after every migration (`make pgrst-reload`).
 - **GoTrue `search_path=auth`:** so its queries resolve to `auth.users`; pin the version.
 - **Flutter format-check is read-only:** exits 1 but doesn't write; a separate target applies.
+- **PostgREST RPC exposure:** Postgres grants `EXECUTE` to `PUBLIC` by default and PostgREST serves any function `anon`/PUBLIC can execute at `POST /rpc/<name>`, so `REVOKE … FROM anon` alone is a no-op. `001_init.sql` strips the implicit `PUBLIC` grant (deny-by-default); expose an RPC by granting `EXECUTE` to `anon` explicitly.
 
 ## Optional add-ons (`addons/`)
 
