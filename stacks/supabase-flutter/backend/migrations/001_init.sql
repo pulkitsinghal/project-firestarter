@@ -18,17 +18,22 @@ END $$;
 -- function the `anon`/PUBLIC role can execute as an UNAUTHENTICATED
 -- POST /rpc/<name>. So a lone `REVOKE ... FROM anon` is a no-op — PUBLIC still
 -- holds EXECUTE, and an anonymous caller can invoke your internal RPCs. Strip
--- that implicit grant here so a future function is NOT reachable until you opt
--- it in. Runs cleanly even with zero functions defined yet, and is idempotent.
+-- that default grant so a future function is NOT reachable until you opt it in.
+--
+-- Two details that both bite (verified on PG16):
+--   * Use the GLOBAL form below — NOT `... IN SCHEMA public ...`, which does
+--     NOT suppress the built-in PUBLIC default and silently leaves RPCs open.
+--   * `ALTER DEFAULT PRIVILEGES` only affects functions created AFTER this
+--     line, so the PostGIS functions from `CREATE EXTENSION` above keep their
+--     grants and the anonymous read path still works. Do NOT `REVOKE ... ON ALL
+--     FUNCTIONS IN SCHEMA public` — that strips PostGIS's own grants too.
 --
 -- To expose one specific RPC to anonymous callers, grant it explicitly:
 --     GRANT EXECUTE ON FUNCTION my_public_rpc(args) TO anon;
 -- Keep internal/admin functions ungranted. For a privileged operation an anon
 -- flow legitimately needs, wrap it in a SECURITY DEFINER function owned by a
 -- privileged role and grant EXECUTE only on that wrapper.
-ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
-REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
-REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM anon;
+ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 CREATE TABLE IF NOT EXISTS locations (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
