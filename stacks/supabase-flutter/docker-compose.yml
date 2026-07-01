@@ -94,6 +94,13 @@ services:
     profiles: ["splash"]
     image: node:20-alpine
     working_dir: /splash
+    # GOTCHA (Docker file-watching on macOS/Windows/WSL2): inotify events don't
+    # propagate into a container over a bind mount, so a Vite/webpack dev server
+    # (`pnpm dev`) won't hot-reload without polling. These make HMR fire; they're
+    # inert for the default one-shot `pnpm build` below, so it's safe to keep.
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
     volumes:
       - ./splash:/splash
       - splash_node_modules:/splash/node_modules
