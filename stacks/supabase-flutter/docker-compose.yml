@@ -21,6 +21,12 @@ services:
       - "{{ port_db }}:5432"
     volumes:
       - {{ pgdata_volume }}:/var/lib/postgresql/data
+      # One-time bootstrap SQL (CREATE SCHEMA auth) that GoTrue needs before it
+      # can run its own migrations — runs only on a fresh volume. Do NOT mount
+      # ./backend/migrations here: that bypasses the {{ migrations_table }}
+      # history table and silently double-applies. `make migrate` is the single
+      # migration path = single source of truth.
+      - ./backend/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d {{ db_name }}"]
       interval: 5s
@@ -57,6 +63,11 @@ services:
       GOTRUE_SITE_URL: http://localhost:{{ port_web }}
       GOTRUE_JWT_SECRET: super-secret-jwt-token-change-me
       API_EXTERNAL_URL: http://localhost:9999
+      # Local-dev only: complete email/phone OTP signup without a real SMTP/SMS
+      # provider (otherwise sign-up stalls on "confirm your email"). Never enable
+      # these in production.
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMS_AUTOCONFIRM: "${GOTRUE_SMS_AUTOCONFIRM:-true}"
     depends_on:
       postgres:
         condition: service_healthy
