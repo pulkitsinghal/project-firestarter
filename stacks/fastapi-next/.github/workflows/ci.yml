@@ -34,7 +34,9 @@ jobs:
         run: docker compose --profile tools build backend-tools
 
       - name: Run backend tests
-        run: docker compose --profile tools run --rm backend-tools pytest -q
+        # Postgres is up + migrated above, so pass TEST_DATABASE_URL to also run
+        # the gated integration tests (hermetic runs skip them). See `make backend-itest`.
+        run: docker compose --profile tools run --rm -e TEST_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/{{ db_name }} backend-tools pytest -q
 
       - name: Show logs on failure
         if: failure()
