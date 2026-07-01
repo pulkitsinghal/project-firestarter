@@ -12,9 +12,8 @@ import os
 import psycopg
 from fastapi import FastAPI
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/{{ db_name }}"
-)
+_DEFAULT_DB = "postgresql://postgres:postgres@postgres:5432/{{ db_name }}"
+DATABASE_URL = os.environ.get("DATABASE_URL", _DEFAULT_DB)
 
 app = FastAPI(title="{{ project_name }}")
 
