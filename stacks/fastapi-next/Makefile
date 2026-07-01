@@ -31,8 +31,14 @@ migrate: ## Apply forward-only DB migrations (idempotent)
 
 # ── Backend gates (Python, in Docker) ────────────────────────────────────────
 .PHONY: backend-test
-backend-test: ## Run backend pytest suite
+backend-test: ## Run backend pytest suite (hermetic; integration tests self-skip)
 	$(TOOLS) pytest -q
+
+.PHONY: backend-itest
+backend-itest: ## Run gated integration tests vs the live DB (needs `make up` + `make migrate`)
+	$(DC) --profile tools run --rm \
+	  -e TEST_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/{{ db_name }} \
+	  backend-tools pytest -m integration -v
 
 .PHONY: backend-lint
 backend-lint: ## ruff format-check + ruff lint + mypy
