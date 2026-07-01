@@ -50,3 +50,4 @@ Every so often (e.g. when starting a new project), skim the siblings'
 | 2026-06-30 | Migration-rollback runbook (genericized): revert-as-forward-migration + emergency surgery; AGENTS pointer + OPEN_QUESTIONS backup stub | pilgrim | template/docs/ |
 | 2026-06-30 | Flutter app now tested in CI: widget smoke test + `flutter test` wired into the Tests job and `make test`/`precommit` (was analyze-only) | pilgrim | stacks/supabase-flutter/ |
 | 2026-06-30 | Dispatchable `deploy.yml` (universal): self-hosted `workflow_dispatch` → `make up` + `make deploy` (Cloudflare quick-tunnel, no secrets) | pilgrim | template/.github/workflows/ |
+| 2026-06-30 | CI cost: `concurrency: cancel-in-progress` on every workflow except auto-merge (unsafe to cancel a merge); required checks keep running on every PR (no risky path-filters) | pilgrim | template/ + stacks/ |
