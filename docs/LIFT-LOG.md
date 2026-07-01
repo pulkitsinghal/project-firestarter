@@ -45,3 +45,4 @@ Every so often (e.g. when starting a new project), skim the siblings'
 | 2026-06-29 | Storyboard manifest harness: planned-vs-implemented map rendered to docs/STORYBOARD.md with committed previews (#9) | pilgrim | stacks/*/storyboard/ |
 | 2026-06-29 | Optional add-on mechanism + k8s Kustomize scaffold (include_k8s, default off) (#10) | pilgrim | addons/k8s/ + bin/generate.py |
 | 2026-06-29 | gitleaks secret-scan workflow (required by auto-merge) + make target — free push-protection for private repos | security audit | template/ + stacks/ |
+| 2026-06-30 | Deny-by-default RPC EXECUTE in `001_init.sql`: revoke the implicit `PUBLIC`/`anon` grant so PostgREST doesn't expose future functions until opted in (from a verified anon-RPC exploit) | pilgrim | stacks/supabase-flutter/ |
