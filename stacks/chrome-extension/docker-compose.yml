@@ -1,0 +1,45 @@
+# {{ project_name }} — local dev + CI stack (chrome-extension).
+#
+# Firestarter convention: no host SDKs. The fast, deterministic gates —
+# install, typecheck, unit tests, build — run inside the `node-tools` image.
+# Drive them via the Makefile (`make help`).
+#
+# This stack has no server or database (a browser extension is pure client
+# code), so there is no postgres service and `make migrate` is a no-op.
+#
+# The Playwright e2e suite is NOT here on purpose: it needs a real headed
+# Chromium, which doesn't fit a headless container. See e2e/README.md.
+
+services:
+  node-tools:
+    image: node:22-slim
+    profiles: ["tools"]
+    working_dir: /work/extension
+    environment:
+      - CI=1
+    volumes:
+      - ./:/work
+      # Named volume masks host node_modules so the container builds its own
+      # (host is darwin/arm64; esbuild ships platform-specific native binaries)
+      # and persists deps across separate `docker compose run` invocations.
+      - ext_node_modules:/work/extension/node_modules
+
+  # Storyboard: renders the built side panel into docs/STORYBOARD.md (firestarter
+  # precept). Run `make storyboard` (it builds first). See docs/storyboard-harness.md.
+  storyboard:
+    profiles: ["storyboard"]
+    image: mcr.microsoft.com/playwright:v1.49.1-jammy
+    working_dir: /work/storyboard
+    environment:
+      - EXT_DIST=/work/extension/dist
+      - OUT_DIR=/work/storyboard/output
+      - DOCS_DIR=/docs
+    volumes:
+      - ./:/work
+      - ./docs:/docs
+      - sb_node_modules:/work/storyboard/node_modules
+    command: ["sh", "-c", "npm install && node storyboard.mjs"]
+
+volumes:
+  ext_node_modules:
+  sb_node_modules:

@@ -1,0 +1,15 @@
+{
+  "name": "{{ project_slug }}-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "playwright:install": "playwright install chromium",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.5.4"
+  }
+}

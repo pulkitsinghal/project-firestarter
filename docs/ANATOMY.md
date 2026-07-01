@@ -109,6 +109,28 @@ project wants all of it regardless of language.
 - **Flutter format-check is read-only:** exits 1 but doesn't write; a separate target applies.
 - **PostgREST RPC exposure:** Postgres grants `EXECUTE` to `PUBLIC` by default and PostgREST serves any function `anon`/PUBLIC can execute at `POST /rpc/<name>`, so `REVOKE … FROM anon` alone is a no-op. `001_init.sql` strips the implicit `PUBLIC` grant (deny-by-default); expose an RPC by granting `EXECUTE` to `anon` explicitly.
 
+## Stack profile: `chrome-extension` (auggie-buddy lineage)
+
+A **DB-less** stack — a Manifest V3 browser extension is pure client code, so
+there's no `postgres`, no `backend/`, and `make migrate` is a no-op. The
+meta-layer's DB-flavored docs (e.g. `migration-rollback.md`) still stamp but are
+inert for this stack.
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yml` | `node-tools` (node:22-slim) build/test/typecheck; `storyboard` profile. No DB. |
+| `Makefile` | `install/build/typecheck/test-unit/test/lint/precommit/clean/storyboard/e2e/hook-install`; `up` builds + prints load-unpacked instructions, `down` cleans, `migrate` is a documented no-op |
+| `.github/workflows/ci.yml` | Jobs **Tests** (vitest), **Lint & Typecheck** (`tsc --noEmit`), **Build** (esbuild) — the contract names |
+| `.github/workflows/storyboard.yml` | Overrides the meta-layer's DB-centric one: builds the extension, then runs the harness (no postgres/migrate) |
+| `extension/` | MV3 skeleton: `public/manifest.json` (side panel + background SW + content script), `src/` (background/content-script/sidebar + a pure-logic module & Vitest test), `scripts/build.mjs` (esbuild → IIFE bundles + static copy), `tsconfig`, `vitest.config` |
+| `e2e/` | Playwright MV3 harness (**host-only**, not a CI gate): a fixture that `--load-extension`s a persistent Chromium and resolves the extension id from the background service-worker URL + a side-panel smoke spec |
+| `storyboard/` | Screenshots the built side panel (`dist/sidebar.html`) → committed `docs/STORYBOARD.md` (honours the storyboard precept for a UI with no server) |
+
+### Documented gotchas baked into this stack
+- **esbuild doesn't type-check:** `tsc --noEmit` is a separate gate (the "Lint & Typecheck" job).
+- **No host SDKs, arm64 native deps:** node_modules lives in a named volume so the container builds esbuild's platform-specific binary, not the host's.
+- **e2e is host-only:** loading an MV3 extension needs a real headed Chromium — a headless container can't, so it isn't a CI gate.
+
 ## Optional add-ons (`addons/`)
 
 Add-ons are opinionated or heavy modules kept **out of the default scaffold** and

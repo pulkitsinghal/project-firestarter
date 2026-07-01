@@ -1,0 +1,52 @@
+name: CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+# Job display names follow the firestarter contract: "Tests", "Lint & Typecheck",
+# "Build". auto-merge.yml gates on these. Every gate runs in the same Docker
+# tools image used locally (no host SDKs); `make install` populates deps.
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps (in container)
+        run: make install
+      - name: Unit tests (vitest)
+        run: make test-unit
+
+  lint:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps (in container)
+        run: make install
+      - name: Typecheck (tsc --noEmit)
+        run: make typecheck
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps (in container)
+        run: make install
+      - name: Build extension
+        run: make build
+
+  # The Playwright e2e suite is intentionally not a CI gate — it needs a headed
+  # Chromium. Run it on the host (see e2e/README.md). The storyboard workflow
+  # (from the meta-layer) renders the side panel non-blockingly.

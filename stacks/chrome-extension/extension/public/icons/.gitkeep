@@ -1,0 +1,3 @@
+# Drop your extension icons here: icon-16.png, icon-32.png, icon-48.png,
+# icon-128.png, then add an "icons" block to ../manifest.json. Until then Chrome
+# uses a default icon and the build skips this folder (see scripts/build.mjs).
