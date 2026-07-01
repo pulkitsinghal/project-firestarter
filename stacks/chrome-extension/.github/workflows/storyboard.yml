@@ -1,0 +1,42 @@
+name: Storyboard
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "extension/**"
+      - "storyboard/**"
+      - ".github/workflows/storyboard.yml"
+  workflow_dispatch:
+
+# Non-blocking. Renders the planned-vs-implemented storyboard from a screenshot
+# of the built side panel. This stack has no server/DB, so — unlike the
+# meta-layer's storyboard workflow — it just builds the extension, then runs the
+# harness (no postgres, no migrate).
+jobs:
+  storyboard:
+    name: Storyboard
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps (in container)
+        run: make install
+      - name: Build the extension
+        run: make build
+      - name: Render storyboard
+        run: docker compose --profile storyboard run --rm storyboard
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyboard
+          path: storyboard/output
+          if-no-files-found: ignore

@@ -42,3 +42,24 @@ meta-layer in `template/` stays untouched; you only add a directory under
 ```
 
 Update [docs/ANATOMY.md](ANATOMY.md) with a table for the new stack.
+
+## Non-DB stacks
+
+The contract above assumes a DB-backed app, but a stack needn't have one (see
+`chrome-extension` — a browser extension is pure client code). For a DB-less
+stack:
+
+- **Skip `postgres` / `backend/` / migrations.** Don't ship `migrate.sh` or
+  `001_init.sql`; make `make migrate` a documented no-op and adapt `up`/`down`
+  to something meaningful for your stack (e.g. build + "load unpacked").
+- **Keep the required job names.** CI must still expose `Tests` /
+  `Lint & Typecheck` (+ `Build`) — `auto-merge.yml` gates on them regardless of
+  what's underneath.
+- **Override, don't fight, the meta-layer.** A few universal pieces are
+  DB-flavored: the `storyboard.yml` workflow waits on postgres + runs migrations,
+  so ship your own `.github/workflows/storyboard.yml` that just builds and runs
+  the harness. Some docs (`migration-rollback.md`, DB notes in `CLAUDE.md`) will
+  stamp but be inert — that's an accepted trade-off, not a bug.
+- **Still honour the storyboard precept** (hard rule #6): ship a harness that
+  screenshots your real UI, even one with no server (the extension harness opens
+  the built `dist/sidebar.html`).
