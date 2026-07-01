@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import 'bug_report/bug_report.dart';
 import 'bug_report/bug_trail.dart';
+import 'bug_report/screenshot.dart';
 
 void main() => runApp(const PilgrimApp());
 
@@ -31,7 +32,8 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('{{ project_name }}')),
-      body: const Center(child: Text('{{ project_tagline }}')),
+      // Wrapped so the bug-report flow can snapshot exactly what's on screen.
+      body: const ScreenshotBoundary(child: Center(child: Text('{{ project_tagline }}'))),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => openBugReport(context, route: '/'),
         icon: const Icon(Icons.bug_report_outlined),

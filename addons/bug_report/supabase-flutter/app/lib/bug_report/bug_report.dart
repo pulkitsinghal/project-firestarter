@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import 'bug_trail.dart';
+import 'screenshot.dart';
 
 /// PostgREST base URL. Defaults to the local stack's API port; override at build
 /// time: `flutter run --dart-define=API_BASE=https://api.example.com`.
@@ -32,6 +33,7 @@ Future<String?> submitBugReport({
   required String title,
   required String route,
   Map<String, dynamic>? snapshot,
+  String? screenshotBase64,
 }) async {
   final payload = <String, dynamic>{
     'p_device_id': _deviceId,
@@ -40,7 +42,7 @@ Future<String?> submitBugReport({
     'p_app_version': _appVersion,
     'p_breadcrumbs': bugTrail.toJson(),
     'p_snapshot': snapshot ?? <String, dynamic>{'route': route},
-    'p_screenshot': null, // attach a base64 PNG here if you add screenshot capture
+    'p_screenshot': screenshotBase64,
   };
   final client = HttpClient();
   try {
@@ -61,18 +63,22 @@ Future<String?> submitBugReport({
   }
 }
 
-/// Open the review/consent sheet for the current screen.
-Future<void> openBugReport(BuildContext context, {String route = '/'}) {
-  return showModalBottomSheet<void>(
+/// Capture the current screen (best-effort), then open the review/consent sheet.
+/// Capturing before the sheet opens grabs the screen the user was looking at.
+Future<void> openBugReport(BuildContext context, {String route = '/'}) async {
+  final shot = await captureScreenshotBase64();
+  if (!context.mounted) return;
+  await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => BugReportSheet(route: route),
+    builder: (_) => BugReportSheet(route: route, screenshot: shot),
   );
 }
 
 class BugReportSheet extends StatefulWidget {
   final String route;
-  const BugReportSheet({super.key, required this.route});
+  final String? screenshot; // base64 PNG of the screen, or null
+  const BugReportSheet({super.key, required this.route, this.screenshot});
 
   @override
   State<BugReportSheet> createState() => _BugReportSheetState();
@@ -80,6 +86,7 @@ class BugReportSheet extends StatefulWidget {
 
 class _BugReportSheetState extends State<BugReportSheet> {
   final _title = TextEditingController();
+  late bool _attachShot = widget.screenshot != null;
   bool _sending = false;
 
   @override
@@ -90,7 +97,11 @@ class _BugReportSheetState extends State<BugReportSheet> {
 
   Future<void> _send() async {
     setState(() => _sending = true);
-    final id = await submitBugReport(title: _title.text.trim(), route: widget.route);
+    final id = await submitBugReport(
+      title: _title.text.trim(),
+      route: widget.route,
+      screenshotBase64: _attachShot ? widget.screenshot : null,
+    );
     if (!mounted) return;
     setState(() => _sending = false);
     Navigator.of(context).pop();
@@ -121,6 +132,28 @@ class _BugReportSheetState extends State<BugReportSheet> {
             maxLength: 200,
             decoration: const InputDecoration(hintText: 'What went wrong? (optional)'),
           ),
+          if (widget.screenshot != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.memory(
+                    base64Decode(widget.screenshot!),
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(child: Text('Attach a screenshot of this screen')),
+                Switch(
+                  value: _attachShot,
+                  onChanged: (v) => setState(() => _attachShot = v),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           const Text('Includes your recent in-app actions (breadcrumbs) and the current screen.',
               style: TextStyle(fontSize: 12)),
