@@ -183,7 +183,7 @@ def main() -> int:
     # Optional add-ons: overlay addons/<name>/<stack>/ when the matching
     # include_<name> flag is "yes". Keeps opinionated/heavy modules (e.g. k8s)
     # out of the default scaffold.
-    for addon in ("k8s", "auth", "bug_report"):
+    for addon in ("k8s", "auth", "bug_report", "ssrf_fetch"):
         if values.get(f"include_{addon}") == "yes":
             addon_dir = ROOT / "addons" / addon / stack
             if addon_dir.is_dir():
