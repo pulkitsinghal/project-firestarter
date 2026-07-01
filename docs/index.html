@@ -69,7 +69,7 @@
   <div class="badges">
     <span class="badge">🐳 0 host SDKs</span>
     <span class="badge">🤖 AI-reviewed PRs</span>
-    <span class="badge">🧩 2 stacks + add-ons</span>
+    <span class="badge">🧩 3 stacks + 4 add-ons</span>
     <span class="badge">♻️ self-dogfooding</span>
   </div>
   <div class="cta">
@@ -98,9 +98,9 @@
       <div class="card"><div class="ic">🤖</div><h3>AI-reviewed auto-merge</h3><p>A workflow calls the Anthropic API, posts a verdict, and squash-merges green PRs. No human-review bottleneck.</p></div>
       <div class="card"><div class="ic">✅</div><h3>Green before push</h3><p>One <code>make precommit</code> mirrors every CI gate locally, in Docker. Stop pushing to "see if CI passes."</p></div>
       <div class="card"><div class="ic">📐</div><h3>Conventions enforced</h3><p>Conventional Commits + forward-only migrations enforced by git hooks <em>and</em> CI — not left to discipline.</p></div>
-      <div class="card"><div class="ic">🔭</div><h3>It documents itself</h3><p>A storyboard harness renders a live planned-vs-implemented map with real screenshots from the running app.</p></div>
+      <div class="card"><div class="ic">🔭</div><h3>It documents itself</h3><p>A storyboard harness renders a live planned-vs-implemented map from real screenshots of your UI — now a stack precept, so every stack ships one.</p></div>
       <div class="card"><div class="ic">🚀</div><h3>Share in one button</h3><p><code>make deploy</code> exposes your local app on a public Cloudflare URL — no account, no cloud bill.</p></div>
-      <div class="card"><div class="ic">🧩</div><h3>Stacks + add-ons</h3><p>FastAPI+Next.js or Supabase+Flutter, gotchas baked into comments. k8s is one flag away when you need it.</p></div>
+      <div class="card"><div class="ic">🧩</div><h3>Stacks + add-ons</h3><p>FastAPI+Next.js, Supabase+Flutter, or a Manifest V3 browser extension — gotchas baked into comments. Passwordless auth, in-app bug capture, SSRF-safe fetch, and k8s are each one flag away.</p></div>
       <div class="card"><div class="ic">🤝</div><h3>AI-agent ready</h3><p>A root <code>AGENTS.md</code> lets Claude Code, Codex, Cursor, or Aider drive the repo on sight.</p></div>
     </div>
   </section>
@@ -112,7 +112,7 @@
     <div class="stat">
       <div><div class="n">100%</div><div class="l">of its own features shipped via AI-reviewed auto-merge</div></div>
       <div><div class="n">0</div><div class="l">host SDKs required to build</div></div>
-      <div><div class="n">2</div><div class="l">production stacks ready to stamp</div></div>
+      <div><div class="n">3</div><div class="l">production stacks ready to stamp</div></div>
       <div><div class="n">1</div><div class="l">command to share your app publicly</div></div>
     </div>
   </section>
@@ -126,15 +126,18 @@
 # Non-interactive:
 ./bin/firestart.sh --defaults --set project_slug=lighthouse --set stack=fastapi-next
 
-# Optional add-on (off by default):
-./bin/firestart.sh --set include_k8s=yes</code></pre>
+# A browser-extension project (the third stack):
+./bin/firestart.sh --defaults --set stack=chrome-extension --set project_slug=buddy
+
+# Opt-in add-ons (all off by default):
+./bin/firestart.sh --set include_auth=yes   # or include_bug_report, include_ssrf_fetch, include_k8s</code></pre>
     <p class="muted" style="margin-top:14px">Then: <code>make hook-install</code> → <code>make up &amp;&amp; make migrate</code> →
       <code>gh secret set ANTHROPIC_API_KEY</code> to turn on the reviewer.</p>
   </section>
 
   <section>
-    <h2>Two real stacks</h2>
-    <div class="two">
+    <h2>Three real stacks</h2>
+    <div class="grid">
       <div class="card">
         <span class="pill">project-healer lineage</span>
         <h3>fastapi-next</h3>
@@ -144,6 +147,11 @@
         <span class="pill">project-pilgrim lineage</span>
         <h3>supabase-flutter</h3>
         <p>Postgres/PostGIS + PostgREST + GoTrue · Flutter app · Dart service layer · React/Vite splash — with the ARM64 / schema-reload / GoTrue gotchas baked into the comments.</p>
+      </div>
+      <div class="card">
+        <span class="pill">auggie-buddy lineage</span>
+        <h3>chrome-extension</h3>
+        <p>Manifest V3 extension · esbuild build · Vitest units · host-only Playwright e2e that loads the unpacked extension · a side-panel storyboard. The first DB-less stack.</p>
       </div>
     </div>
   </section>
@@ -163,7 +171,7 @@
 </main>
 
 <footer>
-  <p>🔥 <strong>Project Firestarter</strong> · distilled from project-pilgrim &amp; project-healer ·
+  <p>🔥 <strong>Project Firestarter</strong> · distilled from project-pilgrim, project-healer &amp; the auggie sibling family ·
     <a href="https://github.com/pulkitsinghal/project-firestarter">GitHub</a> ·
     <a href="https://github.com/pulkitsinghal/project-firestarter/blob/master/docs/ANATOMY.md">Anatomy</a> ·
     <a href="https://github.com/pulkitsinghal/project-firestarter/blob/master/AGENTS.md">Agent brief</a></p>
