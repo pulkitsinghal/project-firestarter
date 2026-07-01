@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import Depends, Header, Request
 
@@ -12,7 +12,8 @@ from app.services.auth import resolve_session
 
 
 def get_auth_store(request: Request) -> AuthStore:
-    return request.app.state.auth_store
+    # app.state is dynamically typed; the lifespan sets this to an AuthStore.
+    return cast(AuthStore, request.app.state.auth_store)
 
 
 def _bearer(authorization: str | None, x_session_token: str | None) -> str | None:

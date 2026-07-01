@@ -1,14 +1,15 @@
 """{{ project_name }} — FastAPI entrypoint (auth add-on enabled).
 
 Adds passwordless OTP sign-in on top of the skeleton. Auth is optional — the
-health/example endpoints work without signing in. Sessions live in an in-memory
-store by default (reset on restart); wiring a durable store is a documented
-follow-up (see docs/AUTH.md).
+health/example endpoints work without signing in. The store is in-memory by
+default (resets on restart); set AUTH_STORE=postgres for the durable Postgres
+store (apply migration 002_auth.sql first). See docs/AUTH.md.
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import psycopg
@@ -16,19 +17,27 @@ from fastapi import FastAPI
 
 from app.api.auth_routes import router as auth_router
 from app.auth.delivery import build_deliverer
-from app.auth.store import InMemoryAuthStore
+from app.auth.store import AuthStore, InMemoryAuthStore
 from app.core.config import settings
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/{{ db_name }}"
-)
+_DEFAULT_DB = "postgresql://postgres:postgres@postgres:5432/{{ db_name }}"
+DATABASE_URL = os.environ.get("DATABASE_URL", _DEFAULT_DB)
+
+
+def _build_auth_store() -> AuthStore:
+    """In-memory by default; Postgres (durable) when AUTH_STORE=postgres."""
+    if os.environ.get("AUTH_STORE", "memory").strip().lower() == "postgres":
+        from app.auth.postgres_store import PostgresAuthStore
+
+        return PostgresAuthStore(DATABASE_URL)
+    return InMemoryAuthStore()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Auth wiring: an in-memory store + an OTP deliverer (console, or SMTP when
-    # SMTP_HOST is set). Swap in a durable store here — see docs/AUTH.md.
-    app.state.auth_store = InMemoryAuthStore()
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Auth wiring: the chosen store + an OTP deliverer (console, or SMTP when
+    # SMTP_HOST is set).
+    app.state.auth_store = _build_auth_store()
     app.state.otp_deliverer = build_deliverer(settings)
     yield
 
