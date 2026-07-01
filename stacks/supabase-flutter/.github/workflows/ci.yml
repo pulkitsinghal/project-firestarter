@@ -14,6 +14,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Flutter widget tests are self-contained (no data stack); run them first
+      # so a broken app fails fast before we spin up postgres/redis/etc.
+      - name: Run Flutter app tests
+        run: docker compose --profile flutter run --rm flutter sh -c "flutter pub get && flutter test"
+
       - name: Start data stack
         run: docker compose up -d postgres redis postgrest gotrue
 
