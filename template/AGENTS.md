@@ -83,7 +83,8 @@ Use **Conventional Commits**:
   of work with implicit commit authority).
 - **Never force-push** a shared branch.
 - **Never edit an applied migration** unless the edit is provably idempotent
-  (`IF NOT EXISTS` guards). Otherwise add a new numbered migration.
+  (`IF NOT EXISTS` guards). Otherwise add a new numbered migration. To *undo*
+  one, write a revert migration — see [docs/migration-rollback.md](docs/migration-rollback.md).
 
 ## Engineering gates
 

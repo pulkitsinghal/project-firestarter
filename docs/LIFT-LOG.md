@@ -47,3 +47,4 @@ Every so often (e.g. when starting a new project), skim the siblings'
 | 2026-06-29 | gitleaks secret-scan workflow (required by auto-merge) + make target — free push-protection for private repos | security audit | template/ + stacks/ |
 | 2026-06-30 | Deny-by-default RPC EXECUTE in `001_init.sql`: revoke the implicit `PUBLIC`/`anon` grant so PostgREST doesn't expose future functions until opted in (from a verified anon-RPC exploit) | pilgrim | stacks/supabase-flutter/ |
 | 2026-06-30 | SemVer + version-sync: canonical `/VERSION`, Keep-a-Changelog seed, per-stack `scripts/sync_version.sh` + `make version-sync` (coreutils, no SDK) | healer | template/ + stacks/ |
+| 2026-06-30 | Migration-rollback runbook (genericized): revert-as-forward-migration + emergency surgery; AGENTS pointer + OPEN_QUESTIONS backup stub | pilgrim | template/docs/ |

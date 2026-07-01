@@ -22,6 +22,14 @@ date — don't delete it (the trail is the value).
 - **Leaning:** _tbd_
 - **Blocked on:** product scope.
 
+### Q: database backup & restore strategy?
+- **Context:** migrations are forward-only, so a data-destroying migration may
+  need a *restore*, not just a revert (see `docs/migration-rollback.md`).
+- **Options:** managed-provider snapshots · scheduled `pg_dump` to object
+  storage · PITR / WAL archiving.
+- **Leaning:** _tbd — decide before the first production data lands._
+- **Blocked on:** where the DB is hosted in production.
+
 ## Resolved
 
 _(move answered questions here with the decision + date)_
