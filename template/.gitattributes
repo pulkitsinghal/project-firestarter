@@ -1,0 +1,8 @@
+# Keep shell scripts and git hooks LF-only so they run under bash/sh on every
+# platform. A CRLF `.sh` (or hook) checked out on Windows fails with
+# `bad interpreter: /bin/bash^M` / `\r: command not found` — which would brick
+# `make hook-install` and every host-run script the moment a Windows contributor
+# clones. Everything else runs in Docker, but hooks and scripts run on the host.
+# Scoped narrowly (not a blanket `* text=auto`) to avoid renormalizing the tree.
+*.sh        text eol=lf
+.githooks/* text eol=lf

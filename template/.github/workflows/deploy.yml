@@ -1,0 +1,37 @@
+name: Deploy (Cloudflare quick-tunnel)
+
+# One-button beta deploy. The stack runs ON your machine and is exposed via a
+# public Cloudflare quick-tunnel, so this targets a SELF-HOSTED runner registered
+# on that machine (repo Settings → Actions → Runners → New self-hosted runner).
+# Clicking "Run workflow" brings the stack up and opens the tunnel; the run stays
+# active while the tunnel is live — cancel it to tear the tunnel down. No
+# Cloudflare account and NO secrets required (the quick-tunnel is anonymous).
+#
+# Prefer not to register a runner? Run `make up && make deploy` locally — same
+# commands. A cloud runner can't reach your local stack, which is exactly why
+# this is self-hosted. See DEPLOY.md for details.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: {{ project_slug }}-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bring the stack up
+        run: make up
+
+      - name: Open the public Cloudflare tunnel
+        # Prints the public https URL to the log, then stays in the foreground
+        # for as long as the tunnel should live. Cancel this run to take it down.
+        run: make deploy

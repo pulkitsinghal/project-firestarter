@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "{{ project_name }}",
+  "version": "0.1.0",
+  "description": "{{ project_tagline }}",
+  "action": { "default_title": "Open {{ project_name }}" },
+  "permissions": ["storage", "sidePanel"],
+  "side_panel": { "default_path": "sidebar.html" },
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "//": "Narrow or broaden these match patterns to the sites your extension acts on.",
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+name: E2E (opt-in)
+
+# The Playwright e2e suite drives a REAL headed Chromium with the MV3 extension
+# loaded — a headless container can't load an extension. This job runs it on a
+# display-less runner via Xvfb (see e2e/scripts/with-xvfb.sh) with container-safe
+# Chromium flags. It is OPT-IN (workflow_dispatch) and NOT a required check, so it
+# never gates auto-merge or a fresh stamp — the required contract stays
+# Tests / Lint & Typecheck / Build. Its job display name is deliberately distinct
+# from those (see auto-merge.yml on why names must be globally unique).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E (headed, Xvfb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the extension (in Docker)
+        run: make build
+
+      # Playwright launches a real browser, so the e2e runner uses host Node —
+      # not the Docker tools container the other gates use.
+      - name: Set up Node (host)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install e2e deps + Chromium
+        working-directory: e2e
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Run e2e under Xvfb
+        working-directory: e2e
+        run: bash scripts/with-xvfb.sh npm run test:e2e

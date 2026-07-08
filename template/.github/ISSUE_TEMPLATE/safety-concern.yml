@@ -1,0 +1,33 @@
+name: Safety / privacy concern
+description: A potential violation of a domain safety or privacy principle (sensitive data exposure, user harm, etc.).
+title: "[safety] "
+labels: ["safety", "priority/high"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Safety concerns get priority handling.** If you believe {{ project_name }}
+        is or might be exposing sensitive data, leaking user information, or
+        otherwise putting people at risk, file this *immediately* — even with
+        partial information.
+
+        For active security vulnerabilities (auth bypass, RCE, data exfiltration),
+        do **not** file a public issue — follow `SECURITY.md` instead.
+  - type: textarea
+    id: concern
+    attributes:
+      label: The concern
+      description: What might be unsafe, and who could be affected?
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity (your best guess)
+      options:
+        - "Critical — active harm or exposure"
+        - "High — likely harm if unaddressed"
+        - "Medium — potential risk"
+        - "Unsure"
+    validations:
+      required: true

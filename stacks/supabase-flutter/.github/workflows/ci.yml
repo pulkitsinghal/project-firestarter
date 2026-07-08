@@ -1,0 +1,68 @@
+name: CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Script smoke (syntax-check shipped hooks & scripts)
+        run: bash scripts/smoke.sh
+
+      # Flutter widget tests are self-contained (no data stack); run them first
+      # so a broken app fails fast before we spin up postgres/redis/etc.
+      - name: Run Flutter app tests
+        run: docker compose --profile flutter run --rm flutter sh -c "flutter pub get && flutter test"
+
+      - name: Start data stack
+        run: docker compose up -d postgres redis postgrest gotrue
+
+      - name: Wait for PostgreSQL
+        run: |
+          timeout 90 bash -c 'until docker compose exec -T postgres pg_isready -U postgres -d {{ db_name }}; do sleep 2; done'
+
+      - name: Run migrations
+        working-directory: backend
+        run: bash scripts/migrate.sh
+
+      - name: Reload PostgREST schema cache
+        run: docker compose restart postgrest
+
+      - name: Run Dart service tests
+        run: docker compose --profile dart run --rm dart sh -c "dart pub get && dart test"
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v
+
+  lint:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Flutter analyze
+        run: docker compose --profile flutter run --rm flutter sh -c "flutter pub get && flutter analyze --fatal-infos"
+
+      - name: Dart format check (read-only)
+        run: docker compose --profile flutter run --rm flutter sh -c "dart format --output=none --set-exit-if-changed ."

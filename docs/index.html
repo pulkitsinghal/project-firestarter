@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project Firestarter — start every project production-ready</title>
+<meta name="description" content="A version-controlled template that bakes in best practices, gotchas, and AI-reviewed CI/CD so new projects start production-ready.">
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2a3240;
+    --text:#e6edf3; --muted:#9aa7b4; --accent:#ff7733; --accent2:#ffb454; --ok:#3fb950; --link:#6cb6ff;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#fbfcfd; --panel:#fff; --panel2:#f3f6f9; --border:#e2e8f0; --text:#0f1722; --muted:#5b6776; --link:#0a66c2; }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  a{color:var(--link);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 20px}
+  .hero{text-align:center;padding:72px 20px 40px;
+    background:radial-gradient(900px 400px at 50% -120px, rgba(255,119,51,.18), transparent 70%);}
+  .flame{font-size:60px;line-height:1}
+  h1{font-size:clamp(34px,6vw,56px);margin:.2em 0 .1em;letter-spacing:-.02em}
+  .tag{font-size:clamp(17px,2.6vw,22px);color:var(--muted);max-width:680px;margin:0 auto 8px}
+  .sub{color:var(--muted);max-width:640px;margin:14px auto 0;font-size:15px}
+  .badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:22px 0}
+  .badge{font-size:12.5px;padding:5px 11px;border:1px solid var(--border);border-radius:999px;
+    background:var(--panel);color:var(--muted)}
+  .updated{font-size:13px;color:var(--muted);margin:8px 0 0}
+  .updated a{font-weight:600}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+  .btn{display:inline-block;padding:11px 20px;border-radius:10px;font-weight:600;border:1px solid var(--border)}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#1a1206;border:0}
+  .btn.primary:hover{text-decoration:none;filter:brightness(1.05)}
+  .btn.ghost{background:var(--panel);color:var(--text)}
+  section{padding:44px 0}
+  h2{font-size:clamp(24px,4vw,32px);margin:0 0 6px;letter-spacing:-.01em}
+  .lead{color:var(--muted);margin:0 0 26px;max-width:720px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px}
+  .card .ic{font-size:24px}
+  .card h3{margin:10px 0 6px;font-size:17px}
+  .card p{margin:0;color:var(--muted);font-size:14.5px}
+  .stat{display:flex;gap:26px;flex-wrap:wrap;justify-content:center;text-align:center;
+    background:var(--panel2);border:1px solid var(--border);border-radius:16px;padding:28px;margin-top:8px}
+  .stat .n{font-size:34px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .stat .l{color:var(--muted);font-size:13.5px;max-width:170px}
+  pre{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px;
+    overflow:auto;font-size:13.5px;line-height:1.5}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:640px){.two{grid-template-columns:1fr}}
+  .pill{display:inline-block;font-size:12px;color:var(--accent2);border:1px solid var(--border);
+    border-radius:999px;padding:2px 10px;margin-bottom:10px}
+  footer{border-top:1px solid var(--border);padding:30px 0;color:var(--muted);font-size:13.5px;text-align:center}
+  .muted{color:var(--muted)}
+  .note{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);
+    border-radius:12px;padding:15px 18px;margin:30px auto 0;max-width:780px;color:var(--muted);font-size:14.5px}
+  .note strong{color:var(--text)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="flame">🔥</div>
+  <h1>Project Firestarter</h1>
+  <p class="tag">Start every new project already wired for production.</p>
+  <p class="sub">A version-controlled template that bakes in the best practices, gotchas, and
+    AI-reviewed CI/CD a project usually earns the hard way — so day one looks like month three.</p>
+  <div class="badges">
+    <span class="badge">🐳 0 host SDKs</span>
+    <span class="badge">🤖 AI-reviewed PRs</span>
+    <span class="badge">🧩 3 stacks + 4 add-ons</span>
+    <span class="badge">♻️ self-dogfooding</span>
+  </div>
+  <p class="updated">Last updated <span id="lastUpdated">2026-07-06</span> ·
+    <a href="https://github.com/pulkitsinghal/project-firestarter/blob/master/CHANGELOG.md">Changelog&nbsp;↗</a></p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/pulkitsinghal/project-firestarter">View on GitHub</a>
+    <a class="btn ghost" href="#start">Quickstart</a>
+    <a class="btn ghost" href="https://github.com/pulkitsinghal/project-firestarter/blob/master/docs/ANATOMY.md">Anatomy</a>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <aside class="note">
+    <strong>Prod-grade rails, MVP-grade product.</strong> "Wired for production" describes the
+    <em>track</em> — CI, AI review, enforced conventions, forward-only migrations. What you build on
+    it starts as a solid MVP that <em>can</em> grow into production, not a production system on day
+    one. Firestarter makes the rigor free, so your restraint goes into product scope.
+  </aside>
+
+  <section>
+    <h2>Why it exists</h2>
+    <p class="lead">Every new repo re-pays the same tax: wire up CI, write the commit conventions,
+      remember the Docker gotchas, set up review and auto-merge, document onboarding. It takes days,
+      it's inconsistent across projects, and last project's hard-won lessons rarely reach the next one.
+      Firestarter pays that tax <strong>once</strong> — and gives you a documented process to fold new
+      lessons back in.</p>
+  </section>
+
+  <section>
+    <h2>The merits</h2>
+    <p class="lead">Concrete wins you get on day one, not eventually.</p>
+    <div class="grid">
+      <div class="card"><div class="ic">🐳</div><h3>Zero host SDKs</h3><p>Everything runs in Docker. No "install Node/Python/Dart" — <code>make up</code> and go. New contributors productive in one command.</p></div>
+      <div class="card"><div class="ic">🤖</div><h3>AI-reviewed auto-merge</h3><p>A workflow calls the Anthropic API, posts a verdict, and squash-merges green PRs. No human-review bottleneck.</p></div>
+      <div class="card"><div class="ic">✅</div><h3>Green before push</h3><p>One <code>make precommit</code> mirrors every CI gate locally, in Docker. Stop pushing to "see if CI passes."</p></div>
+      <div class="card"><div class="ic">📐</div><h3>Conventions enforced</h3><p>Conventional Commits + forward-only migrations enforced by git hooks <em>and</em> CI — not left to discipline.</p></div>
+      <div class="card"><div class="ic">🔭</div><h3>It documents itself</h3><p>A storyboard harness renders a live planned-vs-implemented map from real screenshots of your UI — now a stack precept, so every stack ships one.</p></div>
+      <div class="card"><div class="ic">🚀</div><h3>Share in one button</h3><p><code>make deploy</code> exposes your local app on a public Cloudflare URL — no account, no cloud bill.</p></div>
+      <div class="card"><div class="ic">🧩</div><h3>Stacks + add-ons</h3><p>FastAPI+Next.js, Supabase+Flutter, or a Manifest V3 browser extension — gotchas baked into comments. Passwordless auth, in-app bug capture, SSRF-safe fetch, and k8s are each one flag away.</p></div>
+      <div class="card"><div class="ic">🤝</div><h3>AI-agent ready</h3><p>A root <code>AGENTS.md</code> lets Claude Code, Codex, Cursor, or Aider drive the repo on sight.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Proven, not theoretical</h2>
+    <p class="lead">Firestarter runs its own template <em>on itself</em> — same CI, AI review, and
+      auto-merge it ships. Every feature in it landed through that pipeline.</p>
+    <div class="stat">
+      <div><div class="n">100%</div><div class="l">of its own features shipped via AI-reviewed auto-merge</div></div>
+      <div><div class="n">0</div><div class="l">host SDKs required to build</div></div>
+      <div><div class="n">3</div><div class="l">production stacks ready to stamp</div></div>
+      <div><div class="n">1</div><div class="l">command to share your app publicly</div></div>
+    </div>
+  </section>
+
+  <section id="start">
+    <h2>Quickstart</h2>
+    <p class="lead">You need only Docker. The generator itself runs in a container — nothing touches your host.</p>
+    <pre><code># Interactive — prompts for every value (Enter = default):
+./bin/firestart.sh
+
+# Non-interactive:
+./bin/firestart.sh --defaults --set project_slug=lighthouse --set stack=fastapi-next
+
+# A browser-extension project (the third stack):
+./bin/firestart.sh --defaults --set stack=chrome-extension --set project_slug=buddy
+
+# Opt-in add-ons (all off by default):
+./bin/firestart.sh --set include_auth=yes   # or include_bug_report, include_ssrf_fetch, include_k8s</code></pre>
+    <p class="muted" style="margin-top:14px">Then: <code>make hook-install</code> → <code>make up &amp;&amp; make migrate</code> →
+      <code>gh secret set ANTHROPIC_API_KEY</code> to turn on the reviewer.</p>
+  </section>
+
+  <section>
+    <h2>Three real stacks</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="pill">fastapi-next lineage</span>
+        <h3>fastapi-next</h3>
+        <p>FastAPI + PostgreSQL/pgvector + Redis backend · Next.js (App Router) frontend · Playwright storyboard.</p>
+      </div>
+      <div class="card">
+        <span class="pill">supabase-flutter lineage</span>
+        <h3>supabase-flutter</h3>
+        <p>Postgres/PostGIS + PostgREST + GoTrue · Flutter app · Dart service layer · React/Vite splash — with the ARM64 / schema-reload / GoTrue gotchas baked into the comments.</p>
+      </div>
+      <div class="card">
+        <span class="pill">chrome-extension lineage</span>
+        <h3>chrome-extension</h3>
+        <p>Manifest V3 extension · esbuild build · Vitest units · host-only Playwright e2e that loads the unpacked extension · a side-panel storyboard. The first DB-less stack.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How it works</h2>
+    <p class="lead">A <code>firestarter.config.json</code> manifest declares the variables; a stdlib-only
+      generator (run in Docker — no pip) substitutes <code>{{ tokens }}</code> and overlays the chosen
+      stack. Substitution is whitelist-only, so GitHub Actions <code>${{ … }}</code> is never clobbered.</p>
+    <div class="grid">
+      <div class="card"><h3>1 · Configure</h3><p>Answer a few prompts (or pass flags / a JSON file). Pick a stack, set the name, ports, and scopes.</p></div>
+      <div class="card"><h3>2 · Stamp</h3><p>The generator overlays the universal meta-layer + your stack (+ any add-ons) into a fresh repo.</p></div>
+      <div class="card"><h3>3 · Ship</h3><p><code>make up</code>, push a PR, and the AI reviewer + auto-merge take it from there.</p></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>🔥 <strong>Project Firestarter</strong> · distilled from a sibling project, a sibling project &amp; a family of sibling projects ·
+    <a href="https://github.com/pulkitsinghal/project-firestarter">GitHub</a> ·
+    <a href="https://github.com/pulkitsinghal/project-firestarter/blob/master/docs/ANATOMY.md">Anatomy</a> ·
+    <a href="https://github.com/pulkitsinghal/project-firestarter/blob/master/AGENTS.md">Agent brief</a></p>
+</footer>
+
+<script>
+  // Keep "Last updated" honest without manual edits: reflect when this page was
+  // last deployed (GitHub Pages serves a real Last-Modified). Falls back to the
+  // seeded date if the browser can't parse it or JS is off.
+  (function () {
+    var el = document.getElementById('lastUpdated');
+    if (!el) return;
+    var d = new Date(document.lastModified);
+    if (!isNaN(d.getTime())) el.textContent = d.toISOString().slice(0, 10);
+  })();
+</script>
+
+</body>
+</html>

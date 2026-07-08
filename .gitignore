@@ -1,0 +1,11 @@
+# Firestarter's own ignores. (template/.gitignore is the one stamped into new
+# projects — don't confuse the two.)
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Generator scratch / smoke-test output
+/tmp/
+*.local.json
+answers.json

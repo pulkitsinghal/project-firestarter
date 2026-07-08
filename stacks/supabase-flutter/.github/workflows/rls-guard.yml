@@ -1,0 +1,56 @@
+name: RLS guard
+
+# Guards the public-schema RLS surface (Supabase advisor `rls_disabled_in_public`).
+# PostgREST + Supabase Cloud grant anon/authenticated blanket access to public
+# tables by default, so a public table lands world-readable/-writable unless a
+# migration enables Row-Level Security. This job applies all migrations to a
+# throwaway stack (mirroring ci.yml) and fails if any public app table has RLS
+# disabled but is not on backend/security/rls_disabled_allowlist.txt.
+#
+# Path-scoped to migration / security changes so it never blocks unrelated PRs
+# (and a fresh stamp with no such change stays green).
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'backend/migrations/**'
+      - 'backend/security/**'
+      - '.github/workflows/rls-guard.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: rls-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: RLS allow-list
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start data stack
+        run: docker compose up -d postgres redis postgrest gotrue
+
+      - name: Wait for PostgreSQL
+        run: |
+          timeout 90 bash -c 'until docker compose exec -T postgres pg_isready -U postgres -d {{ db_name }}; do sleep 2; done'
+
+      - name: Run migrations
+        working-directory: backend
+        run: bash scripts/migrate.sh
+
+      - name: Check public RLS surface against the allow-list
+        run: bash backend/security/check_rls_enabled.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

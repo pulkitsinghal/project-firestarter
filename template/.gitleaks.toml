@@ -1,0 +1,31 @@
+# gitleaks config for {{ project_name }}. Extends the default ruleset and
+# allowlists build-artifact/cache dirs so local `make secret-scan` on a dirty
+# tree doesn't false-positive (CI scans a clean checkout, so this only matters
+# for local runs). Add your own allowlists here for known public/test fixtures
+# (e.g. a published demo token) — keep them as narrow as possible.
+#
+# ⚠️ RE2 — no lookahead. gitleaks compiles regexes with Go's RE2 engine, which has
+# NO lookahead/lookbehind and NO backreferences. A `regexes`/`paths` pattern here
+# containing `(?!…)`, `(?=…)`, `(?<…)`, or a backref does not error politely — it
+# PANICS gitleaks. Because `.github/workflows/secret-scan.yml` is a REQUIRED check
+# that `auto-merge.yml` gates on, that panic turns every PR red until the pattern
+# is removed. Keep allowlist patterns RE2-safe (char classes, anchors, and `\b`
+# are fine; lookarounds/backrefs are not).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Build artifacts / caches (not committed)"
+paths = [
+  '''node_modules/''',
+  '''\.pnpm-store/''',
+  '''\.next/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''\.dart_tool/''',
+  '''\.venv/''',
+  '''__pycache__/''',
+  '''\.pytest_cache/''',
+  '''\.mypy_cache/''',
+  '''\.ruff_cache/''',
+]

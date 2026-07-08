@@ -1,0 +1,22 @@
+name: Feature request
+description: Propose a change or new capability.
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem does this solve? Who is it for?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Sketch the change. Note alternatives considered.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Migration / invariant impact
+      description: Does this touch the schema, the canonical write path, or a domain invariant?

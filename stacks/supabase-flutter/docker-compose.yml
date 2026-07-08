@@ -1,0 +1,140 @@
+# {{ project_name }} — local dev + CI stack (supabase-flutter).
+#
+# Principle: no host SDKs. Postgres/PostGIS, PostgREST, GoTrue, Dart, Flutter,
+# and the splash toolchain all run in containers. App/data services run by
+# default; language toolchains live behind profiles (`dart`, `flutter`,
+# `splash`, `storyboard`) invoked via the Makefile.
+#
+# This is a lean Supabase-style stack. Add Kong (API gateway) and Studio if you
+# want the full Supabase surface — see the Supabase docs for a fuller example.
+
+services:
+  postgres:
+    # GOTCHA (Apple Silicon): use imresamu/postgis (multi-arch), NOT
+    # postgis/postgis (amd64-only) — the latter fails to start on ARM64 hosts.
+    image: imresamu/postgis:15-3.4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: {{ db_name }}
+    ports:
+      - "{{ port_db }}:5432"
+    volumes:
+      - {{ pgdata_volume }}:/var/lib/postgresql/data
+      # One-time bootstrap SQL (CREATE SCHEMA auth) that GoTrue needs before it
+      # can run its own migrations — runs only on a fresh volume. Do NOT mount
+      # ./backend/migrations here: that bypasses the {{ migrations_table }}
+      # history table and silently double-applies. `make migrate` is the single
+      # migration path = single source of truth.
+      - ./backend/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d {{ db_name }}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "{{ port_redis }}:6379"
+
+  postgrest:
+    # GOTCHA: PostgREST caches the schema at startup. After `make migrate`,
+    # always `docker compose restart postgrest` (or `make pgrst-reload`).
+    image: postgrest/postgrest:v12.0.1
+    environment:
+      PGRST_DB_URI: postgres://postgres:postgres@postgres:5432/{{ db_name }}
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "{{ port_api }}:3000"
+
+  gotrue:
+    # GOTCHA: GoTrue must connect with ?search_path=auth so its queries resolve
+    # to auth.users (not public.users). Pin the version — binary/schema drift
+    # between GoTrue versions is a classic time-sink.
+    image: supabase/gotrue:v2.191.0
+    environment:
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@postgres:5432/{{ db_name }}?search_path=auth
+      GOTRUE_SITE_URL: http://localhost:{{ port_web }}
+      # Dev-only default — MUST be overridden in any shared/prod deploy by
+      # setting JWT_SECRET in the environment. Never bake a usable secret into
+      # the image (see SECURITY.md). PostgREST needs the SAME value in
+      # PGRST_JWT_SECRET to validate GoTrue-minted tokens once you wire auth.
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-change-me-min-32-characters}
+      API_EXTERNAL_URL: http://localhost:9999
+      # Local-dev only: complete email/phone OTP signup without a real SMTP/SMS
+      # provider (otherwise sign-up stalls on "confirm your email"). Never enable
+      # these in production.
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMS_AUTOCONFIRM: "${GOTRUE_SMS_AUTOCONFIRM:-true}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Tooling (no host SDKs). Override the command at call time. ───────────────
+  dart:
+    profiles: ["dart"]
+    image: dart:stable
+    working_dir: /pkg
+    volumes:
+      - ./services:/pkg
+    command: ["dart", "test"]
+
+  flutter:
+    profiles: ["flutter"]
+    image: ghcr.io/cirruslabs/flutter:stable
+    working_dir: /app
+    volumes:
+      - ./app:/app
+      - flutter_pub_cache:/root/.pub-cache
+    command: ["flutter", "analyze"]
+
+  splash:
+    profiles: ["splash"]
+    image: node:20-alpine
+    working_dir: /splash
+    # GOTCHA (Docker file-watching on macOS/Windows/WSL2): inotify events don't
+    # propagate into a container over a bind mount, so a Vite/webpack dev server
+    # (`pnpm dev`) won't hot-reload without polling. These make HMR fire; they're
+    # inert for the default one-shot `pnpm build` below, so it's safe to keep.
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./splash:/splash
+      - splash_node_modules:/splash/node_modules
+    command: ["sh", "-c", "corepack enable && pnpm install && pnpm build"]
+
+  storyboard:
+    profiles: ["storyboard"]
+    build: ./storyboard
+    environment:
+      FRONTEND_URL: http://splash:5173
+      OUT_DIR: /out
+    volumes:
+      - ./storyboard/output:/out
+      # ./docs is mounted so the harness can (re)generate docs/STORYBOARD.md and
+      # the committed previews under docs/assets/storyboard/.
+      - ./docs:/docs
+
+  # One-button beta deploy: expose a service on a public Cloudflare quick-tunnel
+  # URL. No account, no token, free TLS. `make deploy` prints a
+  # https://<words>.trycloudflare.com URL. Defaults to the PostgREST API so a
+  # remote client can reach the backend; repoint at your served web app (Flutter
+  # web build / splash dev) by editing the --url below. See DEPLOY.md.
+  cloudflared:
+    profiles: ["deploy"]
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://postgrest:3000
+    depends_on:
+      - postgrest
+
+volumes:
+  {{ pgdata_volume }}:
+  flutter_pub_cache:
+  splash_node_modules:

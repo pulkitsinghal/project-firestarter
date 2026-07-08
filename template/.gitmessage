@@ -1,0 +1,16 @@
+# <type>(<scope>): <imperative subject, ≤72 chars (100 enforced)>
+#
+# Types:  feat fix refactor chore docs test ci build
+# Scopes: {{ commit_scopes }}
+#
+# Examples:
+#   feat(backend): add idempotent migration runner
+#   fix(api): reject writes that bypass the canonical state path
+#   chore(docker): pin postgres image to a multi-arch tag
+#
+# Body (optional, only if WHY isn't obvious from subject + diff):
+#   - what problem does this solve and what alternatives were considered
+#   - any rollback or migration considerations
+#   - links to issues, plans, or docs
+#
+# {{ coauthor_policy }}

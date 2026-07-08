@@ -1,0 +1,113 @@
+name: CI
+
+# Self-CI for the firestarter generator. Job display names (Tests, Lint &
+# Typecheck) match the contract auto-merge.yml gates on.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stamp both example stacks and assert no leaks
+        run: |
+          set -euo pipefail
+          OUT="$(mktemp -d)"
+          # FIRESTARTER_NATIVE path: the runner already has python3; the
+          # generator is stdlib-only. (Devs use the Docker wrapper.)
+          for ex in fastapi-next supabase-flutter; do
+            python3 bin/generate.py --values "examples/$ex.answers.json" --output "$OUT/$ex"
+          done
+
+          # 1. No unsubstituted tokens leaked. The only legitimate {{ matches are
+          #    GitHub Actions expression syntax and JSX style={{ }} object literals.
+          if grep -rn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::unsubstituted {{ token }} leaked into generated output"
+            exit 1
+          fi
+          echo "✓ no token leaks"
+
+          # 2. GitHub Actions expressions must survive substitution untouched.
+          #    [$]{{ matches a literal dollar-brace-brace without itself being one.
+          test "$(grep -c '[$]{{' "$OUT/fastapi-next/.github/workflows/auto-merge.yml")" -gt 0
+          echo "✓ GitHub expressions preserved"
+
+          # 3. Generated shell parses.
+          bash -n "$OUT/fastapi-next/backend/scripts/migrate.sh"
+          bash -n "$OUT/supabase-flutter/backend/scripts/migrate.sh"
+          for h in commit-msg pre-commit pre-push; do
+            sh -n "$OUT/fastapi-next/.githooks/$h"
+          done
+          echo "✓ generated scripts parse"
+
+          # 4. Generated workflow YAML parses.
+          python3 -m pip install --quiet pyyaml
+          python3 - "$OUT" <<'PY'
+          import glob, sys, yaml
+          out = sys.argv[1]
+          for f in glob.glob(f"{out}/*/.github/workflows/*.yml"):
+              yaml.safe_load(open(f))
+          print("✓ generated workflow YAML parses")
+          PY
+
+      - name: Stamp the optional k8s add-on and validate it
+        run: |
+          set -euo pipefail
+          OUT="$(mktemp -d)"
+          for stack in fastapi-next supabase-flutter; do
+            python3 bin/generate.py --defaults \
+              --set stack=$stack --set project_slug=k8stest --set include_k8s=yes \
+              --output "$OUT/$stack"
+            test -f "$OUT/$stack/k8s/base/kustomization.yaml" \
+              || { echo "::error::k8s add-on not stamped for $stack"; exit 1; }
+          done
+          # No leaks in the add-on output either.
+          if grep -rn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::token leak in k8s add-on output"; exit 1
+          fi
+          # All k8s YAML parses (multi-doc).
+          python3 - "$OUT" <<'PY'
+          import glob, sys, yaml
+          n = 0
+          for f in glob.glob(f"{sys.argv[1]}/*/k8s/**/*.yaml", recursive=True):
+              list(yaml.safe_load_all(open(f))); n += 1
+          print(f"✓ k8s add-on: {n} YAML files parse, no leaks")
+          PY
+
+      - name: Confirm k8s is OFF by default
+        run: |
+          set -euo pipefail
+          OUT="$(mktemp -d)"
+          python3 bin/generate.py --defaults --set project_slug=nok8s --output "$OUT/d"
+          test ! -d "$OUT/d/k8s" && echo "✓ k8s absent unless include_k8s=yes"
+
+  lint:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile the generator
+        run: python3 -m py_compile bin/generate.py
+
+      - name: Shell-check the entrypoint
+        run: bash -n bin/firestart.sh
+
+      - name: Validate firestarter's own workflow YAML
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import glob, yaml
+          for f in glob.glob(".github/workflows/*.yml"):
+              yaml.safe_load(open(f))
+          print("✓ workflow YAML parses")
+          PY

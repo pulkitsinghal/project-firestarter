@@ -1,0 +1,19 @@
+{
+  "_comment": "Planned-vs-implemented map for {{ project_name }}. Hand-edited as the extension evolves; rendered into docs/STORYBOARD.md by storyboard.mjs on every `make storyboard`. 'shot' is a PNG the harness captures into storyboard/output/ (gitignored); null = no captured screen yet. status: done | partial | planned | changed.",
+  "versions": [
+    {
+      "title": "v0.1 — Scaffold",
+      "subtitle": "The starter slice. Replace these rows with real surfaces as they land.",
+      "groups": [
+        {
+          "name": "Side panel",
+          "rows": [
+            { "screen": "Side panel", "shot": "01-sidebar.png", "story": "—", "status": "done", "note": "Built sidebar.html renders the project name + greeting." },
+            { "screen": "Content script action", "shot": null, "story": "—", "status": "planned", "note": "What the extension does on a matched page." },
+            { "screen": "Options / settings", "shot": null, "story": "—", "status": "planned", "note": "Add an options page and screenshot it here." }
+          ]
+        }
+      ]
+    }
+  ]
+}

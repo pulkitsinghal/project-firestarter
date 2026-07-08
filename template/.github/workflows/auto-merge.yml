@@ -1,0 +1,185 @@
+name: Auto-merge
+
+# Auto-merges PRs that have:
+#   1. The `auto-merge` label applied
+#   2. All required status checks green (Tests, Lint & Typecheck, Conventional
+#      Commits, and Build when it runs)
+#   3. No sustained "BLOCKING" verdict from the AI reviewer comment
+#
+# To opt a PR into auto-merge: add the `auto-merge` label. Remove it to cancel.
+# Requires branch protection on master with the same checks as required.
+#
+# Check names below MUST match the job display names in ci.yml. The two shipped
+# stacks both use: "Tests", "Lint & Typecheck", and (conditionally) "Build".
+#
+# And those display names must be GLOBALLY UNIQUE across every workflow — the
+# verdict lookup below keys check runs by display name, so two jobs sharing a
+# name shadow each other (see the note at the byName map). When you add a
+# workflow, don't reuse "Tests" / "Lint & Typecheck" / "Build" / "Conventional
+# Commits" / "Secret Scan" for one of its jobs.
+
+on:
+  pull_request:
+    types: [labeled, unlabeled, synchronize]
+  check_suite:
+    types: [completed]
+  workflow_run:
+    workflows: [CI, "Commit Lint", "AI PR Review"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  auto-merge:
+    name: Squash-merge if green
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'auto-merge')
+    steps:
+      - name: Find candidate PR
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ev = context.eventName;
+            let pr;
+            if (ev === 'pull_request') {
+              pr = context.payload.pull_request;
+            } else {
+              const sha = ev === 'check_suite'
+                ? context.payload.check_suite.head_sha
+                : context.payload.workflow_run.head_sha;
+              const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: sha,
+              });
+              pr = data.find(p => p.state === 'open'
+                && p.labels.some(l => l.name === 'auto-merge'));
+            }
+            if (!pr) {
+              core.info('No auto-merge candidate PR.');
+              return null;
+            }
+            core.setOutput('number', pr.number);
+            core.setOutput('head_sha', pr.head.sha);
+            return pr.number;
+
+      - name: Check AI reviewer verdict
+        if: steps.pr.outputs.number
+        id: verdict
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = parseInt('${{ steps.pr.outputs.number }}', 10);
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+            // The review is posted by github-actions[bot]; verify both the actor
+            // login and the body signature to prevent spoofing.
+            const MAX_BLOCKING_CYCLES = 3;
+            const reviews = comments
+              .filter(c => c.user && c.user.login === 'github-actions[bot]'
+                        && c.body && c.body.includes('## Claude PR Review'))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            if (reviews.length === 0) {
+              core.info('No AI review found yet; skipping auto-merge.');
+              core.setOutput('verdict', 'NONE');
+              return;
+            }
+            const body = reviews[0].body || '';
+            const latestIsBlocking = /^BLOCKING$/m.test(body);
+            const blockingCount = reviews.filter(r => /^BLOCKING$/m.test(r.body || '')).length;
+            if (latestIsBlocking && blockingCount >= MAX_BLOCKING_CYCLES) {
+              core.info(`AI reviewer has issued ${blockingCount} BLOCKING verdicts (cap: ${MAX_BLOCKING_CYCLES}). Treating as OK — all other checks must still be green.`);
+              core.setOutput('verdict', 'OK');
+              return;
+            }
+            if (latestIsBlocking) {
+              core.info('AI review verdict: BLOCKING. Not auto-merging.');
+              core.setOutput('verdict', 'BLOCKING');
+            } else if (/^(LGTM|NON-BLOCKING)$/m.test(body)) {
+              core.info('AI review verdict: LGTM/NON-BLOCKING. Eligible.');
+              core.setOutput('verdict', 'OK');
+            } else {
+              core.info('Verdict line not found; skipping auto-merge.');
+              core.setOutput('verdict', 'UNKNOWN');
+            }
+
+      - name: Verify all required checks are green
+        if: steps.verdict.outputs.verdict == 'OK'
+        id: checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = '${{ steps.pr.outputs.head_sha }}';
+            // Always-required checks — must be green on every PR.
+            const alwaysRequired = ['Tests', 'Lint & Typecheck', 'Conventional Commits', 'Secret Scan'];
+            // Path-gated check — only required when the job actually ran for this commit.
+            const conditionalRequired = ['Build'];
+            const { data } = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha,
+              per_page: 100,
+            });
+            // Check runs are keyed by DISPLAY NAME. Job display names must be
+            // UNIQUE across every workflow: if two jobs share a name, only the
+            // latest-completed one survives here and the other is invisible — so
+            // auto-merge can evaluate the wrong job's result for a required name.
+            // Keep workflow job names globally distinct (see the header note).
+            const byName = {};
+            for (const run of data.check_runs) {
+              if (!byName[run.name] || new Date(run.completed_at) > new Date(byName[run.name].completed_at)) {
+                byName[run.name] = run;
+              }
+            }
+            const failed = [
+              ...alwaysRequired.filter(name => {
+                const run = byName[name];
+                return !run || run.conclusion !== 'success';
+              }),
+              ...conditionalRequired.filter(name => {
+                const run = byName[name];
+                return run && run.conclusion !== 'success';
+              }),
+            ];
+            if (failed.length > 0) {
+              core.info(`Required checks not yet green: ${failed.join(', ')}`);
+              core.setOutput('ready', 'false');
+            } else {
+              core.info('All required checks green (path-gated checks skipped if not triggered).');
+              core.setOutput('ready', 'true');
+            }
+
+      - name: Squash-merge
+        if: steps.verdict.outputs.verdict == 'OK' && steps.checks.outputs.ready == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = parseInt('${{ steps.pr.outputs.number }}', 10);
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              merge_method: 'squash',
+              sha: '${{ steps.pr.outputs.head_sha }}',
+            });
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            await github.rest.git.deleteRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${pr.head.ref}`,
+            }).catch(() => {});
+            core.info(`Merged PR #${prNumber} and deleted ${pr.head.ref}.`);

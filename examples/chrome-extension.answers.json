@@ -1,0 +1,15 @@
+{
+  "project_name": "Acme (Extension)",
+  "project_slug": "acmecx",
+  "project_tagline": "A browser side-panel companion for capturing web content.",
+  "github_owner": "pulkitsinghal",
+  "github_repo": "example-chrome-extension",
+  "stack": "chrome-extension",
+  "commit_scopes": "extension e2e storyboard docs ci build",
+  "require_coauthor": "no",
+  "coauthor_footer": "Co-Authored-By: Oz <oz@example.com>",
+  "port_db": "5432",
+  "port_redis": "6379",
+  "port_api": "3001",
+  "port_web": "5173"
+}

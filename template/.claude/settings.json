@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git add -A)",
+      "Bash(git add -A *)",
+      "Bash(git add --all)",
+      "Bash(git add --all *)",
+      "Bash(git add .)",
+      "Bash(git commit -a)",
+      "Bash(git commit -a *)",
+      "Bash(git commit -am *)",
+      "Bash(git commit --all *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/session-start-clean-tree.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

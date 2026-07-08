@@ -1,0 +1,61 @@
+name: Auto-merge by default
+
+# Opt-OUT auto-merge. Every non-draft PR gets the `auto-merge` label automatically
+# on open, so nobody has to remember to add it — the #1 reason green PRs used to
+# sit unmerged. The actual squash-merge is still done by auto-merge.yml once all
+# required checks are green and the AI review is not BLOCKING.
+#
+# To hold a PR back: open it as a draft, OR add the `hold` label. (Removing the
+# `auto-merge` label also holds it — this workflow only applies the label on
+# open / reopen / ready-for-review, so it won't fight a manual removal.)
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  label:
+    name: Apply auto-merge label
+    runs-on: ubuntu-latest
+    # Skip drafts and anything explicitly held.
+    if: >-
+      github.event.pull_request.draft == false &&
+      !contains(github.event.pull_request.labels.*.name, 'hold') &&
+      !contains(github.event.pull_request.labels.*.name, 'no-auto-merge')
+    steps:
+      - name: Ensure labels exist and apply auto-merge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const number = context.payload.pull_request.number;
+
+            // Idempotently ensure the labels this pipeline relies on exist.
+            const wanted = [
+              { name: 'auto-merge', color: '0e8a16',
+                description: 'Squash-merge automatically once checks are green and AI review is not BLOCKING' },
+              { name: 'hold', color: 'b60205',
+                description: 'Block auto-merge. Remove to allow the PR to merge.' },
+            ];
+            for (const l of wanted) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: l.name });
+              } catch (e) {
+                if (e.status === 404) {
+                  await github.rest.issues.createLabel({ owner, repo, ...l });
+                  core.info(`Created label '${l.name}'.`);
+                } else {
+                  throw e;
+                }
+              }
+            }
+
+            await github.rest.issues.addLabels({
+              owner, repo, issue_number: number, labels: ['auto-merge'],
+            });
+            core.info(`Applied 'auto-merge' to PR #${number}.`);

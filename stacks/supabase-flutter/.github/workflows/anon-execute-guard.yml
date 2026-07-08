@@ -1,0 +1,56 @@
+name: anon-execute guard
+
+# Guards the anon EXECUTE surface. Postgres grants EXECUTE to PUBLIC by default,
+# and the stack's deny-by-default (001_init.sql) only covers FUTURE functions —
+# so a new function can land anon-callable unless its migration REVOKEs it. This
+# job applies all migrations to a throwaway stack (mirroring ci.yml) and fails if
+# any public app function is anon-executable but not on
+# backend/security/anon_execute_allowlist.txt.
+#
+# Path-scoped to migration / security changes so it never blocks unrelated PRs
+# (and a fresh stamp with no such change stays green).
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'backend/migrations/**'
+      - 'backend/security/**'
+      - '.github/workflows/anon-execute-guard.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: anon-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: anon EXECUTE allow-list
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start data stack
+        run: docker compose up -d postgres redis postgrest gotrue
+
+      - name: Wait for PostgreSQL
+        run: |
+          timeout 90 bash -c 'until docker compose exec -T postgres pg_isready -U postgres -d {{ db_name }}; do sleep 2; done'
+
+      - name: Run migrations
+        working-directory: backend
+        run: bash scripts/migrate.sh
+
+      - name: Check anon EXECUTE surface against the allow-list
+        run: bash backend/security/check_anon_execute.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

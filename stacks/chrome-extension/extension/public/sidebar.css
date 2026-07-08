@@ -1,0 +1,24 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 1rem;
+}
+
+h1 {
+  font-size: 1.1rem;
+  margin: 0 0 0.25rem;
+}
+
+.tagline {
+  margin: 0 0 0.75rem;
+  color: #666;
+}
+
+#greeting {
+  font-variant-numeric: tabular-nums;
+  color: #333;
+}

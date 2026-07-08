@@ -1,0 +1,49 @@
+name: Scheduled Agent
+
+# Opt-in "cloud session": on a schedule (or manual dispatch) run an AI agent that
+# reads this repo and opens a GitHub issue for a human to react to — a recurring
+# idea drop, triage sweep, dependency digest, changelog draft, stale-issue nudge…
+#
+# Runs in GitHub's cloud, independent of any local machine, using the existing
+# ANTHROPIC_API_KEY repo secret (the same one the AI PR reviewer uses). Read-only
+# otherwise — it only opens an issue.
+#
+# Trigger: manual by default (Actions tab → "Run workflow"). To make it recurring,
+# uncomment the `schedule` block below — each run costs a small API charge, so it
+# is left OFF until you opt in.
+
+on:
+  workflow_dispatch: {}
+  # schedule:
+  #   - cron: '0 14 * * 1'   # every Monday ~14:00 UTC. Uncomment to enable.
+
+# Least-privilege: read the repo, write issues. Nothing else.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: scheduled-agent
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    name: Run agent + open issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run the agent and open the issue
+        run: node scripts/agent-drop.mjs
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MODEL: ${{ vars.CLAUDE_MODEL || '{{ claude_model }}' }}
+          AGENT_PROMPT_FILE: .github/agent/prompt.md

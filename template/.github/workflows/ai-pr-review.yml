@@ -1,0 +1,186 @@
+name: AI PR Review
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Reviews PRs using the Anthropic API directly (no GitHub App required).
+# Requires a repo secret: ANTHROPIC_API_KEY (Settings → Secrets → Actions).
+# Optional repo variable: CLAUDE_MODEL (defaults to {{ claude_model }}).
+# Posts the review as a PR comment using the built-in GITHUB_TOKEN.
+#
+# Project-specific invariants: add them to the prompt block below (search for
+# "PROJECT INVARIANTS"). Keep them factual and diff-checkable so the reviewer
+# only flags violations it can actually see.
+
+on:
+  pull_request:
+    branches: [master, main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Claude PR review
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.title, '[no-ai-review]') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Count prior BLOCKING verdicts on this PR
+        id: blocking_count
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          COUNT=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq \
+            '[.[] | select(
+                .user.login=="github-actions[bot]"
+                and (.body | contains("## Claude PR Review"))
+                and (.body | test("^BLOCKING$";"m"))
+              )] | length' 2>/dev/null || echo 0)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Prior BLOCKING verdicts on this PR: $COUNT"
+
+      - name: Generate review via Anthropic API
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || '{{ claude_model }}' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+          PRIOR_BLOCKING: ${{ steps.blocking_count.outputs.count }}
+        run: |
+          git fetch origin "$BASE_REF"
+          git diff "origin/$BASE_REF"...HEAD > /tmp/pr_diff_full.txt
+          FULL_SIZE=$(wc -c < /tmp/pr_diff_full.txt)
+          head -c 80000 /tmp/pr_diff_full.txt > /tmp/pr_diff.txt
+          if [ "$FULL_SIZE" -gt 80000 ]; then
+            echo "::warning::Diff truncated: ${FULL_SIZE} bytes → 80000 bytes. Changes after the cutoff are not reviewed."
+          fi
+
+          python3 - <<'PYEOF'
+          import json, os, sys, textwrap, urllib.request, urllib.error
+
+          api_key = os.environ.get("ANTHROPIC_API_KEY")
+          if not api_key:
+              print("ANTHROPIC_API_KEY not set — skipping AI review.")
+              with open('/tmp/review.txt', 'w') as f:
+                  f.write("NON-BLOCKING\n(ANTHROPIC_API_KEY not configured)")
+              sys.exit(0)
+
+          with open('/tmp/pr_diff.txt') as f:
+              diff = f.read()
+
+          if not diff.strip():
+              print("No diff found — skipping review.")
+              with open('/tmp/review.txt', 'w') as f:
+                  f.write("No diff to review.")
+              sys.exit(0)
+
+          prior_blocking = int(os.environ.get("PRIOR_BLOCKING", "0"))
+          loop_note = ""
+          if prior_blocking >= 2:
+              loop_note = (
+                  f"\nIMPORTANT: This PR has already received {prior_blocking} BLOCKING verdict(s) "
+                  "from you on prior pushes. The full CI suite is passing. On this pass, only flag "
+                  "issues that are PROVABLY INCORRECT — wrong logic, data corruption, a genuine "
+                  "security hole, or a violation of the project invariants below. Do NOT re-flag "
+                  "style preferences, test-coverage gaps, or architectural opinions. If the remaining "
+                  "issues are subjective, return NON-BLOCKING or LGTM.\n"
+              )
+
+          prompt = textwrap.dedent("""\
+              You are a code reviewer for {{ project_name }}. Review the diff and
+              report real findings only. Skip any heading with no findings.
+
+              1. Correctness — wrong logic, bad state transitions, data loss
+              2. Security — auth bypasses, SQL injection, unintended data exposure
+              3. Migration safety — editing applied migrations, non-idempotent changes, schema breaks
+              4. Breaking changes — API or schema changes that break existing clients
+              5. Style/lints — ONLY issues the project's linters/type-checkers would NOT already catch
+
+              ── PROJECT INVARIANTS ──────────────────────────────────────────────────────────
+              These are non-negotiable. Flag a violation as BLOCKING only when it is factually
+              present in the diff. (Fill these in for your project — see ARCHITECTURE.md.)
+                • Forward-only migrations: monotonic numbering, idempotent SQL
+                  (IF NOT EXISTS / CREATE OR REPLACE). Never edit an applied migration except
+                  for provably idempotent hardening.
+                • No host SDKs: toolchains run in Docker Compose profiles, never on the host.
+
+              ── VERDICT CRITERIA ────────────────────────────────────────────────────────────
+              BLOCKING      Provably incorrect logic, data corruption risk, genuine security
+                            vulnerability, a non-idempotent edit to an applied migration, or a
+                            project-invariant violation factually present in the diff.
+              NON-BLOCKING  Suggestions, missing tests, style preferences, design opinions.
+              LGTM          No findings or only trivial notes.
+
+              Never issue BLOCKING for: test-coverage gaps, logging choices, hardcoded demo
+              values, or catch blocks in frontend UI code.
+              ────────────────────────────────────────────────────────────────────────────────
+              """) + loop_note + "\nEnd your response with exactly one of these on its own line " \
+              "(no surrounding text): BLOCKING, NON-BLOCKING, or LGTM.\n\nDiff:\n" + diff
+
+          payload = json.dumps({
+              "model": os.environ.get("CLAUDE_MODEL", "{{ claude_model }}"),
+              "max_tokens": 4096,
+              "messages": [{"role": "user", "content": prompt}]
+          }).encode()
+
+          req = urllib.request.Request(
+              "https://api.anthropic.com/v1/messages",
+              data=payload,
+              headers={
+                  "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+                  "anthropic-version": "2023-06-01",
+                  "content-type": "application/json",
+              },
+          )
+
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  body = json.loads(resp.read())
+              review = body["content"][0]["text"]
+          except urllib.error.HTTPError as e:
+              review = f"Review failed (HTTP {e.code}): {e.read().decode()}"
+          except urllib.error.URLError as e:
+              review = f"Review failed (network): {e.reason}"
+          except Exception as e:
+              review = f"Review failed (unexpected): {e}"
+
+          with open('/tmp/review.txt', 'w') as f:
+              f.write(review)
+
+          print(review)
+          PYEOF
+
+      - name: Post review as PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          REVIEW=$(cat /tmp/review.txt)
+          BODY="## Claude PR Review
+
+          ${REVIEW}
+
+          ---
+          *Reviewed by Claude via the Anthropic API*"
+
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+
+      - name: Fail if review is BLOCKING
+        run: |
+          if grep -q "^BLOCKING$" /tmp/review.txt; then
+            echo "Review verdict: BLOCKING"
+            exit 1
+          fi
+          VERDICT=$(grep -E "^(BLOCKING|NON-BLOCKING|LGTM)$" /tmp/review.txt | tail -1)
+          echo "Review verdict: ${VERDICT:-unknown}"

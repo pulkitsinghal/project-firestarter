@@ -1,0 +1,14 @@
+{
+  "project_name": "Acme (FastAPI)",
+  "project_slug": "acmefn",
+  "project_tagline": "Deterministic clinical simulation operating system.",
+  "github_owner": "pulkitsinghal",
+  "github_repo": "example-fastapi-next",
+  "stack": "fastapi-next",
+  "commit_scopes": "backend frontend engines migrations docs ci build",
+  "require_coauthor": "no",
+  "port_db": "5433",
+  "port_redis": "6380",
+  "port_api": "8010",
+  "port_web": "3010"
+}

@@ -1,0 +1,84 @@
+name: CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Script smoke (syntax-check shipped hooks & scripts)
+        run: bash scripts/smoke.sh
+
+      - name: Start infrastructure
+        run: docker compose up -d postgres redis
+
+      - name: Wait for PostgreSQL
+        run: |
+          timeout 90 bash -c 'until docker compose exec -T postgres pg_isready -U postgres -d {{ db_name }}; do sleep 2; done'
+          echo "PostgreSQL is ready"
+
+      - name: Run migrations
+        working-directory: backend
+        run: bash scripts/migrate.sh
+
+      - name: Build tools image
+        run: docker compose --profile tools build backend-tools
+
+      - name: Run backend tests
+        # Postgres is up + migrated above, so pass TEST_DATABASE_URL to also run
+        # the gated integration tests (hermetic runs skip them). See `make backend-itest`.
+        run: docker compose --profile tools run --rm -e TEST_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/{{ db_name }} backend-tools pytest -q
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop infrastructure
+        if: always()
+        run: docker compose down -v
+
+  lint:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build tooling images
+        run: |
+          docker compose --profile tools build backend-tools
+          docker compose --profile node build frontend-tools
+
+      - name: Backend lint (ruff + mypy)
+        run: docker compose --profile tools run --rm backend-tools sh -c "ruff format --check . && ruff check . && mypy app"
+
+      - name: Frontend typecheck
+        run: docker compose --profile node run --rm frontend-tools npm run typecheck
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build frontend image
+        run: docker compose --profile node build frontend-tools
+
+      - name: next build
+        run: docker compose --profile node run --rm frontend-tools npm run build

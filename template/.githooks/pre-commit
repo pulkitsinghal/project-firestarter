@@ -1,0 +1,27 @@
+#!/bin/sh
+#
+# Pre-commit hook: runs `make precommit` (all gates, all inside Docker — no host
+# SDKs) when the staged diff touches source. Skipped for docs-only changes.
+#
+# Enable per-checkout via:
+#   make hook-install
+# Or directly:
+#   git config core.hooksPath .githooks
+#
+# Skip with: git commit --no-verify
+
+CHANGED=$(git diff --cached --name-only --diff-filter=ACMR)
+
+# Source globs across the supported stacks. Add yours here if it differs.
+if echo "$CHANGED" | grep -qE '^(backend|frontend|app|splash|services)/|(pyproject\.toml|package\.json|pubspec\.yaml)$'; then
+    echo "▶ pre-commit: running precommit gates (Docker)..."
+    make precommit
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echo ""
+        echo "✗ pre-commit failed (exit $rc). Fix issues or run with --no-verify to skip."
+        exit $rc
+    fi
+fi
+
+exit 0

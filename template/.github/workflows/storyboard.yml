@@ -1,0 +1,58 @@
+name: Storyboard
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Non-blocking visual regression aid: boots the stack, drives the UI with
+# Playwright, and uploads the screenshot storyboard as a build artifact.
+
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "frontend/**"
+      - "app/**"
+      - "splash/**"
+      - "storyboard/**"
+      - "backend/**"
+  workflow_dispatch:
+
+jobs:
+  storyboard:
+    name: Generate storyboard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start stack
+        run: docker compose up -d --build
+
+      - name: Wait for PostgreSQL
+        run: timeout 90 bash -c 'until docker compose exec -T postgres pg_isready -U postgres -d {{ db_name }}; do sleep 2; done'
+
+      - name: Apply migrations
+        working-directory: backend
+        run: bash scripts/migrate.sh
+
+      - name: Restart app (pick up migrated schema)
+        run: docker compose restart || true
+
+      - name: Generate storyboard
+        run: docker compose --profile storyboard run --rm storyboard
+
+      - name: Upload storyboard artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyboard
+          path: storyboard/output/*.png
+          if-no-files-found: warn
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

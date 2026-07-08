@@ -1,0 +1,69 @@
+name: Deploy edge functions
+
+# Deploys Supabase Edge Functions to your Cloud project when their code lands on
+# master (or on demand). It talks to Supabase's API on a normal cloud runner —
+# distinct from deploy.yml (self-hosted, tunnels the whole local stack).
+#
+# One-time setup (owner):
+#   - Repo variable  SUPABASE_PROJECT_REF = <your project ref>   (the URL subdomain; not a secret)
+#   - Repo secret    SUPABASE_ACCESS_TOKEN = sbp_…               (dashboard → Account → Access Tokens)
+# Until SUPABASE_PROJECT_REF is set the deploy job is skipped, so a fresh stamp
+# stays green. Function *secrets* are configured once out-of-band, not on every
+# deploy.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "backend/supabase/functions/**"
+      - ".github/workflows/functions-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      functions:
+        description: "Space-separated function names (blank = every dir under backend/supabase/functions/)"
+        type: string
+        default: ""
+
+concurrency:
+  group: {{ project_slug }}-functions-deploy
+  cancel-in-progress: false
+
+# Least-privilege: this workflow only reads the repo and calls the Supabase API.
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    # Inert until you configure the project ref, so a fresh stamp never fails here.
+    if: ${{ vars.SUPABASE_PROJECT_REF != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy functions
+        working-directory: backend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          FUNCS="${{ inputs.functions }}"
+          if [ -z "$FUNCS" ]; then
+            # Default: every directory under supabase/functions/ (skip _shared helpers).
+            FUNCS="$(find supabase/functions -mindepth 1 -maxdepth 1 -type d ! -name '_shared' -printf '%f ' 2>/dev/null || true)"
+          fi
+          if [ -z "${FUNCS// /}" ]; then
+            echo "No functions found under backend/supabase/functions/ — nothing to deploy."
+            exit 0
+          fi
+          echo "Deploying to $PROJECT_REF: $FUNCS"
+          for fn in $FUNCS; do
+            echo "→ $fn"
+            supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
+          done

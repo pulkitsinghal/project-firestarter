@@ -1,0 +1,24 @@
+# RLS-disabled allow-list — public tables deliberately left without Row-Level Security.
+#
+# Why this exists: PostgREST + Supabase Cloud grant anon/authenticated blanket
+# access to public tables by default, so a public table is world-readable/-writable
+# until RLS is enabled. Every APP table should therefore enable RLS in the migration
+# that creates it (see `locations` in 001_init.sql for the pattern: enable RLS, then
+# add a permissive SELECT policy only if anon/authenticated genuinely reads it; and
+# migrate.sh does the same for the `{{ migrations_table }}` bookkeeping table).
+# `backend/security/check_rls_enabled.sh` (run in CI by rls-guard.yml) fails when a
+# public app table has RLS OFF but is NOT listed here — i.e. when new exposure sneaks
+# in. Extension-owned tables (e.g. PostGIS spatial_ref_sys) are excluded by the guard
+# itself and must NOT be listed.
+#
+# One table NAME per line. Blank lines and # comments are ignored. Keep this list as
+# short as possible — RLS-off means anon-accessible on Supabase Cloud / via PostgREST.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXTERNALLY MANAGED — created and owned by another component, not our migrations;
+# we do not manage its ACLs. Add each with a one-line justification.
+# ─────────────────────────────────────────────────────────────────────────────
+# GoTrue's own migration-history table (public.schema_migrations, see
+# backend/initdb/00_create_auth_schema.sql). Owned by GoTrue, holds only version
+# strings — no app data, no user identifiers. Touching its ACLs risks GoTrue startup.
+schema_migrations

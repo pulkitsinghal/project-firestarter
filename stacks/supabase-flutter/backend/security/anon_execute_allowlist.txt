@@ -1,0 +1,26 @@
+# Anon EXECUTE allow-list — the public functions the anon role is ALLOWED to run.
+#
+# Why this exists: Postgres grants EXECUTE to PUBLIC by default, and the stack's
+# deny-by-default (001_init.sql) only strips it for FUTURE functions created by
+# the migration role — so a new function can still land anon-callable unless its
+# migration explicitly REVOKEs it. `backend/security/check_anon_execute.sh`
+# (run in CI by anon-execute-guard.yml) fails when a public function is
+# anon-EXECUTE-able but NOT listed here — i.e. when new exposure sneaks in.
+#
+# One function NAME per line (overloads share a name). Blank lines and # comments
+# are ignored.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INTENDED — the anon/authenticated client invokes these directly. Mutating ones
+# MUST rely on in-function device_id / auth.uid guards (SECURITY DEFINER), NOT on
+# the EXECUTE grant, so anon EXECUTE is correct. Add each anon-callable RPC here,
+# with a one-line justification, when you `GRANT EXECUTE ... TO anon` in a migration.
+# ─────────────────────────────────────────────────────────────────────────────
+# (none yet — this stack ships deny-by-default with no anon-callable RPCs)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GRANDFATHERED — anon-callable today but NOT invoked by the client; each SHOULD
+# be locked down with an explicit REVOKE migration. Do NOT add new entries here —
+# new functions belong locked, or in INTENDED above with justification.
+# ─────────────────────────────────────────────────────────────────────────────
+# (none)
