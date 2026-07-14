@@ -9,8 +9,8 @@ name: Auto-merge
 # To opt a PR into auto-merge: add the `auto-merge` label. Remove it to cancel.
 # Requires branch protection on master with the same checks as required.
 #
-# Check names below MUST match the job display names in ci.yml. The two shipped
-# stacks both use: "Tests", "Lint & Typecheck", and (conditionally) "Build".
+# Check names below MUST match the job display names in ci.yml. All shipped
+# stacks use: "Tests", "Lint & Typecheck", and (conditionally) "Build".
 
 on:
   pull_request:

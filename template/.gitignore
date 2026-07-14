@@ -39,6 +39,7 @@ build/
 
 # ── Storyboard output (generated screenshots) ────────────────────────────────
 storyboard/output/*.png
+storyboard/output/*.mp4
 
 # ── Editor / OS ──────────────────────────────────────────────────────────────
 .DS_Store

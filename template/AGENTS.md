@@ -140,6 +140,33 @@ Use **Conventional Commits**:
 - Rebase, never merge, when pulling `master` into a feature branch.
 - Delete the branch after merge.
 
+### End-to-end completion loop
+Unless the user explicitly narrows the task, completion means the whole safe
+lifecycle—not merely “code written.” This sequence defines the desired end
+state; it does not create missing authority. Stop at the applicable boundary
+when the user has not authorized repository delivery, an owner-only action is
+required, or the user-test hold in the push policy applies:
+
+1. Create an isolated worktree + feature branch and record acceptance, data,
+   security, migration, deployment, and rollback implications.
+2. Implement the smallest maintainable change with tests; run `make precommit`,
+   inspect the complete diff, and stage only explicit reviewed paths.
+3. When repository delivery is authorized and no user-test hold applies, commit
+   conventionally, push the feature branch, and open a self-contained PR with
+   the evidence bundle below.
+4. Obtain code review and green CI. Resolve findings with new commits; never
+   weaken a gate to make the PR pass.
+5. When merge is authorized, squash-merge through the PR, update local `master`
+   with a fast-forward, then rerun the affected tests plus a proportionate
+   post-merge smoke/E2E check.
+6. Deploy only when [the deploy policy](docs/DEPLOY_POLICY.md) permits it. Verify
+   the live artifact immediately. If that check fails, redeploy the previous
+   known-good app or revert the merge; production data/schema rollback follows
+   the separate forward-only migration runbook.
+7. Record the result and residual risk, then remove the merged worktree and
+   delete the merged branch. Never declare success without the test, review,
+   merge, and (when applicable) live evidence.
+
 ### Push policy
 - **Push feature branches by default** once local gates pass.
 - **Exception: user test pending.** Hold the branch local when the change
@@ -202,6 +229,35 @@ screenshots of the running app (see `docs/storyboard-harness.md`).
 - `.github/workflows/storyboard.yml` refreshes it in CI (non-blocking). Don't
   remove or bypass the harness; keep it green.
 
+## Feature handoff to a user or developer (a precept)
+
+A feature is not ready for handoff when the code merely passes tests. Follow
+[docs/FEATURE_HANDOFF.md](docs/FEATURE_HANDOFF.md) and provide an evidence
+bundle that the receiver can understand without reconstructing the behavior
+from a diff:
+
+1. Exercise the rebuilt app through the acceptance path and at least one
+   meaningful failure, retry, rollback, or cleanup path; record exact automated
+   and live checks and check the browser console when applicable.
+2. For a user-visible change, update the storyboard manifest/driver and promote
+   the chosen real-app frames into the committed storyboard doc/assets.
+3. Include a compact Mermaid state/flow map covering initial, success, failure,
+   retry, and cleanup states when a lifecycle exists. Explicitly mark truly
+   stateless work as such.
+4. For a material multi-step UI flow, prepare a short captioned release cut only
+   when this repository already ships a reproducible Dockerized recipe and named
+   Make target. Otherwise mark video N/A and provide an ordered still-frame
+   walkthrough. Narration is optional, never a universal completion gate.
+5. Make the final handoff self-contained: outcome, screens, state-map
+   walkthrough, conditional release cut/N/A rationale, exact verification,
+   known limits, rollback, and the next action that requires user authority.
+
+Do not manufacture UI evidence for backend-only or otherwise non-visual work.
+Mark visual artifacts N/A with a reason and substitute concise request/response,
+log, migration, build/output, or state-transition evidence. Use synthetic/test
+fixtures; never put credentials, secrets, private records, or production data
+in handoff screenshots, captions, recordings, fixtures, or logs.
+
 ## AI code review
 
 1. **Pre-commit self-review** — the gates above + read your staged diff back.
@@ -236,3 +292,4 @@ Adding a toolchain means: add a profiled Compose service, pin the image, add
 - Open questions / decisions: `docs/OPEN_QUESTIONS.md`
 - CI secrets: `docs/ci-secrets.md`
 - Storyboard harness: `docs/storyboard-harness.md` → `docs/STORYBOARD.md`
+- Feature handoff evidence: `docs/FEATURE_HANDOFF.md`
