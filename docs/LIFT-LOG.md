@@ -39,6 +39,7 @@ Every so often (e.g. when starting a new project), skim the siblings'
 
 | Date | Lifted | From | Into |
 |------|--------|------|------|
+| 2026-07-14 | **One workstation local CA**: generated projects now require agents to reuse a host-manifested canonical Caddy CA, compare exact root fingerprints, keep CA keys service-owned, reject per-project self-signed roots/TLS bypasses, and verify durable proxy config plus rollback. Includes the macOS Login-Keychain trust runbook and `.test` naming guidance. | local-ai duplicate-Caddy-CA incident | `template/AGENTS.md` + `template/CLAUDE.md` + `template/SECURITY.md` + `template/docs/` |
 | 2026-06-29 | Initial distillation: meta-layer + two stack profiles | siblings | template/ + stacks/ |
 | 2026-06-29 | Self-CI: firestarter runs its own ci/review/auto-merge + lenient branch protection | (best-practice) | .github/workflows/ |
 | 2026-06-29 | Sibling glean: dependabot, PR + issue templates, local ai-review.sh, postmortem template, .editorconfig, SECURITY.md, one-button Cloudflare deploy | sibling | template/ + stacks/ |
