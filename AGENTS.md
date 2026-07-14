@@ -47,8 +47,8 @@ Adding a whole new stack: [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md).
    `firestarter.config.json`. Never broaden it to "replace any `{{ }}`": GitHub
    Actions `${{ … }}` and JSX `style={{ … }}` MUST pass through untouched. If you
    add a token, add it to the config, not to a regex.
-3. **Both stacks must keep stamping cleanly.** After any change, re-run the
-   verification below for *both* example answer files.
+3. **Every declared stack must keep stamping cleanly.** After any change, re-run
+   the verification below for every example answer file.
 4. **CI job-name contract.** Generated `ci.yml` job display names must stay
    `Tests` / `Lint & Typecheck` / `Build` — `auto-merge.yml` gates on them.
 5. **Tokens, not literals, in `template/` and `stacks/`.** Use
@@ -65,16 +65,32 @@ Adding a whole new stack: [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md).
    `template/docs/LOCAL_TLS.md`: generated projects reuse the owner-manifested
    canonical proxy/CA, never create per-project roots, never expose CA keys, and
    never persist certificate-verification bypasses.
+8. **Feature handoffs are evidence bundles.** When handing completed work to a
+   user or developer, follow `template/docs/FEATURE_HANDOFF.md`. Always record
+   the acceptance path, a meaningful failure/retry/rollback/cleanup path, exact
+   automated and live checks, and inspectable evidence. Visible UI work also
+   needs real rebuilt-app storyboard frames and a compact state/flow map. For a
+   material multi-step UI flow, add a short captioned release cut only when the
+   repository already provides a reproducible Dockerized harness and named Make
+   target; otherwise mark video N/A and give a still-frame walkthrough. Natural
+   voice narration is optional, never a universal completion gate.
+   Non-visual work substitutes request/response, log, migration, build/output,
+   or state-transition evidence. Handoff artifacts use synthetic/test data and
+   never contain credentials, secrets, private records, or production data.
+   For Firestarter itself, exercise the relevant stamped project output; the
+   generated-project commands in the playbook are not root-level commands.
 
 ## Verify before you commit
 
-Run the generator in Docker for both stacks and check nothing leaked:
+Run the generator in Docker for every stack example and check nothing leaked:
 
 ```bash
 SB=$(mktemp -d)
-for ex in fastapi-next supabase-flutter; do
+for values in examples/*.answers.json; do
+  ex="${values##*/}"
+  ex="${ex%.answers.json}"
   docker run --rm -v "$PWD:/gen:ro" -v "$SB:/out" -w /gen python:3.12-slim \
-    python /gen/bin/generate.py --values /gen/examples/$ex.answers.json --output /out/$ex
+    python /gen/bin/generate.py --values "/gen/$values" --output "/out/$ex"
 done
 # No unsubstituted tokens (JSX style={{ }} is the only allowed match):
 grep -rn '{{' "$SB" | grep -vE '\$\{\{|style=\{\{' || echo "✓ no leaks"
@@ -107,6 +123,19 @@ Then sanity-check generated shell (`bash -n .../migrate.sh`), and that
   approvals** (no human reviewer — the AI review + auto-merge gate instead),
   admins exempt, no strict/up-to-date requirement.
 
+### Completion loop
+
+For Firestarter changes, “done” means: isolated feature branch/worktree when
+parallel work is possible → every declared stack stamps cleanly → explicit-path
+staging and full-diff self-review → conventional commit → pushed PR → code
+review + green CI → squash merge → fast-forward local `master` → rerun the
+generator/smoke gate from merged `master` → deploy generated-project changes
+only under their `docs/DEPLOY_POLICY.md` and verify live → rollback/revert on a
+failed live check → delete the merged branch/worktree and record the evidence.
+This defines the end state but does not grant missing commit, merge, credential,
+production, or user-test authority; stop and hand off at the relevant boundary.
+Never skip directly from implementation to a success claim.
+
 ### Free-account note
 Branch protection and required checks are free on **public** repos but need a
 paid plan on **private** ones. The `auto-merge.yml` workflow doesn't depend on
@@ -120,5 +149,7 @@ any generated stack *require* a paid feature to function.
 - [docs/ANATOMY.md](docs/ANATOMY.md) — file-by-file map, token reference, gotchas
 - [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md) — new stack profiles
 - [docs/LIFT-LOG.md](docs/LIFT-LOG.md) — harvesting learnings back
+- [template/docs/FEATURE_HANDOFF.md](template/docs/FEATURE_HANDOFF.md) — the
+  evidence bundle required when a feature goes to user/dev review
 - [template/docs/LOCAL_TLS.md](template/docs/LOCAL_TLS.md) — shared local-CA policy
 - [firestarter.config.json](firestarter.config.json) — the variable manifest

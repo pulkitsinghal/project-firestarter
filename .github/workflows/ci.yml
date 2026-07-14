@@ -17,14 +17,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Stamp both example stacks and assert no leaks
+      - name: Stamp every declared example stack and assert no leaks
         run: |
           set -euo pipefail
           OUT="$(mktemp -d)"
           # FIRESTARTER_NATIVE path: the runner already has python3; the
           # generator is stdlib-only. (Devs use the Docker wrapper.)
-          for ex in fastapi-next supabase-flutter; do
-            python3 bin/generate.py --values "examples/$ex.answers.json" --output "$OUT/$ex"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          declared = set(json.loads(Path("firestarter.config.json").read_text())["stack"])
+          examples = {path.name.removesuffix(".answers.json") for path in Path("examples").glob("*.answers.json")}
+          if declared != examples:
+              raise SystemExit(f"declared stacks and examples differ: declared={sorted(declared)} examples={sorted(examples)}")
+          print(f"✓ examples cover every declared stack: {', '.join(sorted(declared))}")
+          PY
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" --output "$OUT/$ex"
           done
 
           # 1. No unsubstituted tokens leaked. The only legitimate {{ matches are
@@ -43,8 +54,10 @@ jobs:
           # 3. Generated shell parses.
           bash -n "$OUT/fastapi-next/backend/scripts/migrate.sh"
           bash -n "$OUT/supabase-flutter/backend/scripts/migrate.sh"
-          for h in commit-msg pre-commit pre-push; do
-            sh -n "$OUT/fastapi-next/.githooks/$h"
+          for stack in fastapi-next supabase-flutter chrome-extension; do
+            for h in commit-msg pre-commit pre-push; do
+              sh -n "$OUT/$stack/.githooks/$h"
+            done
           done
           echo "✓ generated scripts parse"
 
@@ -58,7 +71,7 @@ jobs:
           print("✓ generated workflow YAML parses")
           PY
 
-      - name: Stamp the optional k8s add-on and validate it
+      - name: Stamp the optional k8s add-on for server-backed stacks
         run: |
           set -euo pipefail
           OUT="$(mktemp -d)"

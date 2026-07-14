@@ -25,8 +25,22 @@ Link any plans, issues, or design docs. -->
 - What you verified by hand, if anything (UI, OS-specific steps).
 -->
 
+## Feature handoff evidence
+<!--
+Record the acceptance path, meaningful failure/retry/rollback/cleanup path, and
+exact checks. For a visible change, link real-app storyboard frames and the
+Mermaid state/flow map. Link a short captioned release cut for a material
+multi-step flow only when this repository ships a reproducible harness;
+otherwise mark video N/A and provide a still walkthrough. For non-visual work,
+write N/A with a reason and link equivalent API/log/migration/build/state
+evidence. Use synthetic/test data. See docs/FEATURE_HANDOFF.md.
+-->
+
 ## Checklist
 - [ ] `make precommit` passes locally (all gates, in Docker)
 - [ ] Conventional-commit subject (`type(scope): subject`, ≤100 chars)
 - [ ] Migrations are forward-only and idempotent (or N/A)
 - [ ] Docs updated (`ARCHITECTURE.md` / `PROJECT_STATUS_AND_NEXT_STEPS.md`) if behaviour changed
+- [ ] Acceptance, failure/recovery, rollback, and exact verification evidence is attached (N/A explained)
+- [ ] UI changes refresh the real-app storyboard and state map, or N/A is explained
+- [ ] Material multi-step UI work links the supported release cut, or video N/A is explained

@@ -5,7 +5,21 @@ All notable changes to the firestarter template. See
 
 ## [Unreleased]
 
-_Nothing yet — next changes land here._
+### Added
+- Evidence-backed feature handoffs in generated agent/human guidance and PR
+  templates: exact acceptance, failure/recovery, rollback, and verification
+  evidence; real storyboard/state-map evidence for visible work; conditional
+  release cuts only when a reproducible repository harness exists.
+- One-workstation local-CA policy and verified rollout/rollback guidance for
+  generated projects. (#9)
+
+### Changed
+- Self-CI now proves that examples cover every declared stack and stamps all of
+  them, including `chrome-extension`, before merge.
+- FastAPI/Next Docker builds use cache-friendly ordering and BuildKit cache
+  mounts. (#7)
+- FastAPI/Next dependency installs are lockfile-reproducible and use patched
+  Next.js/PostCSS versions with a zero-finding production audit. (#10)
 
 ## [0.2.0] — 2026-07-06
 

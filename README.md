@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/pulkitsinghal/project-firestarter/actions/workflows/ci.yml"><img src="https://github.com/pulkitsinghal/project-firestarter/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/stacks-2-blue" alt="stacks">
+  <img src="https://img.shields.io/badge/stacks-3-blue" alt="stacks">
   <img src="https://img.shields.io/badge/host%20SDKs-0-success" alt="no host SDKs">
   <img src="https://img.shields.io/badge/PRs-AI%20reviewed%20%26%20auto--merged-purple" alt="AI reviewed">
 </p>
@@ -38,8 +38,9 @@ process ([LIFT-LOG](docs/LIFT-LOG.md)) for folding new lessons back in.
 | ✅ **Green-before-push** | One `make precommit` mirrors every CI gate locally, in Docker. Stop pushing to "see if CI passes." |
 | 📐 **Conventions enforced, not hoped-for** | Conventional Commits + forward-only migrations enforced by git hooks *and* CI. |
 | 🔭 **It documents itself** | A storyboard harness renders a live *planned-vs-implemented* map with screenshots straight from the running app. |
-| 🚀 **Share in one button** | `make deploy` exposes your local app on a public Cloudflare URL — no account, no cloud bill. |
-| 🧩 **Two real stacks + opt-in add-ons** | FastAPI+Next.js or Supabase+Flutter, with the painful gotchas baked into comments. k8s is one flag away when you need it. |
+| 🎬 **Evidence-backed handoffs** | Every feature reaches review with exact acceptance, failure/rollback, and verification evidence. Visible work adds real storyboard frames and a state map; a short captioned release cut is used when a reproducible harness exists. |
+| 🚀 **Share in one button** | Server-backed stacks use `make deploy` for a public Cloudflare URL with no cloud bill; client-only stacks keep distribution owner-gated. |
+| 🧩 **Three real stacks + opt-in add-ons** | FastAPI+Next.js, Supabase+Flutter, or a Manifest V3 Chrome extension, with the painful gotchas baked into comments. k8s is one flag away for the server-backed stacks. |
 | 🤝 **AI-agent ready** | A root `AGENTS.md` (the cross-tool standard) lets Claude Code, Codex, Cursor, or Aider drive the repo on sight. |
 
 ## Proven, not theoretical
@@ -82,6 +83,7 @@ gh secret set ANTHROPIC_API_KEY   # turn on the AI reviewer
 - **Stack profiles** (`stacks/`):
   - `fastapi-next` — FastAPI + PostgreSQL/pgvector + Redis · Next.js.
   - `supabase-flutter` — Postgres/PostGIS + PostgREST + GoTrue · Flutter · React.
+  - `chrome-extension` — Manifest V3 · TypeScript/esbuild · Vitest · Playwright.
 - **Optional add-ons** (`addons/`) — e.g. `k8s` Kustomize (opt in with
   `include_k8s=yes`).
 

@@ -35,6 +35,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   - Storyboard screenshots: `make storyboard`
 - **Validate locally before pushing.** Run `make precommit` via Docker before
   every push. Never push speculatively to see if CI catches it.
+- **Hand features over with evidence.** Follow
+  [docs/FEATURE_HANDOFF.md](docs/FEATURE_HANDOFF.md): every change needs exact
+  acceptance, failure/recovery, and verification evidence. Visible UI work adds
+  real storyboard frames and a state/flow map. Add a short captioned release cut
+  for material multi-step flows only when a reproducible repository harness
+  exists; otherwise mark it N/A and provide a still walkthrough. Use synthetic
+  data in every handoff artifact.
 - **AI-reviewed PRs, no human review required.** PRs go to `master`.
   `ai-pr-review.yml` calls the Anthropic API directly (requires
   `ANTHROPIC_API_KEY` repo secret) and posts a verdict comment. Auto-merge
@@ -97,5 +104,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
 | `PROJECT_STATUS_AND_NEXT_STEPS.md` | MVP phases, what's done, what's next |
 | `docs/OPEN_QUESTIONS.md` | Deferred decisions and known gaps |
 | `docs/ci-secrets.md` | How to provide CI secrets without leaking them |
+| `docs/FEATURE_HANDOFF.md` | Evidence bundle for user/dev feature review |
 | `Makefile` | All common dev commands (`make help`) |
 | `backend/migrations/` | Forward-only SQL migrations |
