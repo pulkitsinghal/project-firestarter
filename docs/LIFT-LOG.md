@@ -39,6 +39,7 @@ Every so often (e.g. when starting a new project), skim the siblings'
 
 | Date | Lifted | From | Into |
 |------|--------|------|------|
+| 2026-07-14 | Frontend dependency supply-chain hardening: upgrade the fastapi-next template from vulnerable Next.js 15.1.0 to patched 15.5.20, override its pinned vulnerable PostCSS with 8.5.10, commit `package-lock.json`, and use `npm ci` so generated local/CI/production dependency graphs are reproducible. Verified with a zero-finding production audit plus generated typecheck/build. | local template audit | `stacks/fastapi-next/frontend/` |
 | 2026-07-14 | **One workstation local CA**: generated projects now require agents to reuse a host-manifested canonical Caddy CA, compare exact root fingerprints, keep CA keys service-owned, reject per-project self-signed roots/TLS bypasses, and verify durable proxy config plus rollback. Includes the macOS Login-Keychain trust runbook and `.test` naming guidance. | local-ai duplicate-Caddy-CA incident | `template/AGENTS.md` + `template/CLAUDE.md` + `template/SECURITY.md` + `template/docs/` |
 | 2026-06-29 | Initial distillation: meta-layer + two stack profiles | siblings | template/ + stacks/ |
 | 2026-06-29 | Self-CI: firestarter runs its own ci/review/auto-merge + lenient branch protection | (best-practice) | .github/workflows/ |

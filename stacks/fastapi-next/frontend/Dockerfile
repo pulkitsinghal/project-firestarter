@@ -7,12 +7,11 @@ FROM node:22-alpine
 WORKDIR /app
 
 # Deps first for layer caching. The BuildKit cache mount persists npm's download
-# cache across builds (outside the image), so a package.json change reinstalls
-# without re-fetching every unchanged package. No lockfile is committed yet, so
-# this uses `npm install`; commit package-lock.json and switch to `npm ci` for
-# reproducible installs.
-COPY package.json ./
-RUN --mount=type=cache,target=/root/.npm npm install
+# cache across builds (outside the image), so a dependency change reinstalls
+# without re-fetching every unchanged package. The committed lockfile keeps
+# local, CI, and production dependency graphs identical.
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY . .
 
