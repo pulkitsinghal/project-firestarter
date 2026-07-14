@@ -49,9 +49,21 @@ Types: `feat fix refactor chore docs test ci build`. Scopes:
 - Rebase (don't merge) when pulling `master` into your branch. Delete the branch
   after merge.
 
+## Before handing a feature to a user or developer
+
+Use [docs/FEATURE_HANDOFF.md](docs/FEATURE_HANDOFF.md). A visible UI feature
+ships to review with real rebuilt-app storyboard frames, a compact state map,
+and exact acceptance/failure/verification evidence. A short captioned release
+cut is expected for a material multi-step flow only when the repository provides
+a reproducible harness; otherwise mark it N/A and provide a still walkthrough.
+For non-visual work, mark UI artifacts N/A and provide equivalent API, log,
+migration, build/output, or state-transition evidence.
+
 ## The rules that matter most
 
 - Migrations are forward-only and idempotent. Never edit an applied migration.
 - Every toolchain runs in Docker — never install SDKs on the host.
+- User/dev handoffs include inspectable evidence, not only a prose claim that
+  the feature is done.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for why.

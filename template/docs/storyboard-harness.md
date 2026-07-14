@@ -51,3 +51,22 @@ list in `.github/workflows/auto-merge.yml`.
 Auto-failing on any pixel change is noisy for an app under active development.
 The storyboard makes change *visible and reviewable* instead of *blocking*;
 content assertions (above) are the targeted alternative to brittle pixel diffs.
+
+## Use it for feature handoff
+
+The storyboard is the visual source for the feature-handoff evidence bundle in
+[FEATURE_HANDOFF.md](FEATURE_HANDOFF.md). When a visible feature is ready for a
+user or developer:
+
+- capture its entry, success, meaningful failure/safety, and cleanup/final
+  states from the rebuilt app;
+- promote the chosen frames into the committed storyboard doc/assets;
+- explain the lifecycle with a compact Mermaid map; and
+- for a material multi-step flow, use those same frames for a short captioned
+  release cut only when the repository already ships a reproducible Dockerized
+  recipe and named Make target. Otherwise mark video N/A and give an ordered
+  still-frame walkthrough.
+
+This keeps the automated acceptance flow, reviewable stills, and any optional
+release narrative anchored to one set of real screens without inventing an ad
+hoc host media toolchain.
