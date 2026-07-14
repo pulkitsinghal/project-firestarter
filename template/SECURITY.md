@@ -24,6 +24,12 @@ You'll get an acknowledgement and a coordinated disclosure timeline.
   Cloudflare quick-tunnel is anonymous) — keep it that way.
 - The anonymous-identity and data-exposure invariants in `ARCHITECTURE.md` are
   part of the security surface — a violation is a vulnerability, not a bug.
+- **Local CA keys are workstation credentials.** Never read, copy, export,
+  transmit, or commit a root/intermediate private key. Local projects reuse the
+  owner-approved CA described in [docs/LOCAL_TLS.md](docs/LOCAL_TLS.md); agents
+  configure routes and let the CA service issue short-lived certificates.
+  Never persist a TLS verification bypass. Trust-store changes and CA rotation
+  require explicit owner approval and exact-fingerprint verification.
 
 ## Scope
 

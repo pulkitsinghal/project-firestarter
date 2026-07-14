@@ -61,6 +61,10 @@ Adding a whole new stack: [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md).
    running app. A project documenting itself is one of firestarter's merits; don't
    drop it, hide it behind a flag, or let a stack regress it. New stacks
    ([docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md)) must wire their own.
+7. **One workstation CA for local HTTPS.** Keep the cross-agent policy in
+   `template/docs/LOCAL_TLS.md`: generated projects reuse the owner-manifested
+   canonical proxy/CA, never create per-project roots, never expose CA keys, and
+   never persist certificate-verification bypasses.
 
 ## Verify before you commit
 
@@ -116,4 +120,5 @@ any generated stack *require* a paid feature to function.
 - [docs/ANATOMY.md](docs/ANATOMY.md) — file-by-file map, token reference, gotchas
 - [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md) — new stack profiles
 - [docs/LIFT-LOG.md](docs/LIFT-LOG.md) — harvesting learnings back
+- [template/docs/LOCAL_TLS.md](template/docs/LOCAL_TLS.md) — shared local-CA policy
 - [firestarter.config.json](firestarter.config.json) — the variable manifest

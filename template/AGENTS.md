@@ -56,6 +56,16 @@ Run these every time you open a new session, in order. Do not skip.
    `backend/migrations/`.
 5. List Docker state: `docker compose ps` so you know whether the stack is up.
 
+## Local TLS and certificate authority
+
+Read [docs/LOCAL_TLS.md](docs/LOCAL_TLS.md) before changing local HTTPS. Reuse
+the owner's canonical workstation CA and reverse proxy recorded in
+`~/.config/pet-projects/local-tls.json`; never create a per-project root or
+unrelated self-signed certificate. Agents configure routes, while the shared CA
+service signs certificates and retains all private keys. Trust-store changes,
+CA rotation, and live proxy reloads are owner-approved host operations. Verify
+HTTPS without `-k`, `--insecure`, or disabled certificate checks.
+
 ## Commit, branch, and merge workflow
 
 ### Branching
