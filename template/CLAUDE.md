@@ -44,6 +44,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   `feat fix refactor chore docs test ci build`. Subject ≤ 100 chars.
 - **Forward-only migrations.** Never edit an applied migration except for
   provably idempotent `IF NOT EXISTS` hardening. New behaviour = new numbered file.
+- **One local CA, no agent-held signing keys.** Before changing local HTTPS, read
+  `docs/LOCAL_TLS.md` and the host's `~/.config/pet-projects/local-tls.json`.
+  Reuse the canonical proxy/CA; never create a project root or persist a TLS
+  verification bypass.
 - **Stage explicit paths, never `git add -A`.** This checkout may be shared by
   concurrent sessions; blanket staging sweeps another session's work into your
   commit. `.claude/settings.json` denies the blanket forms — see *Branching* in

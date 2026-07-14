@@ -33,6 +33,15 @@ Verify: `gh --version`
 
 That's it. Everything below is optional.
 
+### Local HTTPS (optional)
+
+When this project needs a trusted local HTTPS URL, reuse the workstation's
+canonical reverse proxy and local CA rather than installing a project-specific
+certificate tool. Read [LOCAL_TLS.md](LOCAL_TLS.md) and, when present,
+`~/.config/pet-projects/local-tls.json`. Caddy/OpenSSL are host infrastructure in
+that workflow, not project language SDKs. Importing a trust root or reloading the
+live proxy remains an owner-approved operation.
+
 ## 2. What you do NOT install on the host
 
 These are managed inside Docker (behind Compose profiles, invoked by the

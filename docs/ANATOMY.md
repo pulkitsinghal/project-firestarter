@@ -49,6 +49,7 @@ docs/                     this map, plus how-to guides
 | `.gitleaks.toml` | gitleaks config: extends default rules + allowlists build-artifact dirs (so local `make secret-scan` on a dirty tree is clean). Add narrow allowlists for known public/test fixtures | best-practice |
 | `docs/ci-secrets.md` | How to set `ANTHROPIC_API_KEY` without leaking it | sibling |
 | `docs/HOST_REQUIREMENTS.md` | Onboarding: the few tools that live on the host (Docker/git/make/gh) + a "do NOT install on host" table + opt-in native-mobile sections | sibling |
+| `docs/LOCAL_TLS.md` | Shared local-CA policy and macOS/Caddy runbook: fingerprint-checked trust, one canonical issuer, no agent-held CA keys, verified rollout/rollback | local-ai certificate incident |
 | `docs/OPEN_QUESTIONS.md` | Template for the deferred-decisions log (incl. a backup-strategy stub) | both |
 | `docs/GO_LIVE.md` | Clean-slate run/verify/go-live checklist tying together secrets, release, deploy, backups | sibling |
 | `docs/DEPLOY_POLICY.md` | The *decision frame* `GO_LIVE`/`DEPLOY` don't cover: when a deploy is **self-authorized** (3 conditions — ample testing, snapshot verification, post-deploy check) vs. what stays owner-only (credentials, prod-DB migrations, billing) | sibling |
