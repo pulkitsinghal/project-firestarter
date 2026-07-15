@@ -18,7 +18,11 @@ venv/
 htmlcov/
 
 # ── Node / Next.js / Vite ────────────────────────────────────────────────────
-node_modules/
+# No trailing slash: `node_modules/` only matches a real directory, so a
+# SYMLINKED node_modules (e.g. a git worktree pointing at the main checkout's
+# install) slips through `git add`. `node_modules` (no slash) ignores the dir,
+# a symlink, or a stray file of that name.
+node_modules
 .next/
 out/
 dist/
