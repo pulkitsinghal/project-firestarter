@@ -38,7 +38,7 @@ process ([LIFT-LOG](docs/LIFT-LOG.md)) for folding new lessons back in.
 | ✅ **Green-before-push** | One `make precommit` mirrors every CI gate locally, in Docker. Stop pushing to "see if CI passes." |
 | 📐 **Conventions enforced, not hoped-for** | Conventional Commits + forward-only migrations enforced by git hooks *and* CI. |
 | 🔭 **It documents itself** | A storyboard harness renders a live *planned-vs-implemented* map with screenshots straight from the running app. |
-| 🎬 **Evidence-backed handoffs** | Every feature reaches review with exact acceptance, failure/rollback, and verification evidence. Visible work adds real storyboard frames and a state map; a short captioned release cut is used when a reproducible harness exists. |
+| 🎬 **Evidence-backed handoffs** | Every feature reaches review with exact acceptance, failure/rollback, and verification evidence. Visible work adds real storyboard frames and a state map; supported flows capture asserted E2E story beats at normal speed, then post-produce narration, captions, focus effects, and a 20–40s release cut. |
 | 🚀 **Share in one button** | Server-backed stacks use `make deploy` for a public Cloudflare URL with no cloud bill; client-only stacks keep distribution owner-gated. |
 | 🧩 **Three real stacks + opt-in add-ons** | FastAPI+Next.js, Supabase+Flutter, or a Manifest V3 Chrome extension, with the painful gotchas baked into comments. k8s is one flag away for the server-backed stacks. |
 | 🤝 **AI-agent ready** | A root `AGENTS.md` (the cross-tool standard) lets Claude Code, Codex, Cursor, or Aider drive the repo on sight. |
@@ -97,4 +97,5 @@ whitelist-only, so GitHub Actions `${{ … }}` is never clobbered.
 - 🗺️ [docs/ANATOMY.md](docs/ANATOMY.md) — file-by-file map: what each piece is, why it exists, and which sibling it came from
 - ➕ [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md) — author a new stack profile
 - ♻️ [docs/LIFT-LOG.md](docs/LIFT-LOG.md) — how learnings get harvested back into the template
+- 🔐 [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) — reach a stamped project's local/dev service from your phone anywhere, privately, via Tailscale (no domain, no registrar, no spend)
 - 🤖 [AGENTS.md](AGENTS.md) — operating brief for any AI session
