@@ -37,6 +37,7 @@ Follow [docs/LIFT-LOG.md](docs/LIFT-LOG.md): generalize with tokens, place it in
 `template/` (universal) or `stacks/<stack>/` (stack-specific), document gotchas
 as inline comments, add a row to `docs/ANATOMY.md` and the lift log.
 Adding a whole new stack: [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md).
+Exposing a local/dev service remotely (phone, anywhere, private): [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) — default to Tailscale `serve` over public tunnels.
 
 ## Hard rules (do not violate)
 
@@ -70,10 +71,20 @@ Adding a whole new stack: [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md).
    the acceptance path, a meaningful failure/retry/rollback/cleanup path, exact
    automated and live checks, and inspectable evidence. Visible UI work also
    needs real rebuilt-app storyboard frames and a compact state/flow map. For a
-   material multi-step UI flow, add a short captioned release cut only when the
-   repository already provides a reproducible Dockerized harness and named Make
-   target; otherwise mark video N/A and give a still-frame walkthrough. Natural
-   voice narration is optional, never a universal completion gate.
+   material multi-step UI flow, run the repository's full end-user E2E/release
+   rehearsal when it has one and use those captures as the video source. Add a
+   **20–40 second narrated and captioned release cut** when the repository
+   provides a reproducible Dockerized harness and named Make target. The cut
+   needs a natural conversational voice, selectable or burned-in subtitles, and
+   restrained focus/transition effects that direct attention to the control or
+   state being discussed. Commit a compact polished master and optional GIF
+   preview under `docs/media/` when each is under 10 MB; use a release attachment
+   or Git LFS above that threshold, and keep raw E2E recordings as artifacts.
+   Keep E2E assertions at normal speed: capture asserted story beats and focus
+   targets without `slowMo` or fixed presentation waits, then add voice, captions,
+   pacing, and effects in a separate post-process after the tests pass.
+   Otherwise mark video N/A and give a still-frame walkthrough; never improvise
+   an untracked host media toolchain.
    Non-visual work substitutes request/response, log, migration, build/output,
    or state-transition evidence. Handoff artifacts use synthetic/test data and
    never contain credentials, secrets, private records, or production data.
