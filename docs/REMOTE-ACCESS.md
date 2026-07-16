@@ -72,3 +72,15 @@ not the desktop answer.
 
 Use `serve` (tailnet-only), not `funnel` (public), for private services. The owner's phone joins
 the tailnet via the Tailscale app (same account); the `*.ts.net` URL then works from any network.
+
+## Fallback: Cloudflare quick-tunnel (PUBLIC, no client install)
+
+When a viewer **can't be on your tailnet** (lending access to someone who won't install Tailscale,
+or a throwaway demo link), `cloudflared tunnel --url http://localhost:<port>` needs no account and
+prints a random `https://<words>.trycloudflare.com` URL with real TLS. It's **public**, so only for
+non-sensitive / short-lived access. Weaknesses: the URL **rotates on every restart** and the tunnel
+**silently deregisters** on network change/idle (process stays up but the host stops resolving —
+detect with `dig @1.1.1.1 <host>`, not a local lookup). Make it usable with a **keep-alive watcher**
+(a launchd/systemd loop that restarts `cloudflared` when the host stops resolving and re-publishes
+the new URL, e.g. via a push notification). For a *durable* public URL, prefer a **named** Cloudflare
+tunnel (stable hostname + auto-reconnect), which needs a zone on Cloudflare.
