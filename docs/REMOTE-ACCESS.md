@@ -2,32 +2,47 @@
 
 A recipe for reaching a stamped project's local dev server or a self-hosted service
 **from anywhere** (your phone on cellular, another network) **privately** — without a
-public tunnel, a custom domain, a registrar/DNS change, root on the box, or any paid plan.
+public tunnel, a custom domain, a registrar/DNS change, or any paid plan.
 
 Lifted from `local-ai`, where it replaced a rotating Cloudflare quick-tunnel for a
 voice-auth phone app. See that repo's `docs/REMOTE_ACCESS.md` for the live example.
 
 ## When to reach for this
 
-You want a **stable** remote URL and the usual paths are blocked or heavy:
-no passwordless `sudo`, registrar/DNS changes gated or unavailable, you don't want to pay,
-and you don't want to expose the service on the public internet. Tailscale builds a private
-WireGuard mesh between *your own* devices and hands each a stable `*.ts.net` MagicDNS name.
-Nothing is publicly reachable, so it's strictly more private than a `trycloudflare`/ngrok
-public tunnel.
+You want a **stable** remote URL and the usual paths are blocked or heavy: registrar/DNS
+changes gated, no budget, and you don't want to expose the service on the public internet.
+Tailscale builds a private WireGuard mesh between *your own* devices and hands each a stable
+`*.ts.net` MagicDNS name. Nothing is publicly reachable, so it's strictly more private than a
+`trycloudflare`/ngrok public tunnel.
 
 Decision order for exposing a service:
-1. **Same LAN only** → local Caddy `tls internal` at `<host>.local` (see the generated
-   project's TLS docs).
-2. **Your devices, anywhere, private** → **Tailscale `serve`** (this doc). Default for
-   anything sensitive.
-3. **Public internet (non-your devices)** → Cloudflare Tunnel / Tailscale `funnel`. Only when
-   strangers must reach it; never for private data.
+1. **Same LAN only** → local Caddy `tls internal` at `<host>.local`.
+2. **Your devices, anywhere, private** → **Tailscale `serve`** (this doc). Default for sensitive.
+3. **Public internet (strangers)** → Cloudflare Tunnel / Tailscale `funnel`. Never for private data.
 
-## Rootless setup (no sudo)
+## Two ways to run the node — pick by device
 
-`tailscaled` wants root for a TUN device. With no passwordless sudo, run **userspace
-networking** — fully rootless; `serve`/`funnel` still work (they proxy at the app layer):
+### A. Desktop (macOS/Windows/Linux GUI) → the official Tailscale **app**  ← default
+
+On a real desktop, install the official app and sign in. It runs a system extension that wires
+**MagicDNS into the OS resolver** (the machine resolves `*.ts.net` natively), is **boot-persistent**,
+and gives a tray/menu-bar UI. On macOS the app's CLI is at
+`/Applications/Tailscale.app/Contents/MacOS/Tailscale` — use it for `serve`/`status`.
+
+> **macOS caveat that bites:** the Homebrew `tailscaled` **system daemon does NOT configure
+> macOS DNS** (no `100.100.100.100` scoped resolver in `scutil --dns`, even with
+> `--accept-dns=true`), so the Mac can't resolve its own `*.ts.net` name. Use the **.app** on a
+> Mac desktop, not the brew daemon.
+
+```bash
+APP=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+"$APP" serve --bg --https=443 http://127.0.0.1:<port>   # -> https://<node>.<tailnet>.ts.net/
+```
+
+### B. Headless / no-sudo / server / container → rootless **userspace** daemon
+
+For a box with no GUI, no root, or no passwordless sudo (CI runner, VPS, container), run
+userspace networking — fully rootless; `serve`/`funnel` still work (they proxy at the app layer):
 
 ```bash
 mkdir -p ~/.tailscale-userspace
@@ -35,34 +50,25 @@ tailscaled --tun=userspace-networking \
   --socket=$HOME/.tailscale-userspace/sock \
   --statedir=$HOME/.tailscale-userspace/state &
 S=$HOME/.tailscale-userspace/sock
-tailscale --socket=$S up --hostname=<project>   # prints a login URL — the owner taps it
-```
-
-Every later `tailscale` call needs `--socket=$S`. **Caveat:** this instance does not survive
-reboot. For boot-persistence use `sudo tailscaled install-system-daemon` or the Tailscale
-desktop app — both need the owner at the machine with sudo.
-
-## Expose the service
-
-```bash
-# HTTP is fine for apps that don't need a browser "secure context":
-tailscale --socket=$S serve --bg --http=80   http://127.0.0.1:<port>
-# HTTPS (valid cert, no warning) for apps that do:
+tailscale --socket=$S up --hostname=<project>          # login URL — the owner taps it
 tailscale --socket=$S serve --bg --https=443 http://127.0.0.1:<port>
-#   -> https://<project>.<tailnet>.ts.net/
 ```
 
-Use `serve` (tailnet-only), not `funnel` (public), for private services.
+Every later `tailscale` call needs `--socket=$S`. **Caveats:** does not survive reboot; on a
+desktop OS it won't provide system DNS (peers still resolve it fine). A stopgap / headless tool,
+not the desktop answer.
 
-### Two gotchas that will bite you
+## Gotchas (both paths)
 
-- **HTTPS certs must be enabled on the tailnet** or `serve --https` fails with
-  `500 ... account does not support getting TLS certs`. Enable once at the Tailscale admin
-  DNS page → **HTTPS Certificates → Enable** (owner action).
-- **Secure-context APIs need HTTPS.** Anything using `getUserMedia`, `SpeechRecognition`,
-  service workers, clipboard, etc. is blocked by the browser over plain HTTP. Those services
-  **must** use `serve --https` (⇒ enable HTTPS certs first). Plain-HTTP `serve` is only for
-  apps that don't touch a secure-context API.
+- **HTTPS certs must be enabled on the tailnet** or `serve --https` fails
+  `500 ... account does not support getting TLS certs`. Enable once at the Tailscale admin DNS
+  page → **HTTPS Certificates → Enable** (owner action).
+- **Secure-context APIs need HTTPS.** `getUserMedia`, `SpeechRecognition`, service workers,
+  clipboard, etc. are blocked by the browser over plain HTTP → those services **must** use
+  `serve --https`. Plain-HTTP `serve` is only for apps that don't touch a secure-context API.
+- **Stale-node / `-1` name.** Switching daemons or re-registering leaves the old node reserving
+  the hostname → the new one becomes `<name>-1`. Delete the stale node in the admin console to
+  reclaim the clean name, then `serve reset` + re-apply so the TLS cert matches the current name.
 
-The owner's phone joins the tailnet via the Tailscale app (same account); the `*.ts.net`
-URL then works from any network.
+Use `serve` (tailnet-only), not `funnel` (public), for private services. The owner's phone joins
+the tailnet via the Tailscale app (same account); the `*.ts.net` URL then works from any network.
