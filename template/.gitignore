@@ -58,3 +58,9 @@ storyboard/output/*.mp4
 # commit: your own settings.local.json overrides and local worktree scratch.
 .claude/settings.local.json
 .claude/worktrees/
+
+# ── Cloudflare named-tunnel secrets ──────────────────────────────────────────
+# The filled-in config + the credentials JSON are per-owner tunnel secrets;
+# `deploy/cloudflared/config.example.yml` is the tracked template (see DEPLOY.md).
+deploy/cloudflared/config.yml
+deploy/cloudflared/*.json
