@@ -37,7 +37,13 @@ services:
       retries: 12
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        # Deploy provenance stamped into the image (empty locally; `make up`
+        # sets them from the host clock + `git rev-parse`). Read at /health.
+        BUILD_TIME: ${BUILD_TIME:-}
+        GIT_SHA: ${GIT_SHA:-}
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/{{ db_name }}
       REDIS_URL: redis://redis:6379/0

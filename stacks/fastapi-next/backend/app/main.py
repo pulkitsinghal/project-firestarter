@@ -20,7 +20,14 @@ app = FastAPI(title="{{ project_name }}")
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "{{ project_slug }}-backend"}
+    # Deploy provenance (baked at image build by `make up`; empty on a plain
+    # build). Lets you verify *which* commit is live after a deploy.
+    return {
+        "status": "ok",
+        "service": "{{ project_slug }}-backend",
+        "built_at": os.environ.get("APP_BUILD_TIME", ""),
+        "git_sha": os.environ.get("APP_GIT_SHA", ""),
+    }
 
 
 @app.get("/api/items")
