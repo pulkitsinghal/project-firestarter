@@ -1,0 +1,5 @@
+# Recorder runtime artifacts
+.out/
+.ext-rec/
+# Your filled-in copy of the template (project-specific; commit deliberately if you keep it)
+record.mjs
