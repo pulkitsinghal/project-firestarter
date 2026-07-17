@@ -142,9 +142,11 @@ inert for this stack.
 | `e2e/` | Playwright MV3 harness: a fixture that `--load-extension`s a persistent Chromium (with container-safe `--no-sandbox`/`--disable-dev-shm-usage` flags) and resolves the extension id from the background service-worker URL + a side-panel smoke spec. `e2e/scripts/with-xvfb.sh` runs it headed on a display-less runner (idempotent Xvfb boot) |
 | `.github/workflows/e2e.yml` | **Opt-in** (`workflow_dispatch`) headed e2e on a display-less runner via Xvfb — least-privilege, a distinct job name, never a required gate. Closes the "wire an opt-in job once you have a runner with a display" TODO |
 | `storyboard/` | Screenshots the built side panel (`dist/sidebar.html`) → committed `docs/STORYBOARD.md` (honours the storyboard precept for a UI with no server) |
+| `tools/demo-recording/` | Records the **real** side panel as video (page + panel + cursor) with no login: iframe the live `sidebar.html` into a staged page, seed auth/data offline via the service worker, capture with Playwright `recordVideo`. A fill-in-the-blanks `record.template.mjs` + generic primitives (`visual_cursor_overlay.js`, `video_processor.py`) + a README of the hard-won gotchas. Complements `storyboard/` (stills) with a moving release/QA clip |
 
 ### Documented gotchas baked into this stack
 - **esbuild doesn't type-check:** `tsc --noEmit` is a separate gate (the "Lint & Typecheck" job).
+- **Per-page video misses the side panel:** to record the panel + cursor, iframe the live `sidebar.html` into one page and use Playwright `recordVideo` (not `ffmpeg x11grab`, which is black on a bare Xvfb). See `tools/demo-recording/README.md`.
 - **No host SDKs, arm64 native deps:** node_modules lives in a named volume so the container builds esbuild's platform-specific binary, not the host's.
 - **e2e is host-only:** loading an MV3 extension needs a real headed Chromium — a headless container can't, so it isn't a CI gate.
 
