@@ -15,7 +15,9 @@ help: ## List available targets
 # ── Stack lifecycle ──────────────────────────────────────────────────────────
 .PHONY: up
 up: ## Start the full stack (postgres, redis, backend, frontend)
-	$(DC) up -d --build
+	# Stamp deploy provenance into the backend image (build time + commit SHA),
+	# surfaced at GET /health so you can confirm which code is actually live.
+	BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ) GIT_SHA=$$(git rev-parse --short HEAD 2>/dev/null || echo unknown) $(DC) up -d --build
 
 .PHONY: down
 down: ## Stop the stack and remove volumes

@@ -85,7 +85,7 @@ project wants all of it regardless of language.
 | `Makefile` | `up/down/migrate/test/lint/precommit/storyboard/hook-install` + `frontend-lockcheck` — all via Docker |
 | `scripts/sync_version.sh` + `make version-sync` | Propagate `/VERSION` into `backend/pyproject.toml` + `frontend/package.json` (host coreutils, no SDK) |
 | `.github/workflows/ci.yml` | Jobs **Tests**, **Lint & Typecheck**, **Build** (names matched by auto-merge) |
-| `backend/` | FastAPI app, `pyproject.toml` (ruff/mypy/pytest), `001_init.sql`, `scripts/migrate.sh`, a smoke test, and a hermetic-vs-integration test split (`make backend-itest` + `integration` marker + `tests/integration/` gated on `TEST_DATABASE_URL`) |
+| `backend/` | FastAPI app, `pyproject.toml` (ruff/mypy/pytest), `001_init.sql`, `scripts/migrate.sh`, a smoke test, and a hermetic-vs-integration test split (`make backend-itest` + `integration` marker + `tests/integration/` gated on `TEST_DATABASE_URL`). `GET /health` also reports **deploy provenance** (`built_at`/`git_sha`) baked into the image by `make up`, so you can verify which commit is live |
 | `frontend/` | Next.js App Router skeleton with an `/api` proxy to the backend; exact patched dependencies are locked and installed with `npm ci` |
 | `storyboard/` | Playwright runner pinned to `mcr.microsoft.com/playwright` |
 | `.github/dependabot.yml` | Grouped weekly updates (pip + npm + github-actions), `chore:`/`ci:` prefixes |
