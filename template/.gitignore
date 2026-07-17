@@ -50,3 +50,11 @@ storyboard/output/*.mp4
 .idea/
 .vscode/
 *.swp
+
+# ── Claude Code ──────────────────────────────────────────────────────────────
+# The SHARED config is committed on purpose (.claude/settings.json + hooks/ give
+# every session the same guardrails — see .claude/README.md), so it is NOT
+# ignored here. Ignore only PERSONAL/local state so it can't be swept into a
+# commit: your own settings.local.json overrides and local worktree scratch.
+.claude/settings.local.json
+.claude/worktrees/
