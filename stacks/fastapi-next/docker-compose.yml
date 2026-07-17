@@ -67,11 +67,25 @@ services:
   backend-tools:
     profiles: ["tools"]
     build: ./backend
+    # Mount live source over the baked image so test/lint/seed run against the
+    # WORKING TREE, never stale baked source. Without this, `make backend-test`
+    # after an edit silently runs the LAST BUILD's code until you rebuild — a
+    # quiet wrong-results footgun. The editable install (`pip install -e` in the
+    # Dockerfile) resolves `app` from the mounted /app; the installed package
+    # metadata lives in site-packages, OUTSIDE /app, so it survives the mount.
+    volumes:
+      - ./backend:/app
     command: ["pytest", "-q"]
 
   frontend-tools:
     profiles: ["node"]
     build: ./frontend
+    # Mount live source over the baked image so typecheck/build run against the
+    # WORKING TREE (not stale baked source). The anonymous volume preserves the
+    # image's /app/node_modules (the host has none — no host SDKs).
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     command: ["npm", "run", "typecheck"]
 
   # Storyboard runner (Playwright). Drives the live frontend over the compose

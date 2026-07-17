@@ -77,6 +77,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Fail loudly here so an incomplete lockfile can't silently break a
+      # teammate's `npm ci` on npm 11 while the node:22 (npm 10) build stays
+      # green. Runs `npm ci --dry-run` in a throwaway npm-11 container.
+      - name: Verify lockfile is cross-platform complete (npm 11 `npm ci`)
+        run: |
+          docker run --rm -v "$PWD/frontend":/src:ro node:24-alpine \
+            sh -c 'mkdir -p /app && cp /src/package.json /src/package-lock.json /app/ && cd /app && npm ci --dry-run --no-audit --no-fund 1>/dev/null && echo "✓ package-lock.json satisfies npm ci on npm $(npm -v)"'
+
       - name: Build frontend image
         run: docker compose --profile node build frontend-tools
 
