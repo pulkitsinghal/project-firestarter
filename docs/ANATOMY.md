@@ -35,7 +35,7 @@ docs/                     this map, plus how-to guides
 | `VERSION` | Canonical SemVer string; `make version-sync` propagates it into the stack's package manifests | sibling |
 | `CHANGELOG.md` | Keep-a-Changelog seed (`[Unreleased]` + `[0.1.0]`), tied to `/VERSION` | sibling |
 | `.gitmessage` | Conventional-commit template (`git config commit.template`) | both |
-| `.gitignore` | Covers Python, Node, Dart/Flutter, Docker, storyboard output | union of both |
+| `.gitignore` | Covers Python, Node, Dart/Flutter, Docker, storyboard output; ignores Claude Code **local** state (`.claude/settings.local.json`, `.claude/worktrees/`) while keeping the committed `.claude/settings.json` + hooks tracked | union of both |
 | `.githooks/commit-msg` | Enforces conventional-commit subject (mirrors CI) | both |
 | `.githooks/pre-commit` | Runs `make precommit` when source changes | both |
 | `.githooks/pre-push` | Non-blocking "you're N commits ahead" reminder | both |
