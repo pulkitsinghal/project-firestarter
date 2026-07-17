@@ -103,6 +103,12 @@ deploy: ## Expose the running frontend on a public URL (run `make up` first). Se
 deploy-down: ## Stop the tunnel
 	$(DC) --profile deploy rm -sf cloudflared
 
+.PHONY: tunnel
+tunnel: ## Stable NAMED Cloudflare tunnel on your own domain (one-time setup first — see DEPLOY.md)
+	docker run --rm --name {{ project_slug }}-cf-tunnel \
+	  -v "$(CURDIR)/deploy/cloudflared:/etc/cloudflared" \
+	  cloudflare/cloudflared:latest tunnel --config /etc/cloudflared/config.yml run
+
 # ── Security ─────────────────────────────────────────────────────────────────
 .PHONY: secret-scan
 secret-scan: ## Scan the repo for committed secrets (gitleaks in Docker)

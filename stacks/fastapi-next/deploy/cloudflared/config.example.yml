@@ -1,0 +1,27 @@
+# Named Cloudflare Tunnel — config template.
+#
+# A named tunnel gives {{ project_name }} a STABLE public URL on your own domain
+# (unlike `make deploy`, whose *.trycloudflare.com URL is random and ephemeral).
+# One-time setup + how to run: DEPLOY.md.
+#
+# Copy this to `config.yml` and fill the two placeholders. NEVER commit
+# `config.yml` or the credentials JSON — both are gitignored (tunnel secrets).
+
+# The tunnel's UUID or name, from `cloudflared tunnel create {{ project_slug }}`.
+tunnel: <TUNNEL_UUID>
+
+# The credentials file that `create` wrote. When cloudflared runs in Docker (the
+# `make tunnel` target mounts deploy/cloudflared → /etc/cloudflared), this path
+# is inside the container.
+credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  # Public hostname → the running frontend (which proxies /api → backend).
+  # Route it once with `cloudflared tunnel route dns {{ project_slug }} <hostname>`.
+  # host.docker.internal reaches the host's published :{{ port_web }} when
+  # cloudflared runs in Docker; use http://localhost:{{ port_web }} if you run
+  # cloudflared on the host instead.
+  - hostname: <YOUR_HOSTNAME>            # e.g. {{ project_slug }}.yourdomain.com
+    service: http://host.docker.internal:{{ port_web }}
+  # Required catch-all — every ingress list must end with a bare service.
+  - service: http_status:404

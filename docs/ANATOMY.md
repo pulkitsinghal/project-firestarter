@@ -89,7 +89,7 @@ project wants all of it regardless of language.
 | `frontend/` | Next.js App Router skeleton with an `/api` proxy to the backend; exact patched dependencies are locked and installed with `npm ci` |
 | `storyboard/` | Playwright runner pinned to `mcr.microsoft.com/playwright` |
 | `.github/dependabot.yml` | Grouped weekly updates (pip + npm + github-actions), `chore:`/`ci:` prefixes |
-| `DEPLOY.md` + `cloudflared` deploy profile | One-button Cloudflare quick-tunnel to expose the frontend publicly (no account) |
+| `DEPLOY.md` + `cloudflared` deploy profile | One-button Cloudflare quick-tunnel to expose the frontend publicly (no account); plus a **stable named-tunnel** runbook + `deploy/cloudflared/config.example.yml` template + `make tunnel` for a fixed hostname on your own domain (creds gitignored) |
 | `storyboard/manifest.json` + render | Manifest-driven planned-vs-implemented map → committed `docs/STORYBOARD.md` |
 
 ### Documented gotchas baked into this stack
