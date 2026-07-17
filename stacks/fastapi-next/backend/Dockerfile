@@ -19,5 +19,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 COPY . .
 
+# Deploy provenance — kept as the LAST layers so changing them never busts the
+# dependency/source cache. Empty on a plain `docker build`; `make up` passes the
+# real values. Surfaced at GET /health so you can verify which commit is live.
+ARG BUILD_TIME=""
+ARG GIT_SHA=""
+ENV APP_BUILD_TIME=$BUILD_TIME \
+    APP_GIT_SHA=$GIT_SHA
+
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
