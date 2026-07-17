@@ -57,6 +57,16 @@ frontend-typecheck: ## tsc --noEmit
 frontend-build: ## next build
 	$(NODE) npm run build
 
+.PHONY: frontend-lockcheck
+frontend-lockcheck: ## Guard: package-lock.json must satisfy `npm ci` on npm 11 (cross-platform complete)
+	# The build image runs node:22 (npm 10), which TOLERATES a lockfile missing
+	# other platforms' optional deps — but a modern host runs npm 11, which
+	# rejects it with EUSAGE and silently breaks local `npm ci`. Re-resolve in a
+	# throwaway npm-11 container (source mounted read-only, validated on a copy)
+	# so an incomplete lockfile fails loudly here instead of on a teammate's box.
+	docker run --rm -v "$(CURDIR)/frontend":/src:ro node:24-alpine \
+	  sh -c 'mkdir -p /app && cp /src/package.json /src/package-lock.json /app/ && cd /app && npm ci --dry-run --no-audit --no-fund 1>/dev/null && echo "✓ package-lock.json satisfies npm ci on npm $$(npm -v)"'
+
 # ── Aggregate gates ──────────────────────────────────────────────────────────
 .PHONY: test
 test: backend-test ## Run the test suite (CI "Tests" job)
@@ -69,7 +79,7 @@ smoke: ## Syntax-check shipped shell scripts, git hooks, and python (fast, no SD
 	bash scripts/smoke.sh
 
 .PHONY: precommit
-precommit: smoke backend-lint backend-test frontend-typecheck ## Mirror CI gates locally
+precommit: smoke backend-lint backend-test frontend-typecheck frontend-lockcheck ## Mirror CI gates locally
 	@echo "✓ precommit gates passed"
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────

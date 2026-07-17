@@ -81,8 +81,8 @@ project wants all of it regardless of language.
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | postgres (pgvector) + redis + backend + frontend; `tools`/`node`/`storyboard` profiles |
-| `Makefile` | `up/down/migrate/test/lint/precommit/storyboard/hook-install` — all via Docker |
+| `docker-compose.yml` | postgres (pgvector) + redis + backend + frontend; `tools`/`node`/`storyboard` profiles. The `backend-tools`/`frontend-tools` services **mount live source** over the baked image so test/lint/seed run against the working tree, not stale baked source |
+| `Makefile` | `up/down/migrate/test/lint/precommit/storyboard/hook-install` + `frontend-lockcheck` — all via Docker |
 | `scripts/sync_version.sh` + `make version-sync` | Propagate `/VERSION` into `backend/pyproject.toml` + `frontend/package.json` (host coreutils, no SDK) |
 | `.github/workflows/ci.yml` | Jobs **Tests**, **Lint & Typecheck**, **Build** (names matched by auto-merge) |
 | `backend/` | FastAPI app, `pyproject.toml` (ruff/mypy/pytest), `001_init.sql`, `scripts/migrate.sh`, a smoke test, and a hermetic-vs-integration test split (`make backend-itest` + `integration` marker + `tests/integration/` gated on `TEST_DATABASE_URL`) |
@@ -91,6 +91,10 @@ project wants all of it regardless of language.
 | `.github/dependabot.yml` | Grouped weekly updates (pip + npm + github-actions), `chore:`/`ci:` prefixes |
 | `DEPLOY.md` + `cloudflared` deploy profile | One-button Cloudflare quick-tunnel to expose the frontend publicly (no account) |
 | `storyboard/manifest.json` + render | Manifest-driven planned-vs-implemented map → committed `docs/STORYBOARD.md` |
+
+### Documented gotchas baked into this stack
+- **Stale baked source in the tools profile:** the build images bake source, so `backend-tools`/`frontend-tools` run the *last build's* code — after an edit, `make backend-test`/`seed` silently uses stale content until you rebuild. Fixed by mounting live source over `/app` (backend's editable install resolves `app` from the mount; frontend keeps its baked `node_modules` via an anonymous volume).
+- **npm 10 vs 11 lockfile completeness (`EUSAGE`):** the `node:22` build image runs npm 10, which tolerates a `package-lock.json` missing other platforms' optional deps; a modern host runs npm 11, which rejects it and breaks local `npm ci`. `make frontend-lockcheck` (+ a CI step) re-resolves in a throwaway `node:24-alpine` so an incomplete lockfile fails loudly.
 
 ## Stack profile: `supabase-flutter` (supabase-flutter lineage)
 
