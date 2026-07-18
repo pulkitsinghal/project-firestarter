@@ -55,7 +55,13 @@ Use [docs/FEATURE_HANDOFF.md](docs/FEATURE_HANDOFF.md). A visible UI feature
 ships to review with real rebuilt-app storyboard frames, a compact state map,
 and exact acceptance/failure/verification evidence. A short captioned release
 cut is expected for a material multi-step flow only when the repository provides
-a reproducible harness; otherwise mark it N/A and provide a still walkthrough.
+a reproducible harness; use any full E2E rehearsal as its source, and include a
+natural voice, subtitles, and restrained focus effects. Commit compact polished
+media under `docs/media/` when each file is under 10 MB; keep raw recordings as
+CI artifacts and use a release attachment or Git LFS for larger masters.
+Do not slow assertions for presentation: capture stable E2E story beats at normal
+speed, then add narration, captions, pacing, and focus effects after the run.
+Otherwise mark it N/A and provide a still walkthrough.
 For non-visual work, mark UI artifacts N/A and provide equivalent API, log,
 migration, build/output, or state-transition evidence.
 

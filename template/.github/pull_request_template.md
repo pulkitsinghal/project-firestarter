@@ -29,8 +29,10 @@ Link any plans, issues, or design docs. -->
 <!--
 Record the acceptance path, meaningful failure/retry/rollback/cleanup path, and
 exact checks. For a visible change, link real-app storyboard frames and the
-Mermaid state/flow map. Link a short captioned release cut for a material
-multi-step flow only when this repository ships a reproducible harness;
+Mermaid state/flow map. Link the full E2E/release-rehearsal evidence when the
+repository provides it. Link a 20–40 second narrated/captioned release cut with
+natural voice, subtitles, and focus effects for a material multi-step flow only
+when this repository ships a reproducible harness;
 otherwise mark video N/A and provide a still walkthrough. For non-visual work,
 write N/A with a reason and link equivalent API/log/migration/build/state
 evidence. Use synthetic/test data. See docs/FEATURE_HANDOFF.md.
@@ -43,4 +45,7 @@ evidence. Use synthetic/test data. See docs/FEATURE_HANDOFF.md.
 - [ ] Docs updated (`ARCHITECTURE.md` / `PROJECT_STATUS_AND_NEXT_STEPS.md`) if behaviour changed
 - [ ] Acceptance, failure/recovery, rollback, and exact verification evidence is attached (N/A explained)
 - [ ] UI changes refresh the real-app storyboard and state map, or N/A is explained
+- [ ] The repository's full end-user E2E/release rehearsal passes, or N/A is explained
+- [ ] Narrated E2E evidence is post-processed from normal-speed assertions, without `slowMo` or fixed presentation waits, or N/A is explained
 - [ ] Material multi-step UI work links the supported release cut, or video N/A is explained
+- [ ] Compact polished media is committed under `docs/media/`; raw recordings remain artifacts, or N/A is explained

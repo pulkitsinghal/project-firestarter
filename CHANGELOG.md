@@ -6,10 +6,18 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- A two-speed E2E handoff precept: tests capture asserted story beats and focus
+  targets at normal speed, while narration, captions, pacing, effects, and media
+  validation happen only in post-production.
+- A generated-project media policy that commits compact polished release masters
+  and optional GIF previews under `docs/media/`, while raw E2E recordings remain
+  CI artifacts and larger media uses release attachments or Git LFS.
 - Evidence-backed feature handoffs in generated agent/human guidance and PR
   templates: exact acceptance, failure/recovery, rollback, and verification
-  evidence; real storyboard/state-map evidence for visible work; conditional
-  release cuts only when a reproducible repository harness exists.
+  evidence; real storyboard/state-map evidence for visible work; full E2E
+  rehearsal evidence when available; and 20–40s narrated/captioned,
+  focus-guided release cuts with natural voice when a reproducible repository
+  harness exists.
 - One-workstation local-CA policy and verified rollout/rollback guidance for
   generated projects. (#9)
 
