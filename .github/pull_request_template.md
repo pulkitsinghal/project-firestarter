@@ -19,8 +19,10 @@ the evidence concrete. See AGENTS.md and template/docs/FEATURE_HANDOFF.md.
 <!--
 Record the acceptance path, meaningful failure/retry/rollback/cleanup path, and
 exact checks. For visible work, link real rebuilt-app storyboard frames and a
-Mermaid state/flow map. Link a short captioned release cut for a material
-multi-step flow only when the generated project ships a reproducible harness;
+Mermaid state/flow map. Link full E2E/release-rehearsal evidence when available.
+Link a 20–40 second narrated/captioned cut with natural voice, subtitles, and
+focus effects for a material multi-step flow when the generated project ships a
+reproducible harness;
 otherwise mark video N/A and provide a still walkthrough. For non-visual work,
 write N/A with a reason and link equivalent generated-file/request/log/build or
 state evidence. Use synthetic/test data in every artifact.
@@ -34,4 +36,7 @@ state evidence. Use synthetic/test data in every artifact.
 - [ ] Conventional-commit subject (`type(scope): subject`, ≤100 chars)
 - [ ] Acceptance, failure/recovery, rollback, and exact verification evidence is attached (N/A explained)
 - [ ] UI changes refresh the real-app storyboard and state map, or N/A is explained
+- [ ] The generated project's full E2E/release rehearsal passes, or N/A is explained
+- [ ] Narrated E2E evidence is post-processed from normal-speed assertions, without `slowMo` or fixed presentation waits, or N/A is explained
 - [ ] Material multi-step UI work links the supported release cut, or video N/A is explained
+- [ ] Compact polished media is committed under `docs/media/`; raw recordings remain artifacts, or N/A is explained

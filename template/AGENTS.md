@@ -244,11 +244,21 @@ from a diff:
 3. Include a compact Mermaid state/flow map covering initial, success, failure,
    retry, and cleanup states when a lifecycle exists. Explicitly mark truly
    stateless work as such.
-4. For a material multi-step UI flow, prepare a short captioned release cut only
-   when this repository already ships a reproducible Dockerized recipe and named
-   Make target. Otherwise mark video N/A and provide an ordered still-frame
-   walkthrough. Narration is optional, never a universal completion gate.
-5. Make the final handoff self-contained: outcome, screens, state-map
+4. Run the repository's end-user E2E/release rehearsal when one exists and use
+   its real captures/recordings as the evidence source.
+5. For a material multi-step UI flow, prepare a **20–40 second narrated and
+   captioned release cut** when this repository ships a reproducible Dockerized
+   recipe and named Make target. Use a natural conversational voice, subtitles,
+   and restrained focus/transition effects synchronized to the exact control or
+   state being discussed. Commit a compact polished master and optional GIF
+   preview under `docs/media/` when each is under 10 MB; use a release attachment
+   or Git LFS above that threshold, while raw E2E recordings remain artifacts.
+   Keep E2E assertions at normal speed: capture asserted story beats and focus
+   targets without `slowMo` or fixed presentation waits, then add voice, captions,
+   pacing, and effects in a separate post-process after the tests pass.
+   Otherwise mark video N/A and provide an ordered still-frame walkthrough; do
+   not improvise a host media toolchain.
+6. Make the final handoff self-contained: outcome, screens, state-map
    walkthrough, conditional release cut/N/A rationale, exact verification,
    known limits, rollback, and the next action that requires user authority.
 

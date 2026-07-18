@@ -62,11 +62,20 @@ user or developer:
   states from the rebuilt app;
 - promote the chosen frames into the committed storyboard doc/assets;
 - explain the lifecycle with a compact Mermaid map; and
-- for a material multi-step flow, use those same frames for a short captioned
-  release cut only when the repository already ships a reproducible Dockerized
-  recipe and named Make target. Otherwise mark video N/A and give an ordered
-  still-frame walkthrough.
+- run the repository's full end-user E2E/release rehearsal when it has one; for
+  a material multi-step flow, use those captures or the same frames for a
+  20–40 second narrated/captioned release cut with a natural voice, subtitles,
+  and restrained focus effects when the repository ships a reproducible
+  Dockerized recipe and named Make target. Commit a compact polished master and
+  optional GIF preview under `docs/media/` when each is under 10 MB; keep raw
+  E2E recordings as CI artifacts and use a release attachment or Git LFS for
+  larger masters. Otherwise mark video N/A and give an ordered still-frame
+  walkthrough.
 
-This keeps the automated acceptance flow, reviewable stills, and any optional
+Keep the E2E run at normal speed. Capture stable asserted story beats, reviewed
+narration text, and focus targets without `slowMo` or fixed presentation waits;
+add readable pacing, audio, captions, and effects only after the assertions pass.
+
+This keeps the automated acceptance flow, reviewable stills, and the release
 release narrative anchored to one set of real screens without inventing an ad
 hoc host media toolchain.

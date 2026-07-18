@@ -40,8 +40,14 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   acceptance, failure/recovery, and verification evidence. Visible UI work adds
   real storyboard frames and a state/flow map. Add a short captioned release cut
   for material multi-step flows only when a reproducible repository harness
-  exists; otherwise mark it N/A and provide a still walkthrough. Use synthetic
-  data in every handoff artifact.
+  exists; source it from the full E2E rehearsal when available, and require a
+  natural voice, subtitles, and restrained focus effects. Commit compact
+  polished media under `docs/media/` when each file is under 10 MB; keep raw
+  recordings as CI artifacts and use a release attachment or Git LFS for larger
+  masters. Keep assertions at normal speed and post-process captured story beats
+  into paced narration/captions; never add `slowMo` or fixed presentation waits
+  to the regression flow. Otherwise mark it N/A and provide a still walkthrough.
+  Use synthetic data in every handoff artifact.
 - **AI-reviewed PRs, no human review required.** PRs go to `master`.
   `ai-pr-review.yml` calls the Anthropic API directly (requires
   `ANTHROPIC_API_KEY` repo secret) and posts a verdict comment. Auto-merge
