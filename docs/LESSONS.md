@@ -170,6 +170,39 @@ must exclude its own generated artifacts (VERSION file, `version.json`, deploy
 ledgers) from the dirty check, or every build falsely stamps itself `-dirty`
 because the stamping step rewrites tracked files.
 
+**Never let an unattended secret source depend on an interactive desktop app.** A
+vault CLI that brokers auth through a GUI app (1Password's `op`, and peers) dies
+the moment that app is closed or locks — i.e. precisely when the operator has
+walked away, which is when unattended runs happen. The failure is also
+*misdiagnosable*: `op` reports `No accounts configured for use with 1Password
+CLI`, which reads like a missing-integration setup problem and sends you hunting
+for a toggle that was enabled all along; the real tell is `op account list`
+exiting **0 with empty output**. A locked vault will also *hang* rather than
+fail, because the CLI blocks on an unlock prompt it cannot draw from a
+non-interactive subprocess — so put a hard timeout on every vault-CLI call in a
+test or deploy path. Resolve secrets through a layered chain instead —
+**env var → OS keychain → vault CLI, first hit wins** — so CI, unattended local
+runs, and interactive runs each have a source that works, and make the failure
+message name every source it tried plus the exact command to fix it. On macOS the
+login Keychain (`security add-generic-password` / `find-generic-password -w`) is
+encrypted at rest, needs no app running, and reads from a subprocess without
+prompting. Vendor "service account" tokens are the vendor-blessed answer but
+usually require an admin-console sign-in to mint, so they cannot bootstrap
+themselves from inside an automated session — check plan *and* role before
+promising one.
+
+**Keep secrets out of argv, not just out of shell history.** Prefer the prompting
+form of any secret-taking command (e.g. `security add-generic-password -U` with
+no `-w`) so the value never becomes a process argument at all. The "prefix the
+command with a space" convention is a shell *option* (`HIST_IGNORE_SPACE`), not a
+default — recommending it without first verifying it is enabled is exactly how a
+password ends up in history anyway. And argv is visible to other local processes
+via `ps`, which purging history does not fix. If a purge is needed: delete in
+place with **no backup file** (`sed -i.bak` just re-exposes the secret), scan
+per-session history files and not only the main one, and remember the live shell
+rewrites its history on exit — so the operator must drop `HISTFILE` in that
+window, or verify afterwards that the entry did not reappear.
+
 ---
 
 ## Docker gotchas
