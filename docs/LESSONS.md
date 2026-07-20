@@ -305,6 +305,21 @@ break down by **response code** (a `204` is a CORS preflight from a real browser
 Origin; scanners do not produce them) and calibrate against a known-dead and a
 known-live service.
 
+**Read the commit history before writing down *why* something exists — and search every
+repo that touches it.** Reconstructing intent from code produces a coherent, confident,
+unfalsifiable story that reads as authoritative and is often wrong. Measured on one
+codebase in a day: a client-side `isAdmin` check that looked like broken authorization was
+introduced as *"Made Admin buttons appear for admins only"* — a UI filter never intended as
+a boundary; and a destructive endpoint I reasoned was "really self-service" turned out to
+be *"Added delete all **admin** functionality"*, operating on a switched-to tenant. The
+second error was the expensive one: the proposed fix — derive the target from the caller's
+own identity — would have left a genuine admin operation **with no admin check** while
+looking like a security improvement. Equally: do not conclude the record is silent after
+checking one repo. A backend assembled from live deployed sources has no history, but its
+client callers do — `git log -S"<symbol>"` across every repo that references the feature.
+When the record really is silent, say so and label the reconstruction as inference, so it
+cannot graduate into fact by being written down confidently.
+
 
 ## LLM & external-dependency architecture
 
