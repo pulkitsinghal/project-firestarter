@@ -136,6 +136,30 @@ frame, not a log line.
 
 ---
 
+**Know these Cloud Run / gcloud traps before you hit them — each one costs a
+failed deploy or, worse, a test that passes for the wrong reason.** `--set-env-vars`
+with a comma *inside* a value parses the commas as separate variables and exits with
+a bare usage error; use an alternate delimiter (`^@^KEY=a,b,c`). While a service is
+invoker-protected, Cloud Run and your app **both want the `Authorization` header** —
+send the invoker token in `X-Serverless-Authorization` or your app receives Google's
+identity token and tries to verify it as its own; symptom is every response being
+Google's *HTML* 403/401 while nothing reaches your code, which reads exactly like
+"my authz works". `status.traffic[0]` is **not** necessarily the serving revision —
+a tagged entry sits in the same array with no `percent`; always select the entry
+with a non-null `percent`. IAM changes take **~2 minutes** to propagate, so an
+immediate re-check reports the *old* state and looks like the change failed — poll.
+
+**Always deploy to a `--no-traffic --tag` revision, verify against the tagged URL,
+then shift traffic.** This is what surfaces the class of failure where production is
+pinned to an old revision that *cannot be rebuilt from source* — e.g. a
+pre-secret-manager image with credentials baked in as literals, which works only
+because it predates a migration. Check before any redeploy: the serving revision's
+`env: []` (no secret bindings) means source and production have diverged and a
+routine redeploy is an outage. Long uptime hides this and boot-time faults
+generally — audit `systemctl list-units --state=running` against `is-enabled`, since
+a running-but-disabled service is an outage waiting for the next reboot.
+
+
 ## Config & secrets
 
 **Split config per environment and assert the artifact semantically.** Split
@@ -205,6 +229,26 @@ window, or verify afterwards that the entry did not reappear.
 
 ---
 
+**Adding a secret version does NOT reach running services — rotation is two steps.**
+Even bound as `secret:latest`, the version resolves when the *revision* is created,
+not per request. Rehearsed and measured: after `versions add`, the service kept
+serving the old value on the same revision; only a revision bump
+(`services update --update-secrets`) picked up the new one. This makes naive rotation
+an outage, because changing a database password is atomic while every deployed
+service still holds the old one. **Rotate via a two-identity migration**: create a
+second user/key with the new credential, migrate services, verify with a real query,
+then remove the first — no downtime window, and rollback-able until the last step.
+Also: `secretAccessor` is granted **per-secret**, not project-wide, so a *new* secret
+fails at deploy until granted explicitly.
+
+**Never print a secret to inspect it — compare digests.** `gcloud secrets versions
+access` (and equivalents) writes plaintext into terminal scrollback, CI logs, and any
+agent's context. To check whether two secrets differ, pipe to `sha256sum` in the same
+command so the value is never rendered. And audit **notes and memory files**, not just
+source: scrubbing secrets from code is worthless if a runbook or an agent's memory
+still records them, since those get loaded into context on every session.
+
+
 ## Docker gotchas
 
 **A source-less compose service runs stale baked code.** A Compose service with
@@ -269,6 +313,46 @@ the transcript; make the process exit code the count of high-severity findings s
 CI or a self-paced loop can gate on it (0 high-severity = the bar).
 
 ---
+
+**Run a new test against the UNFIXED system and confirm it fails, before trusting a
+pass.** A green that has never been red measures nothing. Two ways this bites: a
+selector loose enough to time out is also loose enough to match something incidental
+and pass *vacuously* without exercising the feature; and an infrastructure test can
+"pass" on the platform's rejection rather than your own — assert on the **shape** of
+the response (was this my JSON error, or the platform's HTML page?), not just the
+status code.
+
+**Silence is a function of the observation window.** "No errors since the change" over
+17 minutes says nothing about an endpoint serving a few requests a month. State the
+window whenever reporting an absence, and size it against the event rate you are
+looking for.
+
+**A grep of `src/` cannot prove an endpoint or asset is unused.** Build output and
+`.env*` are typically gitignored, and clients often reach services through env-var
+indirection — so the service name appears nowhere in source *by construction*. Search
+the **built artifact** with `rg -uuu` (hidden + gitignored + binary), fetch the **live**
+bundle rather than the local build (BUILD_IDs differ), and resolve the indirection by
+grepping `.env*` for the target and then source for the variable. Same discipline for
+traffic: aggregate request counts cannot distinguish a scanner from a rare real user —
+break down by **response code** (a `204` is a CORS preflight from a real browser
+Origin; scanners do not produce them) and calibrate against a known-dead and a
+known-live service.
+
+**Read the commit history before writing down *why* something exists — and search every
+repo that touches it.** Reconstructing intent from code produces a coherent, confident,
+unfalsifiable story that reads as authoritative and is often wrong. Measured on one
+codebase in a day: a client-side `isAdmin` check that looked like broken authorization was
+introduced as *"Made Admin buttons appear for admins only"* — a UI filter never intended as
+a boundary; and a destructive endpoint I reasoned was "really self-service" turned out to
+be *"Added delete all **admin** functionality"*, operating on a switched-to tenant. The
+second error was the expensive one: the proposed fix — derive the target from the caller's
+own identity — would have left a genuine admin operation **with no admin check** while
+looking like a security improvement. Equally: do not conclude the record is silent after
+checking one repo. A backend assembled from live deployed sources has no history, but its
+client callers do — `git log -S"<symbol>"` across every repo that references the feature.
+When the record really is silent, say so and label the reconstruction as inference, so it
+cannot graduate into fact by being written down confidently.
+
 
 ## LLM & external-dependency architecture
 
@@ -339,6 +423,49 @@ confirms clients are sending valid tokens and a grace window has passed. Order t
 flip by blast radius — mutations (delete/write) before reads.
 
 ---
+
+**Return the authorized resource, not a permission boolean.** A gate that returns
+`allowed: true/false` fails open when a call site discards the result — which is
+exactly what happened to one rollout here: the helper returned `True` unconditionally
+in log-only mode *and* most callers ignored it, so it gated nothing for months while
+being believed shipped. An API that returns *the resource the caller is entitled to*
+cannot be bypassed by ignoring its return value, because there is nothing to ignore.
+
+**Authorize on a stable, singular identifier — never a mutable attribute.** Deriving
+admin from "this account can sign in with a password" meant account **linking** silently
+granted and preserved privilege: the provider list is not the provider used to sign in,
+so linking a password made an account admin even when authenticating via a social
+provider. Key on the uid. Emails change and differ between one human's accounts; uids do
+not. And fail **closed** on misconfiguration — an unset allowlist should deny everyone,
+not default open.
+
+**Address resources by intent, not by identifier.** Shipping a real tenant's database
+name in client code so it can be requested by name is indistinguishable from the IDOR
+you are trying to fix. Let the client ask for *"the shared dictionary"* and resolve which
+resource that is server-side; the client then never learns the name and has nothing to
+work backwards from. Where a privileged caller genuinely must name another tenant, make
+authorization and target-selection **two separate calls**, so the insecure version reads
+as visibly incomplete.
+
+**The CORS allow-list is part of your auth surface.** If `Access-Control-Allow-Headers`
+omits `Authorization`, the browser strips the token at preflight: the request still
+succeeds, the fix silently does nothing, and there is no visible symptom. Verify the
+preflight before concluding an auth change is live — and note it forces backend-first
+deploy ordering.
+
+**Roll out enforcement in two phases, flipped by config not code.** Phase A uses the
+credential when present but still serves callers without one, logging every unverified
+request so adoption is *measurable*. Phase B is an env var — no redeploy, instantly
+reversible. Then enforcement is turned on with evidence rather than hope. Design both
+sides for **independent rollback** (keep the legacy fields alongside the new ones) so
+either can revert alone with no coordination window.
+
+**A caught exception that returns an empty collection turns an outage into "you have no
+data."** Seen three separate times in one codebase, and it is why a 41-day outage went
+unnoticed: a failed fetch rendered as an empty-but-healthy account. When a data surface
+looks empty, verify the fetch **succeeded** before believing the emptiness — and prefer
+surfacing the failure to returning a plausible-looking empty result.
+
 
 ## Product & monetization
 
