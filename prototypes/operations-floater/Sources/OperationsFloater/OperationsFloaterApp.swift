@@ -1,3 +1,5 @@
+// The executable entry point is intentionally not named main.swift: SwiftPM
+// reserves that filename for top-level program code, which conflicts with @main.
 import AppKit
 import SwiftUI
 
