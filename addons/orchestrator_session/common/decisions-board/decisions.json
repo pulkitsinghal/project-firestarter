@@ -1,0 +1,36 @@
+{
+  "generated": "1970-01-01T00:00:00Z",
+  "_comment": "Decisions board — the single source of truth the master-orchestrator session maintains. The orchestrator regenerates this file as work lands. cat is one of: done | act | decide | plan | review. The three items below are EXAMPLES showing the format — replace them with your own. Open decisions.html (any static server) to view.",
+  "items": [
+    {
+      "id": "EX-1",
+      "project": "example-repo",
+      "cat": "done",
+      "status": "merged",
+      "title": "EXAMPLE — a shipped item (replace me)",
+      "context": "Shows the shape of a completed lane: what landed and where. The orchestrator marks work done here once it is verified, not merely started.",
+      "rec": "None — done. Kept for one cycle so the board shows recent wins.",
+      "link": "https://github.com/OWNER/example-repo/pull/1"
+    },
+    {
+      "id": "EX-2",
+      "project": "example-repo",
+      "cat": "decide",
+      "status": "owner-gated",
+      "title": "EXAMPLE — waiting on the owner (replace me)",
+      "context": "A genuine irreversible the proxy-PM gate stops on: a production deploy, a spend, sending on your behalf, or a real direction fork. Surfaced early so nothing hidden blocks progress.",
+      "rec": "Recommendation, not a survey: state the single action you would take and ask for a yes.",
+      "link": ""
+    },
+    {
+      "id": "EX-3",
+      "project": "another-repo",
+      "cat": "act",
+      "status": "running",
+      "title": "EXAMPLE — in flight, autonomous (replace me)",
+      "context": "Routine, low-risk work the orchestrator is executing now via a subagent lane — no gate needed. Moves to 'done' when verified.",
+      "rec": "Proceeding autonomously; result relayed as it lands.",
+      "link": ""
+    }
+  ]
+}
