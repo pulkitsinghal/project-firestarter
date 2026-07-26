@@ -6,6 +6,16 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- `include_orchestrator_session` add-on (stack-agnostic): a one-paste
+  master-orchestrator bootstrap so any user (or the owner) can turn a fresh Claude
+  Code session at their portfolio root into an orchestrator that fans work out to
+  parallel subagents/workflows, gates on genuine irreversibles as a proxy-PM,
+  verifies before implementing, keeps secret hygiene, and tracks everything on one
+  decisions board. Ships `ORCHESTRATOR_PROMPT.md` (the verbatim generic prompt), a
+  paste-able `AGENTS.orchestrator.md` posture addendum, a `decisions-board/`
+  scaffold (`decisions.json` schema + self-contained dark-mode-aware
+  `decisions.html` viewer), and `docs/ORCHESTRATOR_SESSION.md`. No owner-specific
+  config, no dependencies, no host toolchain, no network calls.
 - `include_secret_vault` add-on (stack-agnostic): cross-platform redundant secret
   storage (`secret-store`/`secret-get`/`git-crypt-key` in `.sh` for macOS Keychain
   + Linux secret-service and `.ps1` for Windows Credential Manager + DPAPI). Every
