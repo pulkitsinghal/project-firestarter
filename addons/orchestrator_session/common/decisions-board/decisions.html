@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decisions Board</title>
+<!--
+  Self-contained, dependency-free viewer for decisions.json (same folder).
+  Serve this folder with ANY static file server and open decisions.html, e.g.
+  a durable launchd/systemd static server on your tailnet so the board is
+  reachable from your phone. Opening via file:// may block fetch() — serve it.
+-->
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #1b1f24;
+    --muted: #5c6672;
+    --line: #e3e7ec;
+    --chip: #eef1f5;
+    --accent: #3a6df0;
+    --done: #1f9d55;
+    --act: #3a6df0;
+    --decide: #d9822b;
+    --plan: #7b61ff;
+    --review: #0aa2c0;
+    --shadow: 0 1px 3px rgba(20, 27, 38, 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216;
+      --panel: #171b21;
+      --ink: #e8ebef;
+      --muted: #9aa4b0;
+      --line: #262c34;
+      --chip: #222831;
+      --accent: #6d93ff;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+  }
+  html[data-theme="dark"] {
+    --bg: #0f1216;
+    --panel: #171b21;
+    --ink: #e8ebef;
+    --muted: #9aa4b0;
+    --line: #262c34;
+    --chip: #222831;
+    --accent: #6d93ff;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+  html[data-theme="light"] {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #1b1f24;
+    --muted: #5c6672;
+    --line: #e3e7ec;
+    --chip: #eef1f5;
+    --accent: #3a6df0;
+    --shadow: 0 1px 3px rgba(20, 27, 38, 0.08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 1.25rem 1.25rem 0.5rem;
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  header h1 { font-size: 1.35rem; margin: 0; }
+  header .meta { color: var(--muted); font-size: 0.85rem; }
+  header .spacer { flex: 1 1 auto; }
+  button.theme {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 0.5rem 1.25rem 3rem; }
+  .group { margin-top: 1.5rem; }
+  .group > h2 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 0 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .group > h2 .count {
+    background: var(--chip);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 0.05rem 0.5rem;
+    font-size: 0.72rem;
+  }
+  .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; display: inline-block; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--line);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.6rem;
+    box-shadow: var(--shadow);
+  }
+  .card .row1 { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .card .title { font-weight: 600; }
+  .chip {
+    background: var(--chip);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.1rem 0.45rem;
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+  .card .context { color: var(--ink); margin: 0.4rem 0 0; }
+  .card .rec { color: var(--muted); margin: 0.35rem 0 0; font-size: 0.9rem; }
+  .card .rec b { color: var(--ink); font-weight: 600; }
+  .card a { color: var(--accent); text-decoration: none; word-break: break-all; }
+  .card a:hover { text-decoration: underline; }
+  .empty { color: var(--muted); padding: 2rem 0; }
+  .error { color: #d9534f; }
+  code { background: var(--chip); padding: 0.05rem 0.3rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Decisions Board</h1>
+  <span class="meta" id="generated"></span>
+  <span class="spacer"></span>
+  <button class="theme" id="themeBtn" type="button">Toggle theme</button>
+</header>
+<main id="app"><p class="empty">Loading decisions.json…</p></main>
+<script>
+  "use strict";
+
+  // Category order + display metadata. cat is one of these five.
+  var CATS = [
+    { key: "act",    label: "Running / acting now", color: "var(--act)" },
+    { key: "decide", label: "Waiting on you (owner-gated)", color: "var(--decide)" },
+    { key: "review", label: "Needs review", color: "var(--review)" },
+    { key: "plan",   label: "Planned / next", color: "var(--plan)" },
+    { key: "done",   label: "Done", color: "var(--done)" }
+  ];
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function card(item) {
+    var el = document.createElement("div");
+    el.className = "card";
+    var meta = CATS.filter(function (c) { return c.key === item.cat; })[0];
+    if (meta) { el.style.borderLeftColor = meta.color; }
+
+    var chips = "";
+    if (item.id) { chips += '<span class="chip">' + esc(item.id) + "</span>"; }
+    if (item.project) { chips += '<span class="chip">' + esc(item.project) + "</span>"; }
+    if (item.status) { chips += '<span class="chip">' + esc(item.status) + "</span>"; }
+
+    var html = '<div class="row1">' + chips +
+      '<span class="title">' + esc(item.title) + "</span></div>";
+    if (item.context) { html += '<p class="context">' + esc(item.context) + "</p>"; }
+    if (item.rec) { html += '<p class="rec"><b>Rec:</b> ' + esc(item.rec) + "</p>"; }
+    if (item.link) {
+      var href = esc(item.link);
+      html += '<p class="rec"><a href="' + href + '" target="_blank" rel="noopener">' + href + "</a></p>";
+    }
+    el.innerHTML = html;
+    return el;
+  }
+
+  function render(data) {
+    var app = document.getElementById("app");
+    app.innerHTML = "";
+    var gen = document.getElementById("generated");
+    gen.textContent = data.generated ? ("updated " + data.generated) : "";
+
+    var items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length) {
+      app.innerHTML = '<p class="empty">No items yet. The orchestrator populates this as work lands.</p>';
+      return;
+    }
+
+    CATS.forEach(function (c) {
+      var inCat = items.filter(function (it) { return it.cat === c.key; });
+      if (!inCat.length) { return; }
+      var group = document.createElement("section");
+      group.className = "group";
+      var h2 = document.createElement("h2");
+      h2.innerHTML = '<span class="dot" style="background:' + c.color + '"></span>' +
+        esc(c.label) + '<span class="count">' + inCat.length + "</span>";
+      group.appendChild(h2);
+      inCat.forEach(function (it) { group.appendChild(card(it)); });
+      app.appendChild(group);
+    });
+
+    // Any items with an unrecognised cat still show, grouped under "Other".
+    var known = CATS.map(function (c) { return c.key; });
+    var other = items.filter(function (it) { return known.indexOf(it.cat) === -1; });
+    if (other.length) {
+      var g = document.createElement("section");
+      g.className = "group";
+      var h = document.createElement("h2");
+      h.textContent = "Other";
+      g.appendChild(h);
+      other.forEach(function (it) { g.appendChild(card(it)); });
+      app.appendChild(g);
+    }
+  }
+
+  function load() {
+    fetch("decisions.json", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) { throw new Error("HTTP " + r.status); }
+        return r.json();
+      })
+      .then(render)
+      .catch(function (err) {
+        document.getElementById("app").innerHTML =
+          '<p class="empty error">Could not load <code>decisions.json</code> (' + esc(err.message) +
+          "). Serve this folder with a static file server rather than opening it via <code>file://</code>.</p>";
+      });
+  }
+
+  // Theme toggle: follow the OS by default; the button flips a manual override.
+  (function () {
+    var btn = document.getElementById("themeBtn");
+    btn.addEventListener("click", function () {
+      var root = document.documentElement;
+      var cur = root.getAttribute("data-theme");
+      var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      var next;
+      if (!cur) { next = prefersDark ? "light" : "dark"; }
+      else { next = cur === "dark" ? "light" : "dark"; }
+      root.setAttribute("data-theme", next);
+    });
+  })();
+
+  load();
+</script>
+</body>
+</html>
