@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Operational Snapshot</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Sanitized remote snapshot</p>
+        <h1>Operational state, without workstation access.</h1>
+        <p class="lede">Verified facts, estimates, unavailable signals, and implementation gaps remain visibly distinct.</p>
+      </div>
+      <span class="mode-badge">Supplied snapshot</span>
+    </header>
+
+    <p id="error" class="error" role="alert" hidden></p>
+
+    <section aria-labelledby="resource-title" class="panel">
+      <div class="section-heading">
+        <h2 id="resource-title">Resource budget</h2>
+        <span>Scheduling evidence</span>
+      </div>
+      <div id="resource-grid" class="resource-grid"></div>
+    </section>
+
+    <section aria-labelledby="queue-title" class="dashboard-grid">
+      <h2 id="queue-title" class="visually-hidden">Operational queue</h2>
+      <div id="queue-grid" class="queue-grid"></div>
+
+      <section class="panel compact-panel" aria-labelledby="tests-title">
+        <div class="section-heading">
+          <h2 id="tests-title">Tests and quality</h2>
+          <span id="tests-count"></span>
+        </div>
+        <div id="tests-list" class="record-list"></div>
+      </section>
+
+      <section class="panel compact-panel" aria-labelledby="signals-title">
+        <div class="section-heading">
+          <h2 id="signals-title">Signals</h2>
+          <span id="signals-count"></span>
+        </div>
+        <div id="signals-list" class="record-list"></div>
+      </section>
+    </section>
+
+    <footer>
+      Sanitized snapshot only. This page has no device telemetry bridge and does not treat unavailable or unimplemented checks as passing.
+    </footer>
+  </main>
+  <script src="./dashboard.js" defer></script>
+</body>
+</html>

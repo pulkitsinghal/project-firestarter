@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "sanitized-remote",
+  "queue": [
+    {
+      "id": "EX-Q1",
+      "title": "EXAMPLE — prepare release notes",
+      "detail": "Synthetic running work used to demonstrate a sanitized operational record.",
+      "state": "running",
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-Q2",
+      "title": "EXAMPLE — review migration plan",
+      "detail": "Synthetic queued work with no repository, environment, or owner details.",
+      "state": "queued",
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-Q3",
+      "title": "EXAMPLE — approve release gate",
+      "detail": "Synthetic owner-gated work represented without a personal identifier.",
+      "state": "waiting",
+      "exposure": "sanitized",
+      "verification": "verified"
+    }
+  ],
+  "tests": [
+    {
+      "id": "EX-T1",
+      "title": "EXAMPLE — snapshot contract test",
+      "detail": "The synthetic fixture passed the dependency-free privacy validator.",
+      "result": "passed",
+      "exposure": "sanitized",
+      "verification": "verified"
+    },
+    {
+      "id": "EX-T2",
+      "title": "EXAMPLE — accessibility automation",
+      "detail": "Automation is not implemented and is not counted as passing.",
+      "result": "not-implemented",
+      "exposure": "sanitized",
+      "verification": "not-implemented"
+    }
+  ],
+  "resourceBudget": [
+    {
+      "id": "EX-R1",
+      "title": "Heavy concurrency",
+      "detail": "Synthetic scheduling estimate for presentation testing.",
+      "displayValue": "1 / 2",
+      "value": 1,
+      "capacity": 2,
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-R2",
+      "title": "Running work",
+      "detail": "Synthetic count; not workstation telemetry.",
+      "displayValue": "2",
+      "value": 2,
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-R3",
+      "title": "Queued heavy work",
+      "detail": "Synthetic count that keeps queued work explicit.",
+      "displayValue": "1",
+      "value": 1,
+      "exposure": "sanitized",
+      "verification": "estimated"
+    }
+  ],
+  "signals": [
+    {
+      "id": "EX-S1",
+      "title": "Device telemetry",
+      "detail": "Unavailable in a sanitized remote snapshot; no values are inferred.",
+      "state": "unavailable",
+      "exposure": "sanitized",
+      "verification": "unavailable"
+    },
+    {
+      "id": "EX-S2",
+      "title": "Exposure review",
+      "detail": "The fixture contains sanitized records only.",
+      "state": "available",
+      "exposure": "sanitized",
+      "verification": "verified"
+    }
+  ]
+}
