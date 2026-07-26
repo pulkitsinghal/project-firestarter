@@ -6,6 +6,14 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- `include_secret_vault` add-on (stack-agnostic): cross-platform redundant secret
+  storage (`secret-store`/`secret-get`/`git-crypt-key` in `.sh` for macOS Keychain
+  + Linux secret-service and `.ps1` for Windows Credential Manager + DPAPI). Every
+  secret is stored in 1Password + the OS secret store + a locked on-disk backup and
+  cross-checked by sha256 fingerprint (fails closed under two verified copies);
+  runtime use streams the value straight into the consumer, never argv/logs.
+  Generalises the ad-hoc macOS-only `git-crypt-key-store`. Ships `docs/SECRET_VAULT.md`
+  + a `docs/SECRETS.md` house contract wired into `AGENTS.md`.
 - A two-speed E2E handoff precept: tests capture asserted story beats and focus
   targets at normal speed, while narration, captions, pacing, effects, and media
   validation happen only in post-production.

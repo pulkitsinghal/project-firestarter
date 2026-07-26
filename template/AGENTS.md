@@ -66,6 +66,34 @@ service signs certificates and retains all private keys. Trust-store changes,
 CA rotation, and live proxy reloads are owner-approved host operations. Verify
 HTTPS without `-k`, `--insecure`, or disabled certificate checks.
 
+## Secrets & credentials (house contract)
+
+Every secret — API key, token, password, signing key, git-crypt repo key — obeys
+these rules. They are non-negotiable; [SECURITY.md](SECURITY.md) covers reporting
+and fail-closed config, and when the **secret_vault** add-on is enabled
+[docs/SECRETS.md](docs/SECRETS.md) + [docs/SECRET_VAULT.md](docs/SECRET_VAULT.md)
+carry the full contract and the tooling.
+
+1. **Never plaintext-commit or expose a secret.** No secret value in git history,
+   a commit, a PR body, an issue, a log, a screenshot, or the chat. Anything that
+   lands there is compromised — rotate it. Repo-embedded secrets use **git-crypt**;
+   `.env` and the local backup dir (`.secret-vault/`) are git-ignored; the gitleaks
+   secret scan is a backstop, not a substitute.
+2. **Redundancy + fingerprint integrity.** A durable secret lives in **≥2 durable
+   stores plus a backup**, each cross-checked by the same **sha256 fingerprint**,
+   so one lost/corrupted store is never unrecoverable. With the add-on:
+   `secret-store <name>` (fails closed under two verified copies).
+3. **Never echo, log, or pass a secret as a CLI argument** (argv is world-readable
+   via `ps`). Feed secrets via stdin, a file read, or runtime injection; only a
+   secret's *fingerprint* may be printed.
+4. **Runtime injection, not materialization.** Stream a secret straight into the
+   consumer (`secret-get <name> --exec ENVVAR -- <cmd>`) rather than parking
+   plaintext in a file or a long-lived environment. When a path is unavoidable,
+   use a `0600` / ACL-locked file and delete it after.
+5. **Least privilege + per-service naming, rotation on a cadence.** One secret per
+   purpose, narrowly scoped; CI secrets via `gh secret set` ([docs/ci-secrets.md](docs/ci-secrets.md));
+   rotate long-lived secrets **≥ every 90 days** and immediately on any exposure.
+
 ## Commit, branch, and merge workflow
 
 ### Branching
