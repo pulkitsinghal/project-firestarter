@@ -12,10 +12,18 @@ targets:
     platform: macOS
     sources:
       - path: Sources/OperationsFloater
+      - path: Assets.xcassets
+        buildPhase: resources
     info:
       path: Info.plist
+      properties:
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.productivity
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.pulkitsinghal.operationsfloater
+        CODE_SIGN_ENTITLEMENTS: OperationsFloater.entitlements
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.operationsfloater
         PRODUCT_NAME: Operations Floater
         GENERATE_INFOPLIST_FILE: NO

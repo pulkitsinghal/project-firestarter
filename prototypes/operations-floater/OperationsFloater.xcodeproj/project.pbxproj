@@ -7,18 +7,23 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A705BC6F0D3A543F75D84535 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6D7388421B1A4219EF55A7B2 /* Assets.xcassets */; };
 		B62C2C7DCF69BD92439B2DAF /* OperationsFloaterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */; };
+		FD43F65E79771F0CB6719A1D /* DashboardContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D2103622C4FB3754F316FE /* DashboardContract.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		02D2103622C4FB3754F316FE /* DashboardContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardContract.swift; sourceTree = "<group>"; };
 		1879896A7B14D79C647AA2C1 /* OperationsFloater.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OperationsFloater.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationsFloaterApp.swift; sourceTree = "<group>"; };
+		6D7388421B1A4219EF55A7B2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		2DA741E94E54E215447AE266 = {
 			isa = PBXGroup;
 			children = (
+				6D7388421B1A4219EF55A7B2 /* Assets.xcassets */,
 				B80BC94537001B87D87E8E07 /* OperationsFloater */,
 				C297B170AAF4D60AB8A37E10 /* Products */,
 			);
@@ -27,6 +32,7 @@
 		B80BC94537001B87D87E8E07 /* OperationsFloater */ = {
 			isa = PBXGroup;
 			children = (
+				02D2103622C4FB3754F316FE /* DashboardContract.swift */,
 				62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */,
 			);
 			name = OperationsFloater;
@@ -49,6 +55,7 @@
 			buildConfigurationList = D2584BB46707705BC5E3BDB5 /* Build configuration list for PBXNativeTarget "OperationsFloater" */;
 			buildPhases = (
 				18435FBB03FC9845B72DF4B5 /* Sources */,
+				0DE14B120712D1E2BC8685DD /* Resources */,
 			);
 			buildRules = (
 			);
@@ -94,11 +101,23 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		0DE14B120712D1E2BC8685DD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A705BC6F0D3A543F75D84535 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		18435FBB03FC9845B72DF4B5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FD43F65E79771F0CB6719A1D /* DashboardContract.swift in Sources */,
 				B62C2C7DCF69BD92439B2DAF /* OperationsFloaterApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -110,14 +129,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OperationsFloater.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.pulkitsinghal.operationsfloater;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.operationsfloater;
 				PRODUCT_NAME = "Operations Floater";
 				SDKROOT = macosx;
 			};
@@ -127,14 +149,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OperationsFloater.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.pulkitsinghal.operationsfloater;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.operationsfloater;
 				PRODUCT_NAME = "Operations Floater";
 				SDKROOT = macosx;
 			};

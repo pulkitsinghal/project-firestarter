@@ -5,6 +5,10 @@ let package = Package(
     name: "OperationsFloater",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "OperationsFloater")
+        .executableTarget(name: "OperationsFloater"),
+        .testTarget(
+            name: "OperationsFloaterTests",
+            dependencies: ["OperationsFloater"]
+        )
     ]
 )

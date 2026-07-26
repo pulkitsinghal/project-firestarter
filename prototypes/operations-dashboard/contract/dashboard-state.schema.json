@@ -1,0 +1,245 @@
+{
+  "title": "Operations dashboard snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "mode",
+    "queue",
+    "tests",
+    "resourceBudget",
+    "signals"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "sample",
+        "local",
+        "sanitized-remote"
+      ]
+    },
+    "queue": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/queueRecord"
+      }
+    },
+    "tests": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/testRecord"
+      }
+    },
+    "resourceBudget": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/resourceBudgetRecord"
+      }
+    },
+    "signals": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/signalRecord"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "detail": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "exposure": {
+      "type": "string",
+      "enum": [
+        "sanitized",
+        "local-only"
+      ]
+    },
+    "verification": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "estimated",
+        "unavailable",
+        "not-implemented"
+      ]
+    },
+    "queueRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "detail",
+        "state",
+        "exposure",
+        "verification"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "$ref": "#/$defs/title"
+        },
+        "detail": {
+          "$ref": "#/$defs/detail"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "queued",
+            "waiting",
+            "ready"
+          ]
+        },
+        "exposure": {
+          "$ref": "#/$defs/exposure"
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        }
+      }
+    },
+    "testRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "detail",
+        "result",
+        "exposure",
+        "verification"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "$ref": "#/$defs/title"
+        },
+        "detail": {
+          "$ref": "#/$defs/detail"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "queued",
+            "not-run",
+            "not-implemented",
+            "unknown"
+          ]
+        },
+        "exposure": {
+          "$ref": "#/$defs/exposure"
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        }
+      }
+    },
+    "resourceBudgetRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "detail",
+        "displayValue",
+        "exposure",
+        "verification"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "$ref": "#/$defs/title"
+        },
+        "detail": {
+          "$ref": "#/$defs/detail"
+        },
+        "displayValue": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "value": {
+          "type": "number",
+          "minimum": 0
+        },
+        "capacity": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "exposure": {
+          "$ref": "#/$defs/exposure"
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        }
+      }
+    },
+    "signalRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "detail",
+        "state",
+        "exposure",
+        "verification"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "$ref": "#/$defs/title"
+        },
+        "detail": {
+          "$ref": "#/$defs/detail"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "available",
+            "attention",
+            "unavailable",
+            "unknown"
+          ]
+        },
+        "exposure": {
+          "$ref": "#/$defs/exposure"
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        }
+      }
+    }
+  }
+}
