@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "sample",
+  "queue": [
+    {
+      "id": "EX-Q1",
+      "title": "Example work item",
+      "detail": "Replace with approved local or sanitized state.",
+      "state": "running",
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-Q2",
+      "title": "Example queued item",
+      "detail": "Awaiting a generic follow-up.",
+      "state": "queued",
+      "exposure": "sanitized",
+      "verification": "estimated"
+    }
+  ],
+  "tests": [
+    {
+      "id": "EX-T1",
+      "title": "Example contract check",
+      "detail": "No executed result is claimed in the committed fixture.",
+      "result": "not-run",
+      "exposure": "sanitized",
+      "verification": "unavailable"
+    }
+  ],
+  "resourceBudget": [
+    {
+      "id": "EX-R1",
+      "title": "Heavy validation lane",
+      "detail": "Run one heavyweight validation at a time.",
+      "displayValue": "Not supplied",
+      "exposure": "sanitized",
+      "verification": "unavailable"
+    }
+  ],
+  "signals": [
+    {
+      "id": "EX-S1",
+      "title": "Example local signal",
+      "detail": "Runtime values are intentionally absent from the committed fixture.",
+      "state": "unavailable",
+      "exposure": "sanitized",
+      "verification": "not-implemented"
+    }
+  ]
+}
