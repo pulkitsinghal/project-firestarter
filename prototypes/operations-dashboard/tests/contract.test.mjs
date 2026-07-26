@@ -9,6 +9,10 @@ import {
 
 const fixtureURL = new URL("../contract/dashboard-state.sample.json", import.meta.url);
 const schemaURL = new URL("../contract/dashboard-state.schema.json", import.meta.url);
+const webFixtureURL = new URL(
+  "../../operations-dashboard-web/fixtures/sanitized-remote.snapshot.json",
+  import.meta.url,
+);
 
 async function readJSON(url) {
   return JSON.parse(await readFile(url, "utf8"));
@@ -17,6 +21,12 @@ async function readJSON(url) {
 test("the committed fixture satisfies the native contract and privacy boundary", async () => {
   const fixture = await readJSON(fixtureURL);
   assert.equal(assertDashboardSnapshot(fixture, { surface: "native" }), fixture);
+  assert.equal(assertPrivacyNeutralSnapshot(fixture), fixture);
+});
+
+test("the web fixture satisfies the shared sanitized-remote contract", async () => {
+  const fixture = await readJSON(webFixtureURL);
+  assert.equal(assertDashboardSnapshot(fixture, { surface: "web" }), fixture);
   assert.equal(assertPrivacyNeutralSnapshot(fixture), fixture);
 });
 
