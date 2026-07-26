@@ -21,7 +21,9 @@ Enable it at stamp time:
 | `scripts/master-narration-audio.sh` | The delivery audio chain: high-pass + limiter → 48 kHz mono → 2-pass loudnorm; copies video + captions **bit-for-bit**, re-encodes only audio. Run it as the final stage of any clip render, or by hand on a Descript export. |
 | `scripts/check-narration-audio.sh` | The guard: ffprobes your clips and fails if any audio-bearing clip is not mono 48 kHz or exceeds -1.5 dBTP. |
 | `scripts/render-narration.sh` | Local Warm Heart (Kokoro `af_heart`) text→WAV generator. Voice defaults come from the spec. |
+| `scripts/sync-kokoro-warm.sh` | Re-pull the component from firestarter (`--check` fails on drift) so you stay on the shared standard instead of forking it. |
 | `.github/workflows/narration-audio.yml` | Runs the guard on every PR (host runner + ffmpeg). Non-blocking by default — see *Make it a gate* below. |
+| `.github/workflows/narration-audio-sync.yml` | Weekly drift check: opens one tracking issue if this copy no longer matches firestarter. |
 | `docs/NARRATION_VOICE_STANDARD.md` | The prose standard (delivery, voice, exceptions). |
 
 ## Setup
@@ -53,6 +55,21 @@ generated project's branch protection gates on `Tests` / `Lint & Typecheck` /
 `Conventional Commits`). To make audio drift actually block a merge, add
 **Narration Audio** to the required status checks in branch protection, or fold
 `check-narration-audio.sh` into your stack's `precommit` target.
+
+## Staying in sync
+
+This component is **vendored** — a copy of firestarter's canonical version. So it
+does not silently fork:
+
+- `scripts/sync-kokoro-warm.sh` re-pulls the latest from firestarter and records
+  the source commit in `.upstream-sha`.
+- `scripts/sync-kokoro-warm.sh --check` fails if this copy has drifted (a local
+  hand-edit, or firestarter moving on). The **Narration Audio Sync** workflow runs
+  it weekly and opens one tracking issue on drift.
+
+Do not hand-edit the component files. Evolve the standard in firestarter, then
+re-sync here. (If you vendored the files into a subdirectory, point the scripts at
+it with `KOKORO_WARM_DIR`.)
 
 ## Run it as a private service (optional)
 
