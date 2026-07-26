@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2200D085E7B69957855949ED /* LocalSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEED0760241BADE47AB545B7 /* LocalSnapshotStore.swift */; };
 		A705BC6F0D3A543F75D84535 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6D7388421B1A4219EF55A7B2 /* Assets.xcassets */; };
 		B62C2C7DCF69BD92439B2DAF /* OperationsFloaterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */; };
 		FD43F65E79771F0CB6719A1D /* DashboardContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D2103622C4FB3754F316FE /* DashboardContract.swift */; };
@@ -17,6 +18,7 @@
 		1879896A7B14D79C647AA2C1 /* OperationsFloater.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OperationsFloater.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationsFloaterApp.swift; sourceTree = "<group>"; };
 		6D7388421B1A4219EF55A7B2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CEED0760241BADE47AB545B7 /* LocalSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSnapshotStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -33,6 +35,7 @@
 			isa = PBXGroup;
 			children = (
 				02D2103622C4FB3754F316FE /* DashboardContract.swift */,
+				CEED0760241BADE47AB545B7 /* LocalSnapshotStore.swift */,
 				62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */,
 			);
 			name = OperationsFloater;
@@ -118,6 +121,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FD43F65E79771F0CB6719A1D /* DashboardContract.swift in Sources */,
+				2200D085E7B69957855949ED /* LocalSnapshotStore.swift in Sources */,
 				B62C2C7DCF69BD92439B2DAF /* OperationsFloaterApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

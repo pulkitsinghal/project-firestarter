@@ -39,3 +39,7 @@ Run the shared checks with:
 ```bash
 node --test prototypes/operations-dashboard/tests/*.test.mjs
 ```
+
+`bin/publish-sanitized.mjs` implements the offline, one-way publication adapter.
+See [PUBLISHING.md](PUBLISHING.md) for immutable release creation, activation,
+verification, rollback, and failure behavior.

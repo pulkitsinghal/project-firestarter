@@ -6,6 +6,9 @@ import {
   assertDashboardSnapshot,
   assertPrivacyNeutralSnapshot,
 } from "../contract/validate-dashboard.mjs";
+import {
+  assertSanitizedSnapshot as assertWebSnapshot,
+} from "../../operations-dashboard-web/dashboard.js";
 
 const fixtureURL = new URL("../contract/dashboard-state.sample.json", import.meta.url);
 const schemaURL = new URL("../contract/dashboard-state.schema.json", import.meta.url);
@@ -113,5 +116,40 @@ test("unknown fields and private-looking strings fail closed", async () => {
     const unsafe = structuredClone(fixture);
     unsafe.queue[0].detail = example;
     assert.throws(() => assertPrivacyNeutralSnapshot(unsafe));
+  }
+});
+
+test("the browser renderer independently rejects contract drift and private values", async () => {
+  const fixture = await readJSON(webFixtureURL);
+  assert.equal(assertWebSnapshot(fixture), fixture);
+
+  const legacy = structuredClone(fixture);
+  legacy.snapshotKind = legacy.mode;
+  delete legacy.mode;
+  assert.throws(() => assertWebSnapshot(legacy), /unsupported fields/);
+
+  const invalidState = structuredClone(fixture);
+  invalidState.queue[0].state = "next";
+  assert.throws(() => assertWebSnapshot(invalidState), /unsupported value/);
+
+  const privateValue = structuredClone(fixture);
+  privateValue.signals[0].detail = ["", "Users", "example", "private"].join("/");
+  assert.throws(() => assertWebSnapshot(privateValue), /private-looking content/);
+
+  const privateValues = [
+    ["file:", "/", "/", "private", ".json"].join(""),
+    ["service", ".", "example", ".", "internal"].join(""),
+    ["device", ".", "ts", ".", "net"].join(""),
+    "1f70c8b2-9ad6-4a61-9b89-f2a84e08cb53",
+    ["C:", "\\", "Users", "\\", "example"].join(""),
+  ];
+  for (const detail of privateValues) {
+    const candidate = structuredClone(fixture);
+    candidate.signals[0].detail = detail;
+    assert.throws(
+      () => assertWebSnapshot(candidate),
+      /private-looking content/,
+      detail,
+    );
   }
 });

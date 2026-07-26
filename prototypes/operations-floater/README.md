@@ -21,7 +21,13 @@ Support container as `OperationsFloater/dashboard-state.json`. That local path
 is resolved by the app at runtime and is never committed or transmitted. The
 native adapter rejects unknown contract fields and rejects every `local-only`
 record unless it is marked `verified`. Invalid or missing input fails closed to
-the committed generic sample.
+the committed generic sample. Imports must be regular files no larger than one
+megabyte.
+
+Choose **Import Local Snapshot…** to select and install a canonical local file.
+The app does not retain the selected source path. Installation validates before
+writing, uses private file permissions, and retains the previous valid snapshot.
+Choose **Restore Previous Snapshot** to swap back without weakening validation.
 
 Window lifecycle, foreground level, pinning, and source provenance are
 native-only capabilities. They are deliberately absent from the shared
@@ -38,6 +44,9 @@ snapshot. The browser surface never reads or connects to the native app.
   Reduce Motion is respected.
 - The application target is sandboxed, uses hardened runtime, and includes a
   macOS app icon, encryption declaration, and productivity category.
+
+See [INSTALL_UPDATE_ROLLBACK.md](INSTALL_UPDATE_ROLLBACK.md) for the release
+preflight, local update procedure, acceptance checks, and rollback path.
 
 ## Validation
 

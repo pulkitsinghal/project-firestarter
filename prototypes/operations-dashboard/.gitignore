@@ -1,0 +1,4 @@
+.local/
+publication/
+*.local.json
+*.private.json

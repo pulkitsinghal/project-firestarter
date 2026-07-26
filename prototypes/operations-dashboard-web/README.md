@@ -50,7 +50,8 @@ docker run --rm -p 8080:8080 -v "$PWD:/repo:ro" -w /repo python:3.12-slim \
   python -m http.server 8080 -d prototypes/operations-dashboard-web
 ```
 
-The fixture is loaded once. A production adopter should supply a contract-valid
-sanitized snapshot through its normal build or static-publish process; adding a
-local agent, telemetry bridge, or automatic refresh is a separate security
-decision.
+The fixture is loaded once. The offline publisher documented in
+`../operations-dashboard/PUBLISHING.md` creates a verified, immutable static
+bundle containing a contract-valid sanitized snapshot. It never connects this
+surface to the native app. Adding a local agent, telemetry bridge, or automatic
+refresh is a separate security decision and is not implemented here.

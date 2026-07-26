@@ -2,6 +2,7 @@
 // reserves that filename for top-level program code, which conflicts with @main.
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @main
 @MainActor
@@ -42,6 +43,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController.close(sender)
     }
 
+    @objc private func importLocalSnapshot(_ sender: Any?) {
+        let picker = NSOpenPanel()
+        picker.title = "Import Local Operations Snapshot"
+        picker.message = "Choose a canonical local snapshot. Its source path is not retained."
+        picker.allowedContentTypes = [.json]
+        picker.allowsMultipleSelection = false
+        picker.canChooseDirectories = false
+        picker.canChooseFiles = true
+
+        guard picker.runModal() == .OK, let sourceURL = picker.url else { return }
+        do {
+            try dashboardState.importLocalSnapshot(from: sourceURL)
+            showDashboard(sender)
+        } catch {
+            showAdapterError(
+                title: "Snapshot Not Imported",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    @objc private func restorePreviousSnapshot(_ sender: Any?) {
+        do {
+            try dashboardState.restorePreviousSnapshot()
+            showDashboard(sender)
+        } catch {
+            showAdapterError(
+                title: "Snapshot Not Restored",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func showAdapterError(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     private func configureMainMenu() {
         let mainMenu = NSMenu()
         let applicationMenuItem = NSMenuItem()
@@ -61,6 +104,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "0"
         )
         showItem.target = self
+        applicationMenu.addItem(.separator())
+
+        let importItem = applicationMenu.addItem(
+            withTitle: "Import Local Snapshot…",
+            action: #selector(importLocalSnapshot(_:)),
+            keyEquivalent: "i"
+        )
+        importItem.target = self
+        let restoreItem = applicationMenu.addItem(
+            withTitle: "Restore Previous Snapshot",
+            action: #selector(restorePreviousSnapshot(_:)),
+            keyEquivalent: ""
+        )
+        restoreItem.target = self
         applicationMenu.addItem(.separator())
 
         let quitItem = applicationMenu.addItem(
@@ -155,6 +212,7 @@ final class DashboardState: ObservableObject {
     @Published var pinned = true { didSet { onPinnedChange?(pinned) } }
     @Published private(set) var snapshot: DashboardSnapshot
     @Published private(set) var sourceDescription: String
+    @Published private(set) var canRestorePreviousSnapshot: Bool
     var onPinnedChange: ((Bool) -> Void)?
 
     private static let defaultSnapshotURL: URL = {
@@ -166,31 +224,45 @@ final class DashboardState: ObservableObject {
             .appendingPathComponent("OperationsFloater", isDirectory: true)
             .appendingPathComponent("dashboard-state.json")
     }()
-    private let snapshotURL: URL
+    private let store: LocalSnapshotStore
 
     init(snapshotURL: URL? = nil) {
-        self.snapshotURL = snapshotURL ?? Self.defaultSnapshotURL
+        store = LocalSnapshotStore(snapshotURL: snapshotURL ?? Self.defaultSnapshotURL)
         snapshot = .sample
         sourceDescription = "Generic sample — local only"
+        canRestorePreviousSnapshot = false
         reload()
     }
 
     func reload() {
-        guard let data = try? Data(contentsOf: snapshotURL),
-              let decoded = try? DashboardSnapshot.decodeValidated(from: data) else {
+        guard let decoded = store.load() else {
             snapshot = .sample
             sourceDescription = "Generic sample — local only"
+            canRestorePreviousSnapshot = store.hasValidPreviousSnapshot()
             return
         }
+        use(decoded)
+    }
+
+    func importLocalSnapshot(from sourceURL: URL) throws {
+        use(try store.importLocalSnapshot(from: sourceURL))
+    }
+
+    func restorePreviousSnapshot() throws {
+        use(try store.restorePreviousSnapshot())
+    }
+
+    func itemCount(for stateToCount: QueueRecord.State) -> Int {
+        snapshot.queue.lazy.filter { $0.state == stateToCount }.count
+    }
+
+    private func use(_ decoded: DashboardSnapshot) {
         snapshot = decoded
         sourceDescription =
             decoded.mode == .local
             ? "Locally verified snapshot — refreshes automatically"
             : "Sanitized snapshot — refreshes automatically"
-    }
-
-    func itemCount(for stateToCount: QueueRecord.State) -> Int {
-        snapshot.queue.lazy.filter { $0.state == stateToCount }.count
+        canRestorePreviousSnapshot = store.hasValidPreviousSnapshot()
     }
 }
 

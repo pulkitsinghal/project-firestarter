@@ -106,6 +106,7 @@ struct DashboardSnapshot: Decodable, Hashable {
         case privateRecordInSanitizedSnapshot
         case unverifiedLocalRecord
         case invalidResourceBudget
+        case invalidRecordContent
     }
 
     let schemaVersion: String
@@ -150,6 +151,12 @@ struct DashboardSnapshot: Decodable, Hashable {
         guard schemaVersion == "1.0" else {
             throw ValidationError.unsupportedVersion
         }
+        guard queue.count <= 100,
+              tests.count <= 100,
+              resourceBudget.count <= 50,
+              signals.count <= 100 else {
+            throw ValidationError.invalidRecordContent
+        }
 
         let exposureAndVerification =
             queue.map { ($0.exposure, $0.verification) }
@@ -173,6 +180,22 @@ struct DashboardSnapshot: Decodable, Hashable {
             ($0.value ?? 0) >= 0 && ($0.capacity.map { $0 > 0 } ?? true)
         }) else {
             throw ValidationError.invalidResourceBudget
+        }
+
+        let commonFields =
+            queue.map { ($0.id, $0.title, $0.detail) }
+            + tests.map { ($0.id, $0.title, $0.detail) }
+            + resourceBudget.map { ($0.id, $0.title, $0.detail) }
+            + signals.map { ($0.id, $0.title, $0.detail) }
+        guard commonFields.allSatisfy({
+            Self.isValidIdentifier($0.0)
+                && Self.isValidString($0.1, maximum: 120)
+                && Self.isValidString($0.2, maximum: 240)
+        }),
+        resourceBudget.allSatisfy({
+            Self.isValidString($0.displayValue, maximum: 80)
+        }) else {
+            throw ValidationError.invalidRecordContent
         }
 
         return self
@@ -251,5 +274,16 @@ struct DashboardSnapshot: Decodable, Hashable {
             throw ValidationError.unsupportedStructure
         }
         try records.forEach { try requireKeys(in: $0, required: required, optional: optional) }
+    }
+
+    private static func isValidIdentifier(_ value: String) -> Bool {
+        value.range(
+            of: #"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func isValidString(_ value: String, maximum: Int) -> Bool {
+        !value.isEmpty && value.utf16.count <= maximum
     }
 }
