@@ -6,11 +6,6 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
-- `email_flywheel` add-on (default off): an opt-in growth loop — the email sibling
-  of `scheduled_agent`. On a recurring routine it lists merged PRs, drafts one
-  short update email with the Anthropic API, and either previews it (dry run) or
-  sends it via the operator's own SMTP over verified TLS. Dependency-free Node,
-  ships OFF, sends nothing until SMTP + recipients are configured.
 - A two-speed E2E handoff precept: tests capture asserted story beats and focus
   targets at normal speed, while narration, captions, pacing, effects, and media
   validation happen only in post-production.
