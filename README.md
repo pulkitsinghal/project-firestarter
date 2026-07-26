@@ -39,6 +39,7 @@ process ([LIFT-LOG](docs/LIFT-LOG.md)) for folding new lessons back in.
 | 📐 **Conventions enforced, not hoped-for** | Conventional Commits + forward-only migrations enforced by git hooks *and* CI. |
 | 🔭 **It documents itself** | A storyboard harness renders a live *planned-vs-implemented* map with screenshots straight from the running app. |
 | 🎬 **Evidence-backed handoffs** | Every feature reaches review with exact acceptance, failure/rollback, and verification evidence. Visible work adds real storyboard frames and a state map; supported flows capture asserted E2E story beats at normal speed, then post-produce narration, captions, focus effects, and a 20–40s release cut. |
+| 🛡️ **Privacy-split operations dashboards** | Opt-in native and browser references share one verified queue/test/resource model while keeping local-only state on-device and publishing only an explicit sanitized static snapshot. |
 | 🚀 **Share in one button** | Server-backed stacks use `make deploy` for a public Cloudflare URL with no cloud bill; client-only stacks keep distribution owner-gated. |
 | 🧩 **Three real stacks + opt-in add-ons** | FastAPI+Next.js, Supabase+Flutter, or a Manifest V3 Chrome extension, with the painful gotchas baked into comments. k8s is one flag away for the server-backed stacks. |
 | 🤝 **AI-agent ready** | A root `AGENTS.md` (the cross-tool standard) lets Claude Code, Codex, Cursor, or Aider drive the repo on sight. |
@@ -86,6 +87,10 @@ gh secret set ANTHROPIC_API_KEY   # turn on the AI reviewer
   - `chrome-extension` — Manifest V3 · TypeScript/esbuild · Vitest · Playwright.
 - **Optional add-ons** (`addons/`) — e.g. `k8s` Kustomize (opt in with
   `include_k8s=yes`).
+- **Reference prototypes** (`prototypes/`) — an opt-in unified operations
+  dashboard: a native macOS floater, a static sanitized web renderer, a strict
+  shared contract, and an offline immutable publication workflow. These are
+  reusable examples, not default generator output.
 
 How it works under the hood: a `firestarter.config.json` manifest declares the
 variables; a stdlib-only generator (run **in Docker**, no pip) substitutes
@@ -98,4 +103,5 @@ whitelist-only, so GitHub Actions `${{ … }}` is never clobbered.
 - ➕ [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md) — author a new stack profile
 - ♻️ [docs/LIFT-LOG.md](docs/LIFT-LOG.md) — how learnings get harvested back into the template
 - 🔐 [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) — reach a stamped project's local/dev service from your phone anywhere, privately, via Tailscale (no domain, no registrar, no spend)
+- 🛡️ [docs/OPERATIONS-DASHBOARD.md](docs/OPERATIONS-DASHBOARD.md) — use the privacy-split native and sanitized-static operations dashboard references
 - 🤖 [AGENTS.md](AGENTS.md) — operating brief for any AI session

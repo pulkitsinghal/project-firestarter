@@ -6,6 +6,13 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Unified operations-dashboard reference sources under `prototypes/`: a strict
+  privacy-neutral contract, native macOS floater with validated local snapshot
+  import/rollback, sanitized static web renderer, and offline content-addressed
+  publication workflow with tamper, update, HTTP retrieval, and rollback tests.
+  Regular-file and one-megabyte input limits, last-mile browser privacy checks,
+  and compensating release rollback fail closed. The prototypes are opt-in
+  references and are not stamped by the generator.
 - `include_orchestrator_session` add-on (stack-agnostic): a one-paste
   master-orchestrator bootstrap so any user (or the owner) can turn a fresh Claude
   Code session at their portfolio root into an orchestrator that fans work out to
