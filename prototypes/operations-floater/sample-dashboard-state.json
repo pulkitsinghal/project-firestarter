@@ -1,0 +1,17 @@
+{
+  "updatedAt": "example",
+  "items": [
+    {
+      "id": "example-running",
+      "title": "Example work item",
+      "detail": "Replace with local state.",
+      "state": "running"
+    },
+    {
+      "id": "example-next",
+      "title": "Example queued item",
+      "detail": "Awaiting a local update.",
+      "state": "next"
+    }
+  ]
+}
