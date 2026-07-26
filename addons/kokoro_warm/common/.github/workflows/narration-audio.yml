@@ -1,0 +1,34 @@
+name: Narration Audio
+
+# Fails if any shipped narrated clip drifted off the narration audio standard
+# (mixed sample rates / hot true peaks). Runs on the host runner, not a tools
+# container, because it needs ffprobe + ffmpeg. Enforces scripts/narration-audio.spec.json.
+#
+# Not a required check by default (branch protection gates on Tests / Lint &
+# Typecheck / Conventional Commits). To make audio drift block a merge, add
+# "Narration Audio" to the required status checks — see docs/KOKORO_WARM.md.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  narration-audio:
+    name: Narration Audio
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Verify narrated clips are mono 48 kHz and <= -1.5 dBTP
+        # Point NARRATION_VIDEO_DIR at your clips via a repo variable; a missing
+        # or empty directory is a pass (nothing to enforce yet).
+        env:
+          NARRATION_VIDEO_DIR: ${{ vars.NARRATION_VIDEO_DIR || 'public/videos' }}
+        run: bash scripts/check-narration-audio.sh

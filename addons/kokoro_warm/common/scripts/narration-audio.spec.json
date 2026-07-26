@@ -1,0 +1,26 @@
+{
+  "_comment": "Single source of truth for the Warm Heart narration audio contract (kokoro_warm add-on). scripts/master-narration-audio.sh and scripts/check-narration-audio.sh BOTH read this file, so the mastering target and the shipped-clip guard can never drift apart. Flat + language-neutral on purpose, so a non-bash caller (or a tiny HTTP daemon — see docs/KOKORO_WARM.md) can consume it too. Prose rationale: docs/NARRATION_VOICE_STANDARD.md. Bump specVersion on any change and record why in the voice standard.",
+  "specVersion": "1.0.0",
+
+  "sampleRate": 48000,
+  "channels": 1,
+
+  "truePeakCeilingDbtp": -1.5,
+  "encodeTruePeakDbtp": -2.5,
+  "integratedLufs": -16,
+  "loudnessRange": 11,
+
+  "highpassHz": 80,
+  "limiterLimit": 0.891,
+  "limiterAttackMs": 5,
+  "limiterReleaseMs": 50,
+
+  "aacBitrate": "96k",
+
+  "voiceBrand": "Warm Heart",
+  "voiceId": "af_heart",
+  "voiceModel": "mlx-community/Kokoro-82M-bf16",
+  "voiceSpeed": 1.0,
+  "atempoMin": 1.05,
+  "atempoMax": 1.12
+}
