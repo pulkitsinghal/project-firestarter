@@ -4,6 +4,10 @@
 .env.*.local
 .env.deploy
 !.env.example
+# secret_vault add-on: local secret backups + restored git-crypt key files.
+# Never commit a secret even if SECRET_VAULT_HOME is pointed inside the repo.
+.secret-vault/
+git-crypt-*.key
 
 # ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/

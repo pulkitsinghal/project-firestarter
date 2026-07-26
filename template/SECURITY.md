@@ -15,7 +15,11 @@ You'll get an acknowledgement and a coordinated disclosure timeline.
 
 - **Never paste a secret value into a chat, issue, PR, or commit.** Once it's in
   a transcript or git history it's compromised and must be rotated. Provide CI
-  secrets via `gh secret set` — see [docs/ci-secrets.md](docs/ci-secrets.md).
+  secrets via `gh secret set` — see [docs/ci-secrets.md](docs/ci-secrets.md). The
+  full house contract for handling durable secrets (redundant storage, sha256
+  fingerprint integrity, runtime injection, rotation) is *Secrets & credentials*
+  in [AGENTS.md](AGENTS.md); with the `secret_vault` add-on, see
+  [docs/SECRETS.md](docs/SECRETS.md).
 - **Never bake a default or guessable secret** into deploy configs, Compose
   files, or code. A hardcoded demo/JWT/signing key becomes a live credential the
   moment the stack is exposed. Read every secret from the environment (`gh secret`

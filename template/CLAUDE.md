@@ -61,6 +61,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   `docs/LOCAL_TLS.md` and the host's `~/.config/pet-projects/local-tls.json`.
   Reuse the canonical proxy/CA; never create a project root or persist a TLS
   verification bypass.
+- **Secrets: redundant, fingerprinted, never plaintext.** Never commit, echo,
+  log, or pass a secret as a CLI argument; store durable secrets in ≥2 stores +
+  a backup cross-checked by sha256, and inject them at runtime rather than
+  materializing them. See *Secrets & credentials* in [AGENTS.md](AGENTS.md) — and
+  when the `secret_vault` add-on is enabled, `docs/SECRETS.md` +
+  `docs/SECRET_VAULT.md` (`secret-store` / `secret-get` / `git-crypt-key`).
 - **Stage explicit paths, never `git add -A`.** This checkout may be shared by
   concurrent sessions; blanket staging sweeps another session's work into your
   commit. `.claude/settings.json` denies the blanket forms — see *Branching* in
