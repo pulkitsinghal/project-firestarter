@@ -185,7 +185,7 @@ def main() -> int:
     # flag is "yes". Keeps opinionated/heavy modules (e.g. k8s) out of the default
     # scaffold. The `common/` overlay lets a stack-agnostic add-on live in one
     # place instead of being duplicated under every stack.
-    for addon in ("k8s", "auth", "bug_report", "ssrf_fetch", "scheduled_agent", "kokoro_warm"):
+    for addon in ("k8s", "auth", "bug_report", "ssrf_fetch", "scheduled_agent", "kokoro_warm", "email_flywheel"):
         if values.get(f"include_{addon}") == "yes":
             overlaid = False
             for sub in ("common", stack):
