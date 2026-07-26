@@ -16,7 +16,6 @@
   "include_ssrf_fetch": ["no", "yes"],
   "include_scheduled_agent": ["no", "yes"],
   "include_kokoro_warm": ["no", "yes"],
-  "include_email_flywheel": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",
