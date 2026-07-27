@@ -1,0 +1,15 @@
+{
+  "project_name": "Acme Notifier",
+  "project_slug": "acmenotify",
+  "project_tagline": "A durable background-job notification tutorial and production starter.",
+  "github_owner": "pulkitsinghal",
+  "github_repo": "example-node-notifier",
+  "stack": "node-notifier",
+  "commit_scopes": "api worker queue web storyboard docs ci build",
+  "require_coauthor": "no",
+  "coauthor_footer": "Co-Authored-By: Oz <oz@example.com>",
+  "port_db": "5432",
+  "port_redis": "6379",
+  "port_api": "8010",
+  "port_web": "3012"
+}

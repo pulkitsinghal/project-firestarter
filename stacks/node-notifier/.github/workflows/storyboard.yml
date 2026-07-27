@@ -1,0 +1,39 @@
+name: Storyboard
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "storyboard/**"
+      - "docker-compose.yml"
+      - ".github/workflows/storyboard.yml"
+  workflow_dispatch:
+
+jobs:
+  storyboard:
+    name: Storyboard
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Capture live task lifecycle
+        run: make storyboard
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyboard
+          path: storyboard/output
+          if-no-files-found: warn
+      - name: Tear down
+        if: always()
+        run: make down
