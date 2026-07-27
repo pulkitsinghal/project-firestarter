@@ -483,9 +483,10 @@ final class VoiceConversationSession: ObservableObject {
             transcriptPreview = stagedText
             onTranscriptStaged?(stagedText)
 
-            guard transcript.isFinal else { return }
             scheduleSubmission(text: stagedText, provider: provider)
-            startEngine()
+            if transcript.isFinal {
+                startEngine()
+            }
         case let .failure(error):
             fail(error)
         }

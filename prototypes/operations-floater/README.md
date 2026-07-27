@@ -105,12 +105,13 @@ snapshot remains schema version `1.0`.
   recognition requires an on-device provider and fails closed when permission,
   provider metadata, or on-device support is unavailable. Start, pause, resume,
   stop, listening, thinking, and responding states remain visible. Optional
-  local spoken replies are default-off and interruptible. Finalized speech is
-  staged immediately as a pending **You** bubble, then follows the same host
-  send path after exactly 2.000 seconds of continuous pause. Resumed speech
-  cancels and restarts that timer. Pause, stop, floor revoke, module switch,
-  clear, and window teardown cancel the pending turn; transcript/session memory
-  is ephemeral.
+  local spoken replies are default-off and interruptible. Each non-empty
+  on-device transcript update is staged immediately as a pending **You**
+  bubble, then follows the same host send path after exactly 2.000 seconds
+  without another update. This does not depend on Apple's optional final-result
+  signal. Resumed speech cancels and restarts that timer. Pause, stop, floor
+  revoke, module switch, clear, and window teardown cancel the pending turn;
+  transcript/session memory is ephemeral.
 - The UI warns that private or patient data must not be entered because an
   already-configured Router escalation may leave the device. Router policy
   remains the authoritative egress guard.
