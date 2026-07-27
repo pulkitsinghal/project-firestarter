@@ -83,6 +83,25 @@ The selected source path is not retained, invalid input cannot replace the
 current snapshot, and missing or invalid runtime state falls back to the
 committed generic sample. The app has no network updater.
 
+The native assistant can also host one statically allowlisted conversation
+module at a time. The dashboard retains the UI, explicit microphone permission,
+on-device transcription, optional local speech output, and ephemeral chat
+memory. Modules use only the fixed `127.0.0.1` contract, have no UI/mic/TTS,
+persistence, capture, injection, replay, or arbitrary network capability, and
+lose the floor on any contract or provenance failure. See the
+[conversation module 1.0 contract](../prototypes/operations-floater/docs/CONVERSATION_MODULE_CONTRACT.md).
+
+For low-disruption local UI checks, create and retain a spare macOS Desktop,
+assign Operations Floater to that Desktop in the Dock when launches should
+route there automatically, and launch with
+`open -g ... --args --background-ui-test`. That mode is unpinned,
+single-Space, nonactivating, and does not force-order its window above unrelated
+work. The assignment is keyed to the candidate's bundle identifier, so a
+differently identified build needs its own one-time assignment. Desktop
+creation and Dock assignment remain explicit user actions because macOS exposes
+no supported silent Desktop-management API. See
+[`prototypes/operations-floater/docs/BACKGROUND_UI_TESTING.md`](../prototypes/operations-floater/docs/BACKGROUND_UI_TESTING.md).
+
 See
 [`prototypes/operations-floater/INSTALL_UPDATE_ROLLBACK.md`](../prototypes/operations-floater/INSTALL_UPDATE_ROLLBACK.md)
 for signed-install preflight, update acceptance, and application rollback.

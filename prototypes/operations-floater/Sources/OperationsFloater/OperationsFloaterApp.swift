@@ -4,12 +4,76 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct DashboardLaunchConfiguration: Equatable {
+    static let backgroundUITestArgument = "--background-ui-test"
+    static let syntheticConversationUITestArgument =
+        "--synthetic-conversation-ui-test"
+    static let geometryConversationUITestArgument =
+        "--geometry-conversation-ui-test"
+    static let compactUITestArgument = "--compact-ui-test"
+
+    let isBackgroundUITest: Bool
+    let usesSyntheticConversationFixture: Bool
+    let usesGeometryConversationFixture: Bool
+    let usesCompactTestFrame: Bool
+
+    init(arguments: [String] = ProcessInfo.processInfo.arguments) {
+        isBackgroundUITest = arguments.contains(Self.backgroundUITestArgument)
+        usesSyntheticConversationFixture =
+            isBackgroundUITest
+            && arguments.contains(Self.syntheticConversationUITestArgument)
+        usesGeometryConversationFixture =
+            isBackgroundUITest
+            && arguments.contains(Self.geometryConversationUITestArgument)
+        usesCompactTestFrame =
+            isBackgroundUITest
+            && arguments.contains(Self.compactUITestArgument)
+    }
+
+    var initialPinned: Bool { false }
+    var activatesApplication: Bool { !isBackgroundUITest }
+    var foregroundsWindow: Bool { !isBackgroundUITest }
+    var joinsAllSpaces: Bool { !isBackgroundUITest }
+    var usesSavedFrame: Bool { !isBackgroundUITest }
+    var initialWindowSize: CGSize {
+        usesCompactTestFrame
+            ? DashboardLayoutMetrics.minimumWindowSize
+            : DashboardLayoutMetrics.defaultWindowSize
+    }
+    var conversationFixtureModuleID: String? {
+        if usesGeometryConversationFixture {
+            return ConversationModuleAllowlist.geometryRecorderManifest.moduleID
+        }
+        if usesSyntheticConversationFixture {
+            return ConversationModuleAllowlist.syntheticManifest.moduleID
+        }
+        return nil
+    }
+}
+
 @main
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let shared = AppDelegate()
-    private let dashboardState = DashboardState()
-    private lazy var windowController = DashboardWindowController(state: dashboardState)
+    private let launchConfiguration: DashboardLaunchConfiguration
+    private let dashboardState: DashboardState
+    private lazy var windowController = DashboardWindowController(
+        state: dashboardState,
+        activatesApplication: launchConfiguration.activatesApplication,
+        foregroundsWindow: launchConfiguration.foregroundsWindow,
+        joinsAllSpaces: launchConfiguration.joinsAllSpaces,
+        usesSavedFrame: launchConfiguration.usesSavedFrame,
+        initialWindowSize: launchConfiguration.initialWindowSize,
+        conversationFixtureModuleID:
+            launchConfiguration.conversationFixtureModuleID
+    )
+
+    private override init() {
+        let launchConfiguration = DashboardLaunchConfiguration()
+        self.launchConfiguration = launchConfiguration
+        dashboardState = DashboardState(initialPinned: launchConfiguration.initialPinned)
+        super.init()
+    }
 
     static func main() {
         let application = NSApplication.shared
@@ -157,21 +221,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class DashboardWindowController {
     static let frameAutosaveName = "OperationsDashboardWindowDenseV1"
 
+    static func collectionBehavior(joinsAllSpaces: Bool) -> NSWindow.CollectionBehavior {
+        joinsAllSpaces
+            ? [.canJoinAllSpaces, .fullScreenAuxiliary]
+            : [.managed]
+    }
+
     private(set) var panel: NSWindow?
     private let state: DashboardState
     private let activatesApplication: Bool
+    private let foregroundsWindow: Bool
+    private let joinsAllSpaces: Bool
+    private let usesSavedFrame: Bool
+    private let initialWindowSize: CGSize
+    private let conversationFixtureModuleID: String?
 
-    init(state: DashboardState, activatesApplication: Bool = true) {
+    init(
+        state: DashboardState,
+        activatesApplication: Bool = true,
+        foregroundsWindow: Bool = true,
+        joinsAllSpaces: Bool = true,
+        usesSavedFrame: Bool = true,
+        initialWindowSize: CGSize = DashboardLayoutMetrics.defaultWindowSize,
+        conversationFixtureModuleID: String? = nil
+    ) {
         self.state = state
         self.activatesApplication = activatesApplication
+        self.foregroundsWindow = foregroundsWindow
+        self.joinsAllSpaces = joinsAllSpaces
+        self.usesSavedFrame = usesSavedFrame
+        self.initialWindowSize = initialWindowSize
+        self.conversationFixtureModuleID = conversationFixtureModuleID
     }
 
     @discardableResult
     func show(_ sender: Any? = nil) -> NSWindow {
         let panel = panel ?? makeDashboardWindow()
         panel.level = state.pinned ? .floating : .normal
-        panel.makeKeyAndOrderFront(sender)
-        panel.orderFrontRegardless()
+        if foregroundsWindow {
+            panel.makeKeyAndOrderFront(sender)
+            panel.orderFrontRegardless()
+        } else {
+            panel.orderFront(sender)
+        }
         if activatesApplication {
             NSApplication.shared.activate(ignoringOtherApps: true)
         }
@@ -186,7 +278,7 @@ final class DashboardWindowController {
         let panel = NSWindow(
             contentRect: NSRect(
                 origin: .zero,
-                size: DashboardLayoutMetrics.defaultWindowSize
+                size: initialWindowSize
             ),
             styleMask: [.titled, .closable, .resizable, .utilityWindow, .fullSizeContentView],
             backing: .buffered,
@@ -197,13 +289,20 @@ final class DashboardWindowController {
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = Self.collectionBehavior(joinsAllSpaces: joinsAllSpaces)
         panel.tabbingMode = .disallowed
-        panel.setFrameAutosaveName(Self.frameAutosaveName)
+        if usesSavedFrame {
+            panel.setFrameAutosaveName(Self.frameAutosaveName)
+        }
         panel.level = state.pinned ? .floating : .normal
         panel.minSize = DashboardLayoutMetrics.minimumWindowSize
         panel.center()
-        panel.contentView = NSHostingView(rootView: DashboardView(state: state))
+        panel.contentView = NSHostingView(
+            rootView: DashboardView(
+                state: state,
+                conversationFixtureModuleID: conversationFixtureModuleID
+            )
+        )
         state.onPinnedChange = { [weak panel] isPinned in
             panel?.level = isPinned ? .floating : .normal
         }
@@ -214,7 +313,7 @@ final class DashboardWindowController {
 
 @MainActor
 final class DashboardState: ObservableObject {
-    @Published var pinned = true { didSet { onPinnedChange?(pinned) } }
+    @Published var pinned: Bool { didSet { onPinnedChange?(pinned) } }
     @Published private(set) var snapshot: DashboardSnapshot
     @Published private(set) var sourceDescription: String
     @Published private(set) var canRestorePreviousSnapshot: Bool
@@ -231,7 +330,8 @@ final class DashboardState: ObservableObject {
     }()
     private let store: LocalSnapshotStore
 
-    init(snapshotURL: URL? = nil) {
+    init(snapshotURL: URL? = nil, initialPinned: Bool = false) {
+        pinned = initialPinned
         store = LocalSnapshotStore(snapshotURL: snapshotURL ?? Self.defaultSnapshotURL)
         snapshot = .sample
         sourceDescription = "Generic sample — local only"
@@ -273,10 +373,17 @@ final class DashboardState: ObservableObject {
 
 private struct DashboardView: View {
     @StateObject private var state: DashboardState
-    @StateObject private var chat = RouterChatSession()
+    @StateObject private var chat: RouterChatSession
+    @State private var didPrepareConversationFixture = false
+    private let conversationFixtureModuleID: String?
 
-    init(state: DashboardState) {
+    init(
+        state: DashboardState,
+        conversationFixtureModuleID: String? = nil
+    ) {
         _state = StateObject(wrappedValue: state)
+        _chat = StateObject(wrappedValue: RouterChatSession())
+        self.conversationFixtureModuleID = conversationFixtureModuleID
     }
 
     var body: some View {
@@ -302,6 +409,16 @@ private struct DashboardView: View {
             minHeight: DashboardLayoutMetrics.minimumWindowSize.height
         )
         .background(.regularMaterial)
+        .task {
+            guard let conversationFixtureModuleID,
+                  !didPrepareConversationFixture else {
+                return
+            }
+            didPrepareConversationFixture = true
+            await chat.prepareSyntheticConversationUITest(
+                moduleID: conversationFixtureModuleID
+            )
+        }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             state.reload()
         }

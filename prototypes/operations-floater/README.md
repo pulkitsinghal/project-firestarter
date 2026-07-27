@@ -49,7 +49,12 @@ snapshot remains schema version `1.0`.
 
 ## Current behavior
 
-- The dashboard opens visibly in front and defaults to **Keep in front**.
+- An explicit user launch opens visibly in front but defaults **Keep in front**
+  to off. Pinning is always a deliberate user choice.
+- A deliberate `--background-ui-test` launch mode leaves **Keep in front** off,
+  stays on one macOS Desktop, and neither activates the app nor force-orders its
+  window above unrelated work. Normal user launches retain the foreground
+  behavior above.
 - Turning off **Keep in front** immediately restores normal window level.
 - Closing the window, including with Command-W, retains the app; use **Show
   Dashboard** or click the Dock icon to reopen the same window.
@@ -58,8 +63,8 @@ snapshot remains schema version `1.0`.
   become attention cues.
 - Guide motion is a deterministic function of time and canonical state. Reduce
   Motion produces a fully stable frame.
-- The guide uses no image feed, camera, microphone, network service, analytics,
-  or external transmission.
+- The guide itself uses no image feed, camera, microphone, network service,
+  analytics, or external transmission.
 - Queue work appears on a 0-to-100 percent rail. Its rectangular chip animates
   as verified step evidence changes; adding steps can move the chip backward
   without erasing completed work. Hovering shows the full summary and clicking
@@ -72,11 +77,12 @@ snapshot remains schema version `1.0`.
   `http://127.0.0.1:11500/v1/chat/completions` with model `auto`. The app sends
   no provider key, Relay token, dashboard snapshot, or stored file. The Router
   owns model choice and any separately configured, policy-guarded escalation.
-- Every assistant bubble keeps its own bounded responder provenance. Explicit
-  Router metadata is labeled **Claude**, **Codex**, or **Local LLM**, with a
-  reported model when available. Other reported providers retain their bounded
-  name. A legacy response containing only `model: "auto"` is labeled **Router ·
-  provider not reported**; the app never guesses an identity from `auto`.
+- Every assistant bubble keeps its own bounded responder provenance. The label
+  comes only from Router-reported `responder.kind` or `responder.provider`
+  fields and is closed to **Claude**, **Codex**, or **local-LLM**, with the
+  reported model when available. Model text alone is never used to infer
+  identity. Missing, malformed, or other provider metadata fails closed without
+  adding an assistant bubble.
 - Reply monitoring is independently default-off. When enabled, or when
   **Review** is clicked, a second Router-selected request checks whether the
   reply answered the request, stayed evidence-aware, and gave a useful next
@@ -88,6 +94,23 @@ snapshot remains schema version `1.0`.
 - The chat composer is a multiline text area: **Return** sends a non-empty
   draft, while **Shift-Return** inserts a newline without contacting the
   Router. The same behavior is exposed as an accessibility hint.
+- A compiled static module allowlist can give exactly one bounded conversation
+  module the floor. Modules provide no UI, mic, TTS, persistence, capture,
+  input injection, executable replay, arbitrary network, or dynamic code.
+  Escape or **Return to dashboard** revokes the floor. The built-in synthetic
+  checkpoint module provides deterministic contract testing; the geometry
+  recorder adapter uses only fixed loopback IPC and neutral synthetic fixture
+  events.
+- Voice conversation is separately explicit and default-off. Production speech
+  recognition requires an on-device provider and fails closed when permission,
+  provider metadata, or on-device support is unavailable. Start, pause, resume,
+  stop, listening, thinking, and responding states remain visible. Optional
+  local spoken replies are default-off and interruptible. Finalized speech is
+  staged immediately as a pending **You** bubble, then follows the same host
+  send path after exactly 2.000 seconds of continuous pause. Resumed speech
+  cancels and restarts that timer. Pause, stop, floor revoke, module switch,
+  clear, and window teardown cancel the pending turn; transcript/session memory
+  is ephemeral.
 - The UI warns that private or patient data must not be entered because an
   already-configured Router escalation may leave the device. Router policy
   remains the authoritative egress guard.
@@ -98,6 +121,12 @@ snapshot remains schema version `1.0`.
 
 See [INSTALL_UPDATE_ROLLBACK.md](INSTALL_UPDATE_ROLLBACK.md) for the release
 preflight, local update procedure, acceptance checks, and rollback path.
+See [docs/BACKGROUND_UI_TESTING.md](docs/BACKGROUND_UI_TESTING.md) for the
+low-disruption spare-Desktop test workflow and its measured limitations.
+See
+[docs/CONVERSATION_MODULE_CONTRACT.md](docs/CONVERSATION_MODULE_CONTRACT.md)
+for the versioned module manifest, exact IPC envelope and bounds, floor
+lifecycle, privacy posture, and failure behavior.
 
 ## Validation
 

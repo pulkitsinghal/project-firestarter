@@ -21,6 +21,8 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        NSMicrophoneUsageDescription: Start Voice Conversation uses the microphone only while you explicitly listen.
+        NSSpeechRecognitionUsageDescription: Voice Conversation requires on-device speech recognition and keeps transcripts ephemeral.
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: OperationsFloater.entitlements

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 
@@ -31,8 +32,6 @@ struct RouterResponder: Equatable, Sendable {
             kind = reportedKind
         } else if let reportedProvider = Self.classify(cleanProvider, includeLocal: true) {
             kind = reportedProvider
-        } else if let reportedModel = Self.classify(cleanModel, includeLocal: false) {
-            kind = reportedModel
         } else if cleanProvider != nil || cleanKind != nil {
             kind = .reportedProvider
         } else {
@@ -52,11 +51,11 @@ struct RouterResponder: Equatable, Sendable {
         case .codex:
             "Codex"
         case .localLLM:
-            "Local LLM"
+            "local-LLM"
         case .reportedProvider:
-            "Router · \(provider ?? "provider reported")"
+            "Provider identity unavailable"
         case .unreported:
-            "Router · provider not reported"
+            "Provider identity unavailable"
         }
     }
 
@@ -81,12 +80,16 @@ struct RouterResponder: Equatable, Sendable {
 
     var helpText: String {
         switch kind {
-        case .unreported:
-            "The Router returned no provider identity. The dashboard will not guess who answered."
+        case .reportedProvider, .unreported:
+            "The Router did not return a closed Claude, Codex, or local-LLM identity."
         default:
             modelDetail.map { "\(displayName) reported model \($0)." }
                 ?? "\(displayName) was reported by the Router."
         }
+    }
+
+    var hasClosedProviderIdentity: Bool {
+        kind == .claude || kind == .codex || kind == .localLLM
     }
 
     private static func boundedSingleLine(_ value: String?) -> String? {
@@ -129,18 +132,29 @@ struct RouterChatMessage: Identifiable, Equatable, Sendable {
     let role: Role
     let text: String
     let responder: RouterResponder?
+    let module: ConversationModuleAttribution?
+    let isPendingVoice: Bool
 
     init(
         id: UUID = UUID(),
         role: Role,
         text: String,
-        responder: RouterResponder? = nil
+        responder: RouterResponder? = nil,
+        module: ConversationModuleAttribution? = nil,
+        isPendingVoice: Bool = false
     ) {
         self.id = id
         self.role = role
         self.text = text
         self.responder = responder
+        self.module = module
+        self.isPendingVoice = isPendingVoice
     }
+}
+
+struct ConversationModuleAttribution: Equatable, Sendable {
+    let moduleID: String
+    let displayName: String
 }
 
 struct RouterChatReply: Equatable, Sendable {
@@ -192,6 +206,7 @@ struct RouterChatClient: RouterChatTransport {
         case invalidResponse
         case emptyResponse
         case responseTooLarge
+        case providerIdentityUnavailable
         case rejected(Int)
 
         var errorDescription: String? {
@@ -202,6 +217,8 @@ struct RouterChatClient: RouterChatTransport {
                 "The local AI Router returned no assistant message."
             case .responseTooLarge:
                 "The local AI Router response exceeded the safety limit."
+            case .providerIdentityUnavailable:
+                "The Router did not report a closed Claude, Codex, or local-LLM identity."
             case let .rejected(status):
                 "The local AI Router declined the request (HTTP \(status))."
             }
@@ -379,6 +396,9 @@ struct RouterChatClient: RouterChatTransport {
             provider: envelope.responder?.provider ?? envelope.provider,
             model: envelope.responder?.model ?? envelope.model
         )
+        guard responder.hasClosedProviderIdentity else {
+            throw ClientError.providerIdentityUnavailable
+        }
         return RouterChatReply(
             text: text,
             model: responder.model,
@@ -535,18 +555,40 @@ final class RouterChatSession: ObservableObject {
     @Published private(set) var critiques: [UUID: RouterChatCritique] = [:]
     @Published private(set) var reviewingMessageIDs: Set<UUID> = []
 
+    let modules: ConversationModuleHostSession
+    var onAssistantReply: ((String) -> Void)?
+    var onAssistantFailure: (() -> Void)?
+    var onConversationControlChanged: (() -> Void)?
+
     private let transport: any RouterChatTransport
     private var sendTask: Task<Void, Never>?
     private var reviewTasks: [UUID: Task<Void, Never>] = [:]
+    private var moduleObservation: AnyCancellable?
+    private var moduleContextFloorToken: String?
+    private var moduleContextTurns: [ConversationModuleContextTurn] = []
+    private var pendingVoiceMessageID: UUID?
 
-    init(transport: any RouterChatTransport = RouterChatClient()) {
+    init(
+        transport: any RouterChatTransport = RouterChatClient(),
+        modules: ConversationModuleHostSession = ConversationModuleHostSession()
+    ) {
         self.transport = transport
+        self.modules = modules
+        moduleObservation = modules.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
 
     var canSend: Bool {
         isEnabled
             && !isSending
+            && composerAcceptsTypedInput
             && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var composerAcceptsTypedInput: Bool {
+        guard let manifest = modules.activeManifest else { return true }
+        return manifest.allowedTranscriptProviders.contains(.typedKeyboard)
     }
 
     func enable() async {
@@ -556,8 +598,12 @@ final class RouterChatSession: ObservableObject {
     }
 
     func disable() {
+        onConversationControlChanged?()
         isEnabled = false
         automaticReviewEnabled = false
+        Task {
+            await revokeModuleFloor()
+        }
         clear()
         availability = .disabled
         modelLabel = "auto"
@@ -577,25 +623,166 @@ final class RouterChatSession: ObservableObject {
         availability = routerIsAvailable ? .online : .offline
     }
 
+    func prepareSyntheticConversationUITest(moduleID: String) async {
+        guard !isEnabled else { return }
+        isEnabled = true
+        availability = .offline
+        guard modules.manifests.contains(where: { $0.moduleID == moduleID }) else {
+            return
+        }
+        modules.selectedModuleID = moduleID
+        await modules.grantSelectedFloor()
+        guard modules.activeFloor != nil else { return }
+        send(
+            text: moduleID
+                == ConversationModuleAllowlist.geometryRecorderManifest.moduleID
+                ? "Synthetic geometry narration"
+                : "Synthetic conversation fixture",
+            transcriptProvider: .syntheticFixture
+        )
+        for _ in 0..<100 where isSending {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     func send() {
         guard canSend else { return }
+        discardPendingVoiceTranscript()
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        send(text: text, transcriptProvider: .typedKeyboard)
+    }
+
+    func stageVoiceTranscript(_ rawText: String) {
+        guard isEnabled else { return }
         let text = String(
-            draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            rawText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
                 .prefix(Self.maximumMessageCharacters)
         )
-        let userMessage = RouterChatMessage(role: .user, text: text)
-        messages.append(userMessage)
+        guard !text.isEmpty else {
+            discardPendingVoiceTranscript()
+            return
+        }
+        if let messageID = pendingVoiceMessageID,
+           let index = messages.firstIndex(where: { $0.id == messageID }) {
+            messages[index] = RouterChatMessage(
+                id: messageID,
+                role: .user,
+                text: text,
+                isPendingVoice: true
+            )
+        } else {
+            let message = RouterChatMessage(
+                role: .user,
+                text: text,
+                isPendingVoice: true
+            )
+            pendingVoiceMessageID = message.id
+            messages.append(message)
+        }
+    }
+
+    func discardPendingVoiceTranscript() {
+        guard let messageID = pendingVoiceMessageID else { return }
+        messages.removeAll { $0.id == messageID }
+        pendingVoiceMessageID = nil
+    }
+
+    func send(
+        text rawText: String,
+        transcriptProvider: ConversationTranscriptProvider
+    ) {
+        guard isEnabled, !isSending else { return }
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= Self.maximumMessageCharacters else {
+            lastError = "The message is empty or exceeds the 4,000-character limit."
+            onAssistantFailure?()
+            return
+        }
+        let text = trimmed
+        if transcriptProvider != .typedKeyboard,
+           let messageID = pendingVoiceMessageID,
+           let index = messages.firstIndex(where: { $0.id == messageID }) {
+            messages[index] = RouterChatMessage(
+                id: messageID,
+                role: .user,
+                text: text,
+                isPendingVoice: false
+            )
+            pendingVoiceMessageID = nil
+        } else {
+            messages.append(RouterChatMessage(role: .user, text: text))
+        }
         draft = ""
         lastError = nil
         isSending = true
 
-        let context = Self.boundedContext(messages)
         sendTask?.cancel()
+        if modules.activeFloor != nil {
+            sendTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let floorToken = modules.activeFloor?.token
+                    if moduleContextFloorToken != floorToken {
+                        moduleContextFloorToken = floorToken
+                        moduleContextTurns = []
+                    }
+                    let fixture = Self.syntheticFixtureInput(
+                        for: modules.activeManifest
+                    )
+                    let reply = try await modules.submit(
+                        narration: text,
+                        transcriptProvider: transcriptProvider,
+                        context: Self.boundedModuleContext(moduleContextTurns),
+                        events: fixture.events,
+                        window: fixture.window
+                    )
+                    try Task.checkCancellation()
+                    let responseText = Self.moduleResponseText(reply)
+                    if !responseText.isEmpty,
+                       let manifest = modules.activeManifest {
+                        recordModuleContext(
+                            userText: text,
+                            moduleText: responseText
+                        )
+                        messages.append(
+                            RouterChatMessage(
+                                role: .assistant,
+                                text: responseText,
+                                module: ConversationModuleAttribution(
+                                    moduleID: manifest.moduleID,
+                                    displayName: manifest.displayName
+                                )
+                            )
+                        )
+                        onAssistantReply?(responseText)
+                    } else {
+                        onAssistantFailure?()
+                    }
+                    isSending = false
+                } catch is CancellationError {
+                    return
+                } catch {
+                    onConversationControlChanged?()
+                    discardPendingVoiceTranscript()
+                    clearModuleContext()
+                    lastError = error.localizedDescription
+                    isSending = false
+                    onAssistantFailure?()
+                }
+            }
+            return
+        }
+
+        let context = Self.boundedContext(messages)
         sendTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let reply = try await transport.complete(messages: context)
                 try Task.checkCancellation()
+                guard reply.responder.hasClosedProviderIdentity else {
+                    throw RouterChatClient.ClientError.providerIdentityUnavailable
+                }
                 let assistantMessage = RouterChatMessage(
                     role: .assistant,
                     text: reply.text,
@@ -605,6 +792,7 @@ final class RouterChatSession: ObservableObject {
                 modelLabel = reply.model
                 availability = .online
                 isSending = false
+                onAssistantReply?(reply.text)
                 if automaticReviewEnabled {
                     review(
                         messageID: assistantMessage.id,
@@ -615,14 +803,18 @@ final class RouterChatSession: ObservableObject {
             } catch is CancellationError {
                 return
             } catch {
-                availability = .offline
                 if let clientError = error as? RouterChatClient.ClientError {
+                    availability = clientError == .providerIdentityUnavailable
+                        ? .online
+                        : .offline
                     lastError = clientError.localizedDescription
                 } else {
+                    availability = .offline
                     lastError =
                         "The assistant request failed. Check that the local AI Router is running."
                 }
                 isSending = false
+                onAssistantFailure?()
             }
         }
     }
@@ -642,6 +834,7 @@ final class RouterChatSession: ObservableObject {
     }
 
     func clear() {
+        onConversationControlChanged?()
         sendTask?.cancel()
         sendTask = nil
         reviewTasks.values.forEach { $0.cancel() }
@@ -652,6 +845,26 @@ final class RouterChatSession: ObservableObject {
         draft = ""
         lastError = nil
         isSending = false
+        clearModuleContext()
+        pendingVoiceMessageID = nil
+    }
+
+    func revokeModuleFloor() async {
+        onConversationControlChanged?()
+        discardPendingVoiceTranscript()
+        clearModuleContext()
+        await modules.revokeFloor()
+    }
+
+    func selectConversationTarget(_ moduleID: String?) {
+        guard modules.activeFloor == nil,
+              modules.selectedModuleID != moduleID else {
+            return
+        }
+        onConversationControlChanged?()
+        discardPendingVoiceTranscript()
+        clearModuleContext()
+        modules.selectedModuleID = moduleID
     }
 
     private func review(
@@ -687,6 +900,7 @@ final class RouterChatSession: ObservableObject {
         var selected: [RouterChatMessage] = []
 
         for message in messages.suffix(maximumContextMessages).reversed() {
+            guard !message.isPendingVoice else { continue }
             guard remaining > 0 else { break }
             let text = String(message.text.suffix(min(message.text.count, remaining)))
             selected.append(
@@ -694,18 +908,109 @@ final class RouterChatSession: ObservableObject {
                     id: message.id,
                     role: message.role,
                     text: text,
-                    responder: message.responder
+                    responder: message.responder,
+                    module: nil,
+                    isPendingVoice: false
                 )
             )
             remaining -= text.count
         }
         return selected.reversed()
     }
+
+    static func boundedModuleContext(
+        _ turns: [ConversationModuleContextTurn]
+    ) -> ConversationModuleContext {
+        var remaining = ConversationModuleContract.maximumContextCharacters
+        var selected: [ConversationModuleContextTurn] = []
+        for turn in turns
+            .suffix(ConversationModuleContract.maximumContextTurns)
+            .reversed() {
+            guard remaining > 0 else { break }
+            let text = String(turn.text.suffix(min(turn.text.count, min(1_000, remaining))))
+            selected.append(
+                ConversationModuleContextTurn(
+                    role: turn.role,
+                    text: text
+                )
+            )
+            remaining -= text.count
+        }
+        return ConversationModuleContext(turns: selected.reversed())
+    }
+
+    private func recordModuleContext(userText: String, moduleText: String) {
+        moduleContextTurns.append(
+            ConversationModuleContextTurn(
+                role: .user,
+                text: String(userText.prefix(1_000))
+            )
+        )
+        moduleContextTurns.append(
+            ConversationModuleContextTurn(
+                role: .module,
+                text: String(moduleText.prefix(1_000))
+            )
+        )
+        moduleContextTurns = Array(
+            moduleContextTurns.suffix(ConversationModuleContract.maximumContextTurns)
+        )
+    }
+
+    private func clearModuleContext() {
+        moduleContextFloorToken = nil
+        moduleContextTurns = []
+    }
+
+    static func moduleResponseText(_ response: ConversationModuleResponse) -> String {
+        [response.reply, response.question]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+    }
+
+    static func syntheticFixtureInput(
+        for manifest: ConversationModuleManifest?
+    ) -> (
+        events: [ConversationModuleEvent],
+        window: ConversationModuleWindowContext?
+    ) {
+        guard manifest?.moduleID
+                == ConversationModuleAllowlist.geometryRecorderManifest.moduleID else {
+            return ([], nil)
+        }
+        return (
+            [
+                ConversationModuleEvent(
+                    eventID: "event_synthetic-canvas-1",
+                    sequence: 1,
+                    kind: .placeholder,
+                    pointerPhase: nil,
+                    normalizedX: nil,
+                    normalizedY: nil,
+                    navigationKey: nil,
+                    placeholder: .canvasRegion
+                ),
+            ],
+            ConversationModuleWindowContext(
+                bindingID: "verbal-orders.synthetic.geometry-canvas",
+                width: 1_280,
+                height: 720
+            )
+        )
+    }
 }
 
 struct RouterChatPanel: View {
     @ObservedObject var session: RouterChatSession
+    @StateObject private var voice: VoiceConversationSession
     let metrics: DashboardLayoutMetrics
+
+    init(session: RouterChatSession, metrics: DashboardLayoutMetrics) {
+        _session = ObservedObject(wrappedValue: session)
+        _voice = StateObject(wrappedValue: VoiceConversationSession())
+        self.metrics = metrics
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -722,6 +1027,7 @@ struct RouterChatPanel: View {
                         .font(.caption2)
                         .help("When enabled, the Router reviews each assistant reply.")
                     Button("Disable") {
+                        voice.stop()
                         session.disable()
                     }
                     .buttonStyle(.plain)
@@ -738,6 +1044,10 @@ struct RouterChatPanel: View {
                 }
                 if session.isEnabled, !session.messages.isEmpty {
                     Button("Clear") {
+                        voice.stop()
+                        Task {
+                            await session.revokeModuleFloor()
+                        }
                         session.clear()
                     }
                     .buttonStyle(.plain)
@@ -757,6 +1067,39 @@ struct RouterChatPanel: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 11))
         .clipShape(RoundedRectangle(cornerRadius: 11))
+        .onAppear {
+            voice.onTranscriptStaged = { [weak session] text in
+                session?.stageVoiceTranscript(text)
+            }
+            voice.onFinalTranscript = { [weak session] text, provider in
+                session?.send(text: text, transcriptProvider: provider)
+            }
+            voice.onPendingTranscriptCancelled = { [weak session] in
+                session?.discardPendingVoiceTranscript()
+            }
+            session.onConversationControlChanged = { [weak voice] in
+                voice?.cancelPendingSubmission()
+            }
+            session.onAssistantReply = { [weak voice] text in
+                voice?.handleReply(text)
+            }
+            session.onAssistantFailure = { [weak voice] in
+                voice?.handleReplyFailure()
+            }
+        }
+        .onExitCommand {
+            guard session.modules.activeFloor != nil else { return }
+            voice.cancelPendingSubmission()
+            Task {
+                await session.revokeModuleFloor()
+            }
+        }
+        .onDisappear {
+            voice.stop()
+            Task {
+                await session.revokeModuleFloor()
+            }
+        }
     }
 
     private var disabledChat: some View {
@@ -780,6 +1123,8 @@ struct RouterChatPanel: View {
 
     private var enabledChat: some View {
         VStack(alignment: .leading, spacing: 9) {
+            moduleControls
+            voiceControls
             chatHistory
 
             if let error = session.lastError {
@@ -808,13 +1153,17 @@ struct RouterChatPanel: View {
                         .padding(.vertical, 1)
                         .accessibilityLabel("Assistant message")
                         .accessibilityHint(
-                            "Return sends. Shift-Return inserts a new line."
+                            session.composerAcceptsTypedInput
+                                ? "Return sends. Shift-Return inserts a new line."
+                                : "This module accepts only on-device voice narration."
                         )
+                        .disabled(!session.composerAcceptsTypedInput)
                         .onKeyPress(.return, phases: .down) { keyPress in
                             switch RouterChatComposerReturnAction.resolve(
                                 isShiftPressed: keyPress.modifiers.contains(.shift)
                             ) {
                             case .send:
+                                voice.cancelPendingSubmission()
                                 session.send()
                                 return .handled
                             case .insertNewline:
@@ -830,6 +1179,7 @@ struct RouterChatPanel: View {
                 }
 
                 Button {
+                    voice.cancelPendingSubmission()
                     session.send()
                 } label: {
                     if session.isSending {
@@ -850,9 +1200,24 @@ struct RouterChatPanel: View {
                 .font(.system(size: 9))
                 .foregroundStyle(.tertiary)
 
+            if !session.composerAcceptsTypedInput {
+                Text(
+                    "This recorder accepts on-device voice only. Return to the dashboard "
+                        + "to type, or use the synthetic checkpoint module for typed testing."
+                )
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.orange)
+            }
+
+            if voice.hasPendingSubmission {
+                Text("Voice turn staged · sends after 2.000 seconds of continuous pause")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
             Text(
-                "Fixed loopback Router · Router selects the model · "
-                    + "this app does not store chat or reviews"
+                "Fixed loopback only · Router selects its model · modules are statically "
+                    + "allowlisted · this app does not store chat, voice, or reviews"
             )
             .font(.system(size: 9))
             .foregroundStyle(.tertiary)
@@ -865,6 +1230,197 @@ struct RouterChatPanel: View {
             .foregroundStyle(.orange)
         }
         .padding(metrics.recordPadding)
+    }
+
+    private var moduleControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Label("Conversation floor", systemImage: "square.stack.3d.up")
+                    .font(.caption2.weight(.semibold))
+                Picker(
+                    "Conversation target",
+                    selection: Binding(
+                        get: { session.modules.selectedModuleID },
+                        set: { session.selectConversationTarget($0) }
+                    )
+                ) {
+                    Text("Dashboard assistant").tag(nil as String?)
+                    ForEach(session.modules.manifests) { manifest in
+                        Text(manifest.displayName).tag(manifest.moduleID as String?)
+                    }
+                }
+                .labelsHidden()
+                .controlSize(.mini)
+                .disabled(session.modules.activeFloor != nil)
+
+                if session.modules.activeFloor == nil {
+                    Button("Give floor") {
+                        Task {
+                            await session.modules.grantSelectedFloor()
+                        }
+                    }
+                    .controlSize(.mini)
+                    .disabled(
+                        session.modules.selectedModuleID == nil
+                            || session.modules.isWorking
+                    )
+                } else {
+                    Button("Return to dashboard") {
+                        voice.cancelPendingSubmission()
+                        Task {
+                            await session.revokeModuleFloor()
+                        }
+                    }
+                    .controlSize(.mini)
+                    .keyboardShortcut(.escape, modifiers: [])
+                }
+            }
+
+            if let manifest = session.modules.activeManifest {
+                HStack(spacing: 5) {
+                    Label(manifest.displayName, systemImage: "checkmark.shield")
+                        .font(.caption2.weight(.semibold))
+                    Text("HAS FLOOR")
+                        .font(.system(size: 8, weight: .bold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.14), in: Capsule())
+                    Text("Ephemeral · host mic/UI/TTS · no capture, replay, or persistence")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                }
+                .help(
+                    "Escape returns control to the dashboard. The module receives only "
+                        + "its allowlisted bounded contract fields."
+                )
+            }
+
+            if let response = session.modules.lastResponse {
+                moduleResult(response)
+            }
+            if let error = session.modules.lastError {
+                Label(error, systemImage: "xmark.shield")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(7)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func moduleResult(_ response: ConversationModuleResponse) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(response.state.rawValue.uppercased())
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.secondary)
+            ForEach(response.statuses, id: \.code) { status in
+                Text(status.summary)
+                    .font(.caption2)
+            }
+            ForEach(response.checkpoints, id: \.checkpointID) { checkpoint in
+                Text("Checkpoint: \(checkpoint.summary)")
+                    .font(.caption2)
+            }
+            ForEach(response.proposedActions, id: \.actionID) { action in
+                Label(
+                    "\(action.title) · separate approval required",
+                    systemImage: "hand.raised.fill"
+                )
+                .font(.caption2)
+                .foregroundStyle(.orange)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var voiceControls: some View {
+        HStack(spacing: 7) {
+            Label(voice.state.displayName, systemImage: voiceSystemImage)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(voice.state == .unavailable ? .orange : .secondary)
+                .accessibilityLabel("Voice conversation status: \(voice.state.displayName)")
+
+            switch voice.state {
+            case .off, .unavailable:
+                Button("Start voice") {
+                    Task {
+                        await voice.start()
+                    }
+                }
+                .controlSize(.mini)
+            case .listening:
+                Button("Pause") {
+                    voice.pause()
+                }
+                .controlSize(.mini)
+                Button("Stop") {
+                    voice.stop()
+                }
+                .controlSize(.mini)
+            case .paused:
+                Button("Resume") {
+                    voice.resume()
+                }
+                .controlSize(.mini)
+                Button("Stop") {
+                    voice.stop()
+                }
+                .controlSize(.mini)
+            case .responding:
+                Button("Interrupt") {
+                    voice.interruptSpokenReply()
+                }
+                .controlSize(.mini)
+                Button("Stop") {
+                    voice.stop()
+                }
+                .controlSize(.mini)
+            case .requestingPermission, .thinking:
+                Button("Stop") {
+                    voice.stop()
+                }
+                .controlSize(.mini)
+            }
+
+            Toggle("Speak replies", isOn: $voice.spokenRepliesEnabled)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(.caption2)
+                .help("Off by default. Uses the Mac's local speech synthesizer.")
+
+            if !voice.transcriptPreview.isEmpty {
+                Text(voice.transcriptPreview)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let error = voice.lastError {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var voiceSystemImage: String {
+        switch voice.state {
+        case .off:
+            "mic.slash"
+        case .requestingPermission:
+            "lock.shield"
+        case .listening:
+            "waveform"
+        case .paused:
+            "pause.circle"
+        case .thinking:
+            "ellipsis.bubble"
+        case .responding:
+            "speaker.wave.2"
+        case .unavailable:
+            "exclamationmark.mic"
+        }
     }
 
     private var chatHistory: some View {
@@ -910,13 +1466,29 @@ struct RouterChatPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 7) {
                     if message.role == .user {
-                        Text("You")
+                        Text(
+                            message.isPendingVoice
+                                ? "You · waiting for 2s pause"
+                                : "You"
+                        )
                             .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(
+                                message.isPendingVoice ? Color.orange : Color.secondary
+                            )
                     } else {
-                        responderLabel(message.responder ?? RouterResponder())
+                        if let module = message.module {
+                            Label(module.displayName, systemImage: "square.stack.3d.up.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .help("Conversation module \(module.moduleID)")
+                                .accessibilityLabel(
+                                    "Response from module \(module.displayName)"
+                                )
+                        } else {
+                            responderLabel(message.responder ?? RouterResponder())
+                        }
                     }
-                    if message.role == .assistant {
+                    if message.role == .assistant, message.module == nil {
                         reviewControl(message)
                     }
                 }

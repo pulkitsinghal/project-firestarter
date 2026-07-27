@@ -53,8 +53,8 @@ struct RouterChatClientTests {
         #expect(messages.last?["role"] as? String == "user")
     }
 
-    @Test("A valid OpenAI-compatible response becomes a chat reply")
-    func validResponse() throws {
+    @Test("A providerless response fails closed instead of guessing attribution")
+    func providerlessResponseFailsClosed() throws {
         let data = Data(
             """
             {
@@ -74,14 +74,12 @@ struct RouterChatClientTests {
             )
         )
 
-        let reply = try RouterChatClient.decodeReply(data: data, response: response)
-
-        #expect(reply == RouterChatReply(text: "Synthetic answer.", model: "auto"))
-        #expect(reply.responder.kind == .unreported)
-        #expect(reply.responder.displayName == "Router · provider not reported")
+        #expect(throws: RouterChatClient.ClientError.providerIdentityUnavailable) {
+            _ = try RouterChatClient.decodeReply(data: data, response: response)
+        }
     }
 
-    @Test("Responder provenance distinguishes Claude, Codex, local, and unreported replies")
+    @Test("Responder provenance distinguishes closed and rejected identities")
     func responderClassification() {
         let cases: [
             (
@@ -94,10 +92,16 @@ struct RouterChatClientTests {
         ] = [
             ("assistant", "anthropic", "claude-sonnet", .claude, "Claude"),
             ("assistant", "openai/codex", "codex-1", .codex, "Codex"),
-            ("local_llm", "ollama", "synthetic-local-model", .localLLM, "Local LLM"),
-            ("local_llm", "ollama", "claude-compatible-tag", .localLLM, "Local LLM"),
-            (nil, nil, "auto", .unreported, "Router · provider not reported"),
-            ("assistant", "vertex-ai", "gemini", .reportedProvider, "Router · vertex-ai"),
+            ("local_llm", "ollama", "synthetic-local-model", .localLLM, "local-LLM"),
+            ("local_llm", "ollama", "claude-compatible-tag", .localLLM, "local-LLM"),
+            (nil, nil, "auto", .unreported, "Provider identity unavailable"),
+            (
+                "assistant",
+                "vertex-ai",
+                "gemini",
+                .reportedProvider,
+                "Provider identity unavailable"
+            ),
         ]
 
         for item in cases {
@@ -141,7 +145,7 @@ struct RouterChatClientTests {
 
         #expect(reply.model == "synthetic-local-model")
         #expect(reply.responder.kind == .localLLM)
-        #expect(reply.responder.displayName == "Local LLM")
+        #expect(reply.responder.displayName == "local-LLM")
         #expect(reply.responder.modelDetail == "synthetic-local-model")
     }
 
@@ -195,7 +199,12 @@ struct RouterChatClientTests {
     func modelLabelIsBounded() throws {
         let data = try JSONSerialization.data(
             withJSONObject: [
-                "model": String(repeating: "m", count: 200),
+                "model": "auto",
+                "responder": [
+                    "kind": "local_llm",
+                    "provider": "synthetic-local",
+                    "model": String(repeating: "m", count: 200),
+                ],
                 "choices": [["message": ["content": "Synthetic answer."]]],
             ]
         )
@@ -227,8 +236,8 @@ struct RouterChatClientTests {
         )
     }
 
-    @Test("Malformed optional provenance does not hide a valid assistant reply")
-    func malformedOptionalProvenanceIsIgnored() throws {
+    @Test("Malformed optional provenance fails closed")
+    func malformedOptionalProvenanceFailsClosed() throws {
         let data = Data(
             """
             {
@@ -250,10 +259,9 @@ struct RouterChatClientTests {
             )
         )
 
-        let reply = try RouterChatClient.decodeReply(data: data, response: response)
-
-        #expect(reply.text == "Synthetic answer.")
-        #expect(reply.responder.kind == .unreported)
+        #expect(throws: RouterChatClient.ClientError.providerIdentityUnavailable) {
+            _ = try RouterChatClient.decodeReply(data: data, response: response)
+        }
     }
 
     @Test("A bounded JSON monitor response becomes an improvement suggestion")
@@ -421,7 +429,7 @@ struct RouterChatSessionTests {
     func multilineDraftIsPreserved() async {
         let transport = StubRouterTransport(
             available: true,
-            result: .success(RouterChatReply(text: "Synthetic reply", model: "auto"))
+            result: .success(localReply(text: "Synthetic reply"))
         )
         let session = RouterChatSession(transport: transport)
         await session.enable()
@@ -438,7 +446,7 @@ struct RouterChatSessionTests {
     func disabledByDefault() async {
         let transport = StubRouterTransport(
             available: true,
-            result: .success(RouterChatReply(text: "Synthetic reply", model: "auto"))
+            result: .success(localReply(text: "Synthetic reply"))
         )
         let session = RouterChatSession(transport: transport)
         session.draft = "Synthetic request"
@@ -506,7 +514,7 @@ struct RouterChatSessionTests {
         )
         let transport = StubRouterTransport(
             available: true,
-            result: .success(RouterChatReply(text: "Maybe.", model: "auto")),
+            result: .success(localReply(text: "Maybe.")),
             critiqueResult: .success(critique)
         )
         let session = RouterChatSession(transport: transport)
@@ -543,10 +551,106 @@ struct RouterChatSessionTests {
         )
     }
 
+    @Test("An identity refusal keeps a reachable Router online")
+    func providerIdentityRefusalDoesNotMisreportConnectivity() async {
+        let transport = StubRouterTransport(
+            available: true,
+            result: .success(
+                RouterChatReply(
+                    text: "Synthetic answer",
+                    model: "auto",
+                    responder: RouterResponder(
+                        provider: "unsupported-provider",
+                        model: "auto"
+                    )
+                )
+            )
+        )
+        let session = RouterChatSession(transport: transport)
+        await session.enable()
+        session.draft = "Synthetic request"
+
+        session.send()
+        await waitUntilSettled(session)
+
+        #expect(session.availability == .online)
+        #expect(session.messages.map(\.text) == ["Synthetic request"])
+        #expect(
+            session.lastError
+                == "The Router did not report a closed Claude, Codex, or local-LLM identity."
+        )
+    }
+
+    @Test("Voice transcript is staged as the user and submitted without duplication")
+    func stagedVoiceTranscriptUsesSharedSendPath() async {
+        let transport = StubRouterTransport(
+            available: true,
+            result: .success(localReply(text: "Synthetic voice reply"))
+        )
+        let session = RouterChatSession(transport: transport)
+        await session.enable()
+
+        session.stageVoiceTranscript("Synthetic voice narration")
+        #expect(session.messages.count == 1)
+        #expect(session.messages.first?.role == .user)
+        #expect(session.messages.first?.isPendingVoice == true)
+
+        session.send(
+            text: "Synthetic voice narration",
+            transcriptProvider: .syntheticFixture
+        )
+        await waitUntilSettled(session)
+
+        #expect(session.messages.count == 2)
+        #expect(session.messages.first?.isPendingVoice == false)
+        #expect(session.messages.first?.text == "Synthetic voice narration")
+        #expect(session.messages.last?.responder?.displayName == "local-LLM")
+    }
+
+    @Test("Module switch and floor revoke cancel staged host voice")
+    func conversationControlCancelsStagedVoice() async {
+        let session = RouterChatSession(
+            transport: StubRouterTransport(
+                available: true,
+                result: .success(localReply(text: "Unused"))
+            )
+        )
+        await session.enable()
+        var controlChanges = 0
+        session.onConversationControlChanged = {
+            controlChanges += 1
+        }
+
+        session.stageVoiceTranscript("Pending synthetic narration")
+        session.selectConversationTarget(
+            ConversationModuleAllowlist.geometryRecorderManifest.moduleID
+        )
+        #expect(controlChanges == 1)
+        #expect(session.messages.isEmpty)
+
+        session.stageVoiceTranscript("Another pending narration")
+        await session.revokeModuleFloor()
+        #expect(controlChanges == 2)
+        #expect(session.messages.isEmpty)
+    }
+
     private func waitUntilSettled(_ session: RouterChatSession) async {
         for _ in 0..<100 where session.isSending {
             try? await Task.sleep(for: .milliseconds(10))
         }
+    }
+
+    private func localReply(text: String) -> RouterChatReply {
+        let responder = RouterResponder(
+            kindHint: "local_llm",
+            provider: "synthetic-local",
+            model: "synthetic-local-model"
+        )
+        return RouterChatReply(
+            text: text,
+            model: responder.model,
+            responder: responder
+        )
     }
 
     private func waitUntilReviewed(_ session: RouterChatSession) async {
