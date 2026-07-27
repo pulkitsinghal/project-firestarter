@@ -4,37 +4,93 @@
   "queue": [
     {
       "id": "EX-Q1",
-      "title": "EXAMPLE — prepare release notes",
-      "detail": "Synthetic running work used to demonstrate a sanitized operational record.",
+      "title": "EXAMPLE — assemble dashboard shell",
+      "detail": "Synthetic running work demonstrates a sanitized lifecycle record.",
       "state": "running",
       "exposure": "sanitized",
       "verification": "estimated"
     },
     {
       "id": "EX-Q2",
-      "title": "EXAMPLE — review migration plan",
-      "detail": "Synthetic queued work with no repository, environment, or owner details.",
-      "state": "queued",
+      "title": "EXAMPLE — review evidence labels",
+      "detail": "Synthetic running work keeps verification and exposure labels explicit.",
+      "state": "running",
       "exposure": "sanitized",
       "verification": "estimated"
     },
     {
       "id": "EX-Q3",
-      "title": "EXAMPLE — approve release gate",
-      "detail": "Synthetic owner-gated work represented without a personal identifier.",
+      "title": "EXAMPLE — prepare handoff notes",
+      "detail": "Synthetic queued work demonstrates a bounded follow-up.",
+      "state": "queued",
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-Q4",
+      "title": "EXAMPLE — inspect responsive layout",
+      "detail": "Synthetic queued work covers a narrow-screen presentation check.",
+      "state": "queued",
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-Q5",
+      "title": "EXAMPLE — recheck accessible labels",
+      "detail": "Synthetic queued work covers headings, landmarks, and status text.",
+      "state": "queued",
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-Q6",
+      "title": "EXAMPLE — await approval",
+      "detail": "Synthetic waiting work contains no person, account, or project details.",
       "state": "waiting",
       "exposure": "sanitized",
-      "verification": "verified"
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-Q7",
+      "title": "EXAMPLE — await dependency",
+      "detail": "Dependency status is intentionally unavailable in this synthetic record.",
+      "state": "waiting",
+      "exposure": "sanitized",
+      "verification": "unavailable"
+    },
+    {
+      "id": "EX-Q8",
+      "title": "EXAMPLE — review sample notes",
+      "detail": "Synthetic work is ready for its next explicitly chosen action.",
+      "state": "ready",
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-Q9",
+      "title": "EXAMPLE — review cleanup checklist",
+      "detail": "Synthetic work is ready; no cleanup action is claimed as executed.",
+      "state": "ready",
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-Q10",
+      "title": "EXAMPLE — review rollback rehearsal",
+      "detail": "Synthetic work is ready; no rollback rehearsal is claimed as executed.",
+      "state": "ready",
+      "exposure": "sanitized",
+      "verification": "estimated"
     }
   ],
   "tests": [
     {
       "id": "EX-T1",
-      "title": "EXAMPLE — snapshot contract test",
-      "detail": "The synthetic fixture passed the dependency-free privacy validator.",
-      "result": "passed",
+      "title": "EXAMPLE — fixture contract check",
+      "detail": "No executed result is claimed in the committed synthetic fixture.",
+      "result": "not-run",
       "exposure": "sanitized",
-      "verification": "verified"
+      "verification": "unavailable"
     },
     {
       "id": "EX-T2",
@@ -43,23 +99,29 @@
       "result": "not-implemented",
       "exposure": "sanitized",
       "verification": "not-implemented"
+    },
+    {
+      "id": "EX-T3",
+      "title": "EXAMPLE — browser render check",
+      "detail": "The synthetic check is queued and is not represented as executed.",
+      "result": "queued",
+      "exposure": "sanitized",
+      "verification": "estimated"
     }
   ],
   "resourceBudget": [
     {
       "id": "EX-R1",
       "title": "Heavy concurrency",
-      "detail": "Synthetic scheduling estimate for presentation testing.",
-      "displayValue": "1 / 2",
-      "value": 1,
-      "capacity": 2,
+      "detail": "No device capacity is supplied by the committed fixture.",
+      "displayValue": "Not supplied",
       "exposure": "sanitized",
-      "verification": "estimated"
+      "verification": "unavailable"
     },
     {
       "id": "EX-R2",
-      "title": "Running work",
-      "detail": "Synthetic count; not workstation telemetry.",
+      "title": "Running lanes",
+      "detail": "Synthetic scheduling count; not device telemetry.",
       "displayValue": "2",
       "value": 2,
       "exposure": "sanitized",
@@ -67,10 +129,28 @@
     },
     {
       "id": "EX-R3",
-      "title": "Queued heavy work",
-      "detail": "Synthetic count that keeps queued work explicit.",
-      "displayValue": "1",
-      "value": 1,
+      "title": "Queued lanes",
+      "detail": "Synthetic scheduling count keeps queued work explicit.",
+      "displayValue": "3",
+      "value": 3,
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-R4",
+      "title": "Waiting lanes",
+      "detail": "Synthetic scheduling count keeps waiting work explicit.",
+      "displayValue": "2",
+      "value": 2,
+      "exposure": "sanitized",
+      "verification": "estimated"
+    },
+    {
+      "id": "EX-R5",
+      "title": "Ready lanes",
+      "detail": "Synthetic scheduling count does not claim completion.",
+      "displayValue": "3",
+      "value": 3,
       "exposure": "sanitized",
       "verification": "estimated"
     }
@@ -86,8 +166,16 @@
     },
     {
       "id": "EX-S2",
-      "title": "Exposure review",
-      "detail": "The fixture contains sanitized records only.",
+      "title": "Browser bridge",
+      "detail": "No browser-to-device connection is implemented.",
+      "state": "unavailable",
+      "exposure": "sanitized",
+      "verification": "not-implemented"
+    },
+    {
+      "id": "EX-S3",
+      "title": "Fixture exposure",
+      "detail": "Every committed example record is marked sanitized.",
       "state": "available",
       "exposure": "sanitized",
       "verification": "verified"
