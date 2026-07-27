@@ -77,6 +77,72 @@ struct RouterChatClientTests {
         let reply = try RouterChatClient.decodeReply(data: data, response: response)
 
         #expect(reply == RouterChatReply(text: "Synthetic answer.", model: "auto"))
+        #expect(reply.responder.kind == .unreported)
+        #expect(reply.responder.displayName == "Router · provider not reported")
+    }
+
+    @Test("Responder provenance distinguishes Claude, Codex, local, and unreported replies")
+    func responderClassification() {
+        let cases: [
+            (
+                kind: String?,
+                provider: String?,
+                model: String?,
+                expectedKind: RouterResponder.Kind,
+                expectedName: String
+            )
+        ] = [
+            ("assistant", "anthropic", "claude-sonnet", .claude, "Claude"),
+            ("assistant", "openai/codex", "codex-1", .codex, "Codex"),
+            ("local_llm", "ollama", "synthetic-local-model", .localLLM, "Local LLM"),
+            ("local_llm", "ollama", "claude-compatible-tag", .localLLM, "Local LLM"),
+            (nil, nil, "auto", .unreported, "Router · provider not reported"),
+            ("assistant", "vertex-ai", "gemini", .reportedProvider, "Router · vertex-ai"),
+        ]
+
+        for item in cases {
+            let responder = RouterResponder(
+                kindHint: item.kind,
+                provider: item.provider,
+                model: item.model
+            )
+            #expect(responder.kind == item.expectedKind)
+            #expect(responder.displayName == item.expectedName)
+        }
+    }
+
+    @Test("Structured Router provenance becomes immutable reply metadata")
+    func structuredResponderProvenance() throws {
+        let data = Data(
+            """
+            {
+              "model": "auto",
+              "responder": {
+                "kind": "local_llm",
+                "provider": "ollama",
+                "model": "synthetic-local-model"
+              },
+              "choices": [
+                {"message": {"content": "Synthetic local answer."}}
+              ]
+            }
+            """.utf8
+        )
+        let response = try #require(
+            HTTPURLResponse(
+                url: RouterChatClient.completionURL,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )
+        )
+
+        let reply = try RouterChatClient.decodeReply(data: data, response: response)
+
+        #expect(reply.model == "synthetic-local-model")
+        #expect(reply.responder.kind == .localLLM)
+        #expect(reply.responder.displayName == "Local LLM")
+        #expect(reply.responder.modelDetail == "synthetic-local-model")
     }
 
     @Test("Provider error bodies are not surfaced as chat content")
@@ -145,6 +211,49 @@ struct RouterChatClientTests {
         let reply = try RouterChatClient.decodeReply(data: data, response: response)
 
         #expect(reply.model.count == RouterChatClient.maximumModelLabelCharacters)
+    }
+
+    @Test("Router-provided provider labels are single-line and bounded")
+    func providerLabelIsBounded() {
+        let responder = RouterResponder(
+            provider: "synthetic\n" + String(repeating: "p", count: 200),
+            model: "auto"
+        )
+
+        #expect(responder.provider?.contains("\n") == false)
+        #expect(
+            responder.provider?.count
+                == RouterChatClient.maximumProviderLabelCharacters
+        )
+    }
+
+    @Test("Malformed optional provenance does not hide a valid assistant reply")
+    func malformedOptionalProvenanceIsIgnored() throws {
+        let data = Data(
+            """
+            {
+              "model": "auto",
+              "provider": {"unexpected": true},
+              "responder": ["unexpected"],
+              "choices": [
+                {"message": {"content": "Synthetic answer."}}
+              ]
+            }
+            """.utf8
+        )
+        let response = try #require(
+            HTTPURLResponse(
+                url: RouterChatClient.completionURL,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )
+        )
+
+        let reply = try RouterChatClient.decodeReply(data: data, response: response)
+
+        #expect(reply.text == "Synthetic answer.")
+        #expect(reply.responder.kind == .unreported)
     }
 
     @Test("A bounded JSON monitor response becomes an improvement suggestion")
@@ -350,9 +459,20 @@ struct RouterChatSessionTests {
 
     @Test("A synthetic reply is not reviewed until the user asks")
     func successfulConversationRequiresExplicitReview() async throws {
+        let responder = RouterResponder(
+            kindHint: "claude",
+            provider: "anthropic",
+            model: "claude-synthetic"
+        )
         let transport = StubRouterTransport(
             available: true,
-            result: .success(RouterChatReply(text: "Synthetic reply", model: "auto"))
+            result: .success(
+                RouterChatReply(
+                    text: "Synthetic reply",
+                    model: responder.model,
+                    responder: responder
+                )
+            )
         )
         let session = RouterChatSession(transport: transport)
         await session.enable()
@@ -363,7 +483,9 @@ struct RouterChatSessionTests {
 
         #expect(session.availability == .online)
         #expect(session.messages.map(\.text) == ["Synthetic request", "Synthetic reply"])
-        #expect(session.modelLabel == "auto")
+        #expect(session.modelLabel == "claude-synthetic")
+        #expect(session.messages.last?.responder?.kind == .claude)
+        #expect(session.messages.last?.responder?.displayName == "Claude")
         #expect(session.lastError == nil)
         let assistantID = try #require(session.messages.last?.id)
         #expect(session.critiques[assistantID] == nil)

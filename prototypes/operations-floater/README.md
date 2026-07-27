@@ -72,6 +72,11 @@ snapshot remains schema version `1.0`.
   `http://127.0.0.1:11500/v1/chat/completions` with model `auto`. The app sends
   no provider key, Relay token, dashboard snapshot, or stored file. The Router
   owns model choice and any separately configured, policy-guarded escalation.
+- Every assistant bubble keeps its own bounded responder provenance. Explicit
+  Router metadata is labeled **Claude**, **Codex**, or **Local LLM**, with a
+  reported model when available. Other reported providers retain their bounded
+  name. A legacy response containing only `model: "auto"` is labeled **Router ·
+  provider not reported**; the app never guesses an identity from `auto`.
 - Reply monitoring is independently default-off. When enabled, or when
   **Review** is clicked, a second Router-selected request checks whether the
   reply answered the request, stayed evidence-aware, and gave a useful next
@@ -114,7 +119,7 @@ xcodebuild \
   build
 ```
 
-A synthetic still-frame walkthrough and compact key/state map live in
+A synthetic still-frame walkthrough and compact composer/provenance state map live in
 [`docs/CHAT_COMPOSER_STATE.md`](docs/CHAT_COMPOSER_STATE.md).
 
 A distributable archive still requires the owner's unique bundle identifier,
