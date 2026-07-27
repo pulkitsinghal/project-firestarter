@@ -55,10 +55,12 @@ release.
    chip backward and Reduce Motion replaces animation with a stable frame.
 5. Confirm assistant chat initially reports **OFF** and performs no availability
    probe. Enable it explicitly, use only a synthetic prompt, and verify a
-   response. Turn on **Review replies** or click **Review** and confirm
-   **CHECKING** becomes **CHECKED** or an actionable **IMPROVE** card. Stop if
-   the client contacts anything other than `127.0.0.1:11500`, follows a
-   redirect, or silently sends dashboard state.
+   response. Use **Shift-Return** to create a two-line draft and confirm it
+   remains unsent; then press **Return** and confirm one two-line message is
+   submitted and the composer clears. Turn on **Review replies** or click
+   **Review** and confirm **CHECKING** becomes **CHECKED** or an actionable
+   **IMPROVE** card. Stop if the client contacts anything other than
+   `127.0.0.1:11500`, follows a redirect, or silently sends dashboard state.
 6. Choose **Import Local Snapshot…** only if a canonical `local` version `1.0`
    snapshot is ready. The app validates before writing and gives the stored file
    private permissions.

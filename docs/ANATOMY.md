@@ -195,7 +195,7 @@ generator overlays:
 |------|----------------------|------------------|
 | `prototypes/operations-dashboard/` | Version `1.0` contract and an offline, content-addressed sanitized publication workflow | No endpoint, URL, host, IP, path, credential, identity, or live-value fields in the shared model |
 | `prototypes/operations-dashboard-web/` | Compact one-shot renderer with a dense synthetic ten-lane lifecycle view, resource/test/privacy evidence, responsive breakpoints, executable validator tests, and rebuilt browser frames | Rejects non-sanitized records, private-looking values, and unknown fields; renders text without HTML interpolation; no polling or workstation bridge |
-| `prototypes/operations-floater/` | Sandboxed macOS floater with local snapshot import, native window controls, and reversible local snapshot updates | Reads local state only; local-only records must be verified; no network updater |
+| `prototypes/operations-floater/` | Sandboxed macOS floater with local snapshot import, native window controls, reversible local snapshot updates, sortable race lanes, and an optional loopback Router chat whose multiline composer sends with Return and edits with Shift-Return | Reads local state only; local-only records must be verified; chat is default-off, fixed-loopback, non-persistent, and attaches no dashboard state |
 
 The contract represents queue, tests, resource budget, and signals as record
 arrays. Every record declares exposure and verification so unrun tests,
