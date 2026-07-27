@@ -11,7 +11,7 @@ one-shot same-origin fetch
         v
 strict schema + privacy validation
         |
-        +-- invalid --> visible error banner; no records render
+        +-- invalid --> visible error banner; dashboard content stays hidden
         |
         +-- valid ----> resource cards
                       + ten lifecycle lanes
@@ -49,9 +49,11 @@ The narrow lifecycle continuation:
 
 ## Failure, retry, rollback, and cleanup
 
+![Invalid sanitized snapshot rejection](media/invalid-snapshot.png)
+
 - **Failure:** an invalid mode, unknown field, non-sanitized record, private-looking
   string, or out-of-range optional metric produces a visible error banner and
-  leaves all record regions empty.
+  keeps all dashboard regions hidden.
 - **Retry:** correct the offline source, rebuild the content-addressed bundle,
   and reload the static page. The renderer itself does not retry or poll.
 - **Rollback:** activate the prior verified immutable publication as documented
@@ -66,7 +68,9 @@ The evidence frames use only the committed synthetic fixture. Unit checks cover
 strict input validation, future-compatible optional queue metrics, explicit
 missing evidence, injection-safe text rendering, and responsive structure.
 Browser checks cover rendered counts, narrow-screen overflow, error behavior,
-keyboard focus sanity, and console/page errors.
+keyboard focus sanity, console/page errors, injection-shaped text, and
+contract-maximum unbroken strings. `tests/browser-smoke.mjs` makes those checks
+reproducible in a pinned Playwright container.
 
 Video is N/A because this opt-in static reference does not provide a named,
 Dockerized release-cut harness.
