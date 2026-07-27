@@ -26,6 +26,45 @@ struct QueueRecord: Identifiable, Decodable, Hashable {
     let state: State
     let exposure: DashboardExposure
     let verification: DashboardVerification
+    let completedSteps: Int?
+    let totalSteps: Int?
+    let currentStep: String?
+    let lastActiveSeconds: Int?
+    let memoryMB: Double?
+    let cpuPercent: Double?
+
+    init(
+        id: String,
+        title: String,
+        detail: String,
+        state: State,
+        exposure: DashboardExposure,
+        verification: DashboardVerification,
+        completedSteps: Int? = nil,
+        totalSteps: Int? = nil,
+        currentStep: String? = nil,
+        lastActiveSeconds: Int? = nil,
+        memoryMB: Double? = nil,
+        cpuPercent: Double? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.state = state
+        self.exposure = exposure
+        self.verification = verification
+        self.completedSteps = completedSteps
+        self.totalSteps = totalSteps
+        self.currentStep = currentStep
+        self.lastActiveSeconds = lastActiveSeconds
+        self.memoryMB = memoryMB
+        self.cpuPercent = cpuPercent
+    }
+
+    var progressFraction: Double? {
+        guard let completedSteps, let totalSteps, totalSteps > 0 else { return nil }
+        return min(1, max(0, Double(completedSteps) / Double(totalSteps)))
+    }
 }
 
 struct TestRecord: Identifiable, Decodable, Hashable {
@@ -128,7 +167,15 @@ struct DashboardSnapshot: Decodable, Hashable {
         )
         try requireRecordKeys(
             root["queue"],
-            required: ["id", "title", "detail", "state", "exposure", "verification"]
+            required: ["id", "title", "detail", "state", "exposure", "verification"],
+            optional: [
+                "completedSteps",
+                "totalSteps",
+                "currentStep",
+                "lastActiveSeconds",
+                "memoryMB",
+                "cpuPercent",
+            ]
         )
         try requireRecordKeys(
             root["tests"],
@@ -181,6 +228,27 @@ struct DashboardSnapshot: Decodable, Hashable {
         }) else {
             throw ValidationError.invalidResourceBudget
         }
+        guard queue.allSatisfy({ record in
+            let stepsArePaired = (record.completedSteps == nil) == (record.totalSteps == nil)
+            let stepsAreValid =
+                record.completedSteps.map { $0 >= 0 && $0 <= 100_000 } ?? true
+            let totalIsValid = record.totalSteps.map { $0 > 0 && $0 <= 100_000 } ?? true
+            let completedFitsTotal =
+                if let completed = record.completedSteps, let total = record.totalSteps {
+                    completed <= total
+                } else {
+                    true
+                }
+            return stepsArePaired
+                && stepsAreValid
+                && totalIsValid
+                && completedFitsTotal
+                && (record.lastActiveSeconds.map { $0 >= 0 && $0 <= 315_360_000 } ?? true)
+                && (record.memoryMB.map { $0 >= 0 && $0 <= 16_777_216 } ?? true)
+                && (record.cpuPercent.map { $0 >= 0 && $0 <= 100 } ?? true)
+        }) else {
+            throw ValidationError.invalidRecordContent
+        }
 
         let commonFields =
             queue.map { ($0.id, $0.title, $0.detail) }
@@ -194,6 +262,9 @@ struct DashboardSnapshot: Decodable, Hashable {
         }),
         resourceBudget.allSatisfy({
             Self.isValidString($0.displayValue, maximum: 80)
+        }),
+        queue.allSatisfy({
+            $0.currentStep.map { Self.isValidString($0, maximum: 120) } ?? true
         }) else {
             throw ValidationError.invalidRecordContent
         }
@@ -211,7 +282,13 @@ struct DashboardSnapshot: Decodable, Hashable {
                 detail: "Replace with approved local or sanitized state.",
                 state: .running,
                 exposure: .sanitized,
-                verification: .estimated
+                verification: .estimated,
+                completedSteps: 5,
+                totalSteps: 8,
+                currentStep: "Verifying the bounded build",
+                lastActiveSeconds: 18,
+                memoryMB: 2_450,
+                cpuPercent: 36.5
             ),
             QueueRecord(
                 id: "EX-Q2",
@@ -219,7 +296,41 @@ struct DashboardSnapshot: Decodable, Hashable {
                 detail: "Awaiting a generic follow-up.",
                 state: .queued,
                 exposure: .sanitized,
-                verification: .estimated
+                verification: .estimated,
+                completedSteps: 1,
+                totalSteps: 6,
+                currentStep: "Waiting for a worker slot",
+                lastActiveSeconds: 240,
+                memoryMB: 180,
+                cpuPercent: 0.4
+            ),
+            QueueRecord(
+                id: "EX-Q3",
+                title: "Example dependency review",
+                detail: "A synthetic dependency added two more steps.",
+                state: .waiting,
+                exposure: .sanitized,
+                verification: .estimated,
+                completedSteps: 3,
+                totalSteps: 9,
+                currentStep: "Resolve the added dependency",
+                lastActiveSeconds: 900,
+                memoryMB: 620,
+                cpuPercent: 1.2
+            ),
+            QueueRecord(
+                id: "EX-Q4",
+                title: "Example ready item",
+                detail: "Synthetic work completed every declared step.",
+                state: .ready,
+                exposure: .sanitized,
+                verification: .estimated,
+                completedSteps: 8,
+                totalSteps: 8,
+                currentStep: "Ready for owner review",
+                lastActiveSeconds: 45,
+                memoryMB: 96,
+                cpuPercent: 0
             )
         ],
         tests: [

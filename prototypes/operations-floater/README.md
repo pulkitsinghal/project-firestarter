@@ -39,7 +39,7 @@ The native and web dashboards use the same information hierarchy without
 sharing runtime code or creating a device bridge:
 
 1. resource-budget evidence;
-2. queue lanes for running, queued, waiting, and ready work; and
+2. sortable queue race lanes for running, queued, waiting, and ready work; and
 3. compact tests-and-quality and signals panels.
 
 The native surface adds a local queue guide and window controls. At widths of
@@ -60,6 +60,13 @@ snapshot remains schema version `1.0`.
   Motion produces a fully stable frame.
 - The guide uses no image feed, camera, microphone, network service, analytics,
   or external transmission.
+- Queue work appears on a 0-to-100 percent rail. Its rectangular chip animates
+  as verified step evidence changes; adding steps can move the chip backward
+  without erasing completed work. Hovering shows the full summary and clicking
+  the chip or **Details** expands the lane.
+- Queue races can retain source order or sort by last activity, completion,
+  memory, CPU, or a deterministic needs-attention score. Missing evidence sorts
+  last and is labeled unavailable rather than estimated.
 - The default 620-by-640 window shows a dense two-column operational grid and
   remains usable down to a 380-by-480 compact single-column layout.
 - The application target is sandboxed, uses hardened runtime, and includes a

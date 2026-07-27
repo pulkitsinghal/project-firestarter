@@ -1,5 +1,14 @@
 const rootKeys = ["schemaVersion", "mode", "queue", "tests", "resourceBudget", "signals"];
-const queueKeys = ["id", "title", "detail", "state", "exposure", "verification"];
+const queueRequiredKeys = ["id", "title", "detail", "state", "exposure", "verification"];
+const queueOptionalKeys = [
+  "completedSteps",
+  "totalSteps",
+  "currentStep",
+  "lastActiveSeconds",
+  "memoryMB",
+  "cpuPercent",
+];
+const queueKeys = [...queueRequiredKeys, ...queueOptionalKeys];
 const testKeys = ["id", "title", "detail", "result", "exposure", "verification"];
 const budgetRequiredKeys = [
   "id",
@@ -97,6 +106,14 @@ function assertNumber(value, path, { positive = false } = {}) {
   if (positive && value === 0) fail(path, "expected a number greater than zero");
 }
 
+function assertInteger(value, path, { positive = false, maximum } = {}) {
+  assertNumber(value, path, { positive });
+  if (!Number.isInteger(value)) fail(path, "expected an integer");
+  if (maximum !== undefined && value > maximum) {
+    fail(path, `must be no greater than ${maximum}`);
+  }
+}
+
 function assertRecordBase(record, path) {
   assertIdentifier(record.id, `${path}.id`);
   assertString(record.title, `${path}.title`, 120);
@@ -109,9 +126,38 @@ function assertRecordBase(record, path) {
 }
 
 function assertQueueRecord(record, path) {
-  assertKeys(record, queueKeys, queueKeys, path);
+  assertKeys(record, queueKeys, queueRequiredKeys, path);
   assertRecordBase(record, path);
   assertEnum(record.state, queueStates, `${path}.state`);
+  const hasCompleted = "completedSteps" in record;
+  const hasTotal = "totalSteps" in record;
+  if (hasCompleted !== hasTotal) {
+    fail(path, "completedSteps and totalSteps must be supplied together");
+  }
+  if (hasCompleted) {
+    assertInteger(record.completedSteps, `${path}.completedSteps`, { maximum: 100000 });
+    assertInteger(record.totalSteps, `${path}.totalSteps`, {
+      positive: true,
+      maximum: 100000,
+    });
+    if (record.completedSteps > record.totalSteps) {
+      fail(path, "completedSteps cannot exceed totalSteps");
+    }
+  }
+  if ("currentStep" in record) assertString(record.currentStep, `${path}.currentStep`, 120);
+  if ("lastActiveSeconds" in record) {
+    assertInteger(record.lastActiveSeconds, `${path}.lastActiveSeconds`, {
+      maximum: 315360000,
+    });
+  }
+  if ("memoryMB" in record) {
+    assertNumber(record.memoryMB, `${path}.memoryMB`);
+    if (record.memoryMB > 16777216) fail(`${path}.memoryMB`, "is outside the supported range");
+  }
+  if ("cpuPercent" in record) {
+    assertNumber(record.cpuPercent, `${path}.cpuPercent`);
+    if (record.cpuPercent > 100) fail(`${path}.cpuPercent`, "must be no greater than 100");
+  }
 }
 
 function assertTestRecord(record, path) {

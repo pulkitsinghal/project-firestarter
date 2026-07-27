@@ -74,7 +74,7 @@ function releasePath(outputRoot, releaseId) {
 }
 
 function queueRecord(record) {
-  return {
+  const sanitized = {
     id: record.id,
     title: record.title,
     detail: record.detail,
@@ -82,6 +82,17 @@ function queueRecord(record) {
     exposure: record.exposure,
     verification: record.verification,
   };
+  for (const key of [
+    "completedSteps",
+    "totalSteps",
+    "currentStep",
+    "lastActiveSeconds",
+    "memoryMB",
+    "cpuPercent",
+  ]) {
+    if (record[key] !== undefined) sanitized[key] = record[key];
+  }
+  return sanitized;
 }
 
 function testRecord(record) {

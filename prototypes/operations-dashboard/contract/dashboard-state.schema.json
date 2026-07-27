@@ -118,6 +118,36 @@
         },
         "verification": {
           "$ref": "#/$defs/verification"
+        },
+        "completedSteps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "totalSteps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "currentStep": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "lastActiveSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 315360000
+        },
+        "memoryMB": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 16777216
+        },
+        "cpuPercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
         }
       }
     },

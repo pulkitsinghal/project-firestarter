@@ -271,13 +271,6 @@ final class DashboardState: ObservableObject {
     }
 }
 
-private struct QueueLaneDefinition: Identifiable {
-    let state: QueueRecord.State
-    let title: String
-
-    var id: QueueRecord.State { state }
-}
-
 private struct DashboardView: View {
     @StateObject private var state: DashboardState
 
@@ -295,7 +288,7 @@ private struct DashboardView: View {
                     VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
                         guideStrip(metrics: metrics)
                         resourceBudgetPanel(metrics: metrics)
-                        queueGrid(metrics: metrics)
+                        QueueRaceBoard(records: state.snapshot.queue, metrics: metrics)
                         supportingGrid(metrics: metrics)
                     }
                     .padding(metrics.contentPadding)
@@ -408,44 +401,6 @@ private struct DashboardView: View {
                         verification: record.verification.rawValue,
                         metrics: metrics
                     )
-                }
-            }
-        }
-    }
-
-    private func queueGrid(metrics: DashboardLayoutMetrics) -> some View {
-        let definitions = [
-            QueueLaneDefinition(state: .running, title: "Running"),
-            QueueLaneDefinition(state: .queued, title: "Queued"),
-            QueueLaneDefinition(state: .waiting, title: "Waiting"),
-            QueueLaneDefinition(state: .ready, title: "Ready")
-        ].filter { definition in
-            state.snapshot.queue.contains { $0.state == definition.state }
-        }
-
-        return LazyVGrid(
-            columns: gridColumns(metrics: metrics),
-            alignment: .leading,
-            spacing: metrics.sectionSpacing
-        ) {
-            ForEach(definitions) { definition in
-                let records = state.snapshot.queue.filter { $0.state == definition.state }
-                dashboardPanel(
-                    title: definition.title,
-                    subtitle: "\(records.count) records",
-                    metrics: metrics
-                ) {
-                    VStack(spacing: 0) {
-                        ForEach(records) { record in
-                            recordRow(
-                                title: record.title,
-                                detail: record.detail,
-                                status: nil,
-                                verification: record.verification.rawValue,
-                                metrics: metrics
-                            )
-                        }
-                    }
                 }
             }
         }
