@@ -361,6 +361,7 @@ struct RouterChatClientTests {
         #expect(context.count == 8)
         #expect(context.reduce(0) { $0 + $1.text.count } == 24_000)
         #expect(context.last?.id == messages.last?.id)
+        #expect(context.last?.createdAt == messages.last?.createdAt)
     }
 }
 
@@ -594,6 +595,10 @@ struct RouterChatSessionTests {
         #expect(session.messages.count == 1)
         #expect(session.messages.first?.role == .user)
         #expect(session.messages.first?.isPendingVoice == true)
+        let stagedAt = session.messages.first?.createdAt
+
+        session.stageVoiceTranscript("Synthetic voice narration")
+        #expect(session.messages.first?.createdAt == stagedAt)
 
         session.send(
             text: "Synthetic voice narration",
@@ -604,6 +609,7 @@ struct RouterChatSessionTests {
         #expect(session.messages.count == 2)
         #expect(session.messages.first?.isPendingVoice == false)
         #expect(session.messages.first?.text == "Synthetic voice narration")
+        #expect(session.messages.first?.createdAt == stagedAt)
         #expect(session.messages.last?.responder?.displayName == "local-LLM")
     }
 

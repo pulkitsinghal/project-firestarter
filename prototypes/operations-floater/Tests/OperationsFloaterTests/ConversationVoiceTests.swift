@@ -80,12 +80,14 @@ struct ConversationVoiceTests {
     func syntheticTranscriptLifecycle() async {
         let engine = SyntheticTranscriptionEngine()
         let sleeper = ControlledDebounceSleeper()
+        let startedAt = Date(timeIntervalSince1970: 1_000)
         let session = VoiceConversationSession(
             engine: engine,
             speechOutput: SyntheticSpeechOutput(),
             debounceSleeper: { duration in
                 try await sleeper.sleep(for: duration)
-            }
+            },
+            now: { startedAt }
         )
         var staged: [String] = []
         var submitted: (String, ConversationTranscriptProvider)?
@@ -104,6 +106,13 @@ struct ConversationVoiceTests {
         #expect(staged == ["Synthetic narration"])
         #expect(session.state == .listening)
         #expect(session.hasPendingSubmission)
+        #expect(
+            session.pendingSubmissionWindow
+                == VoiceSubmissionWindow(
+                    startedAt: startedAt,
+                    deadline: startedAt.addingTimeInterval(2)
+                )
+        )
         #expect(submitted == nil)
         #expect(await sleeper.requestedDurations() == [.seconds(2)])
 
@@ -114,12 +123,26 @@ struct ConversationVoiceTests {
         #expect(submitted?.0 == "Synthetic narration")
         #expect(submitted?.1 == .syntheticFixture)
         #expect(!engine.isRunning)
+        #expect(session.pendingSubmissionWindow == nil)
 
         session.handleReplyFailure()
         #expect(session.state == .listening)
         session.stop()
         #expect(session.state == .off)
         #expect(session.transcriptPreview.isEmpty)
+    }
+
+    @Test("Quiet-time progress is bounded before, during, and after two seconds")
+    func quietTimeProgressIsBounded() {
+        let startedAt = Date(timeIntervalSince1970: 2_000)
+        let window = VoiceSubmissionWindow(
+            startedAt: startedAt,
+            deadline: startedAt.addingTimeInterval(2)
+        )
+
+        #expect(window.progress(at: startedAt.addingTimeInterval(-1)) == 0)
+        #expect(window.progress(at: startedAt.addingTimeInterval(1)) == 0.5)
+        #expect(window.progress(at: startedAt.addingTimeInterval(3)) == 1)
     }
 
     @Test("A stable partial transcript submits after exactly two seconds")
@@ -232,6 +255,7 @@ struct ConversationVoiceTests {
 
         #expect(session.state == .paused)
         #expect(!session.hasPendingSubmission)
+        #expect(session.pendingSubmissionWindow == nil)
         #expect(session.transcriptPreview.isEmpty)
         #expect(cancelled == 1)
         #expect(submitted == 0)
