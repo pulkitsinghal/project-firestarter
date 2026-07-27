@@ -95,12 +95,22 @@ snapshot remains schema version `1.0`.
   draft, while **Shift-Return** inserts a newline without contacting the
   Router. The same behavior is exposed as an accessibility hint.
 - A compiled static module allowlist can give exactly one bounded conversation
-  module the floor. Modules provide no UI, mic, TTS, persistence, capture,
+  module the floor. Modules provide no UI, mic, TTS, persistence, screen capture,
   input injection, executable replay, arbitrary network, or dynamic code.
   Escape or **Return to dashboard** revokes the floor. The built-in synthetic
   checkpoint module provides deterministic contract testing; the geometry
   recorder adapter uses only fixed loopback IPC and neutral synthetic fixture
   events.
+- The optional **Relative XY recorder** lets the user select any one visible
+  window, then pairs dashboard voice narration with that window's complete
+  mouse, scroll, and key-code event stream. Coordinates are normalized to the
+  selected window. The host retains its exact process/window binding in memory
+  only and rejects events when that window loses the active/topmost binding.
+  It never reads pixels, OCR, window titles, URLs, clipboard data, or printable
+  characters. Recording is explicit, memory-only until **Stop & review**, and
+  export uses a user-selected local JSON file. It contains no replay or input
+  injection path. Calculator and Chess are neutral practice examples, not an
+  application allowlist.
 - Voice conversation is separately explicit and default-off. Production speech
   recognition requires an on-device provider and fails closed when permission,
   provider metadata, or on-device support is unavailable. Start, pause, resume,
