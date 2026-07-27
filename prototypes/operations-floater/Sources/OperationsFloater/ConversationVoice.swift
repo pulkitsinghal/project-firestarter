@@ -8,6 +8,20 @@ struct ConversationTranscriptResult: Equatable, Sendable {
     let isFinal: Bool
 }
 
+struct VoiceSubmissionWindow: Equatable, Sendable {
+    let startedAt: Date
+    let deadline: Date
+
+    func progress(at date: Date) -> Double {
+        let duration = deadline.timeIntervalSince(startedAt)
+        guard duration > 0 else { return 1 }
+        return min(
+            max(date.timeIntervalSince(startedAt) / duration, 0),
+            1
+        )
+    }
+}
+
 enum ConversationVoiceAuthorization: String, Equatable, Sendable {
     case notDetermined
     case denied
@@ -276,12 +290,14 @@ final class LocalConversationSpeechOutput: NSObject, ConversationSpeechOutput,
 
 @MainActor
 final class VoiceConversationSession: ObservableObject {
+    static let submissionPauseSeconds: TimeInterval = 2
     static let submissionPause: Duration = .seconds(2)
 
     @Published private(set) var state: ConversationVoiceState = .off
     @Published private(set) var authorization: ConversationVoiceAuthorization
     @Published private(set) var transcriptPreview = ""
     @Published private(set) var hasPendingSubmission = false
+    @Published private(set) var pendingSubmissionWindow: VoiceSubmissionWindow?
     @Published var spokenRepliesEnabled = false
     @Published private(set) var lastError: String?
 
@@ -292,6 +308,7 @@ final class VoiceConversationSession: ObservableObject {
     private let engine: any ConversationTranscriptionEngine
     private let speechOutput: any ConversationSpeechOutput
     private let debounceSleeper: @Sendable (Duration) async throws -> Void
+    private let now: () -> Date
     private var conversationActive = false
     private var startGeneration = 0
     private var committedSegments: [String] = []
@@ -304,11 +321,13 @@ final class VoiceConversationSession: ObservableObject {
             LocalConversationSpeechOutput(),
         debounceSleeper: @escaping @Sendable (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
-        }
+        },
+        now: @escaping () -> Date = Date.init
     ) {
         self.engine = engine
         self.speechOutput = speechOutput
         self.debounceSleeper = debounceSleeper
+        self.now = now
         authorization = engine.currentAuthorization()
         installCallbacks()
     }
@@ -380,6 +399,7 @@ final class VoiceConversationSession: ObservableObject {
         pendingSubmissionTask?.cancel()
         pendingSubmissionTask = nil
         hasPendingSubmission = false
+        pendingSubmissionWindow = nil
         engine.stop()
         state = .thinking
     }
@@ -393,6 +413,7 @@ final class VoiceConversationSession: ObservableObject {
         pendingSubmissionTask?.cancel()
         pendingSubmissionTask = nil
         hasPendingSubmission = false
+        pendingSubmissionWindow = nil
         committedSegments = []
         transcriptPreview = ""
         if hadPendingContent {
@@ -473,6 +494,7 @@ final class VoiceConversationSession: ObservableObject {
             pendingSubmissionTask?.cancel()
             pendingSubmissionTask = nil
             hasPendingSubmission = false
+            pendingSubmissionWindow = nil
 
             if transcript.isFinal {
                 committedSegments.append(boundedSegment)
@@ -505,7 +527,12 @@ final class VoiceConversationSession: ObservableObject {
         text: String,
         provider: ConversationTranscriptProvider
     ) {
+        let startedAt = now()
         hasPendingSubmission = true
+        pendingSubmissionWindow = VoiceSubmissionWindow(
+            startedAt: startedAt,
+            deadline: startedAt.addingTimeInterval(Self.submissionPauseSeconds)
+        )
         pendingSubmissionTask = Task { [weak self, debounceSleeper] in
             do {
                 try await debounceSleeper(Self.submissionPause)
@@ -513,6 +540,7 @@ final class VoiceConversationSession: ObservableObject {
                 guard let self, self.conversationActive else { return }
                 self.pendingSubmissionTask = nil
                 self.hasPendingSubmission = false
+                self.pendingSubmissionWindow = nil
                 self.committedSegments = []
                 self.markThinking()
                 self.onFinalTranscript?(text, provider)

@@ -93,10 +93,11 @@ on-device support is unavailable. Spoken replies are separately default-off,
 local, and interruptible. Each non-empty transcript update appears immediately
 as a pending human chat turn and auto-submits after exactly 2.000 seconds
 without another update, whether or not the recognition provider emits its
-optional final-result signal. Resumed speech cancels and restarts the timer.
-Pause, stop, floor revoke, module switch, clear, and teardown cancel the staged
-turn. Transcript/session memory is in-memory only and is cleared on stop,
-disable, revoke, or app exit.
+optional final-result signal. A visible linear countdown covers that exact
+window and resets when speech resumes. Human and assistant bubbles show their
+local creation time beside the sender attribution. Pause, stop, floor revoke,
+module switch, clear, and teardown cancel the staged turn. Transcript/session
+memory is in-memory only and is cleared on stop, disable, revoke, or app exit.
 
 Dashboard Router replies are labeled only from bounded Router-reported
 `responder.kind` or `responder.provider` metadata. The accepted identities are
