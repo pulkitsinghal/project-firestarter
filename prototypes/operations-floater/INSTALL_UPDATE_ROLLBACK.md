@@ -53,10 +53,16 @@ release.
    click-to-expand detail. Exercise last-active, completion, memory, CPU, and
    needs-attention sorting. Confirm an increased total-step count can move a
    chip backward and Reduce Motion replaces animation with a stable frame.
-5. Choose **Import Local Snapshot…** only if a canonical `local` version `1.0`
+5. Confirm assistant chat initially reports **OFF** and performs no availability
+   probe. Enable it explicitly, use only a synthetic prompt, and verify a
+   response. Turn on **Review replies** or click **Review** and confirm
+   **CHECKING** becomes **CHECKED** or an actionable **IMPROVE** card. Stop if
+   the client contacts anything other than `127.0.0.1:11500`, follows a
+   redirect, or silently sends dashboard state.
+6. Choose **Import Local Snapshot…** only if a canonical `local` version `1.0`
    snapshot is ready. The app validates before writing and gives the stored file
    private permissions.
-6. Confirm the header reports a locally verified snapshot rather than the
+7. Confirm the header reports a locally verified snapshot rather than the
    generic sample.
 
 ## Update
@@ -78,8 +84,8 @@ is retained, and no import data is transmitted.
 
 Rollback triggers include failure to launch, signature or Gatekeeper rejection,
 missing window lifecycle behavior, an unreadable compact layout, motion that
-continues with Reduce Motion enabled, unreadable canonical state, or a material
-display regression.
+continues with Reduce Motion enabled, unreadable canonical state, chat egress
+beyond the fixed loopback Router, or a material display regression.
 
 1. Quit the app.
 2. Replace `INSTALLED_APP` with the verified `BACKUP_APP`.

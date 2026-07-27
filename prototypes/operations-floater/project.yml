@@ -19,6 +19,8 @@ targets:
       properties:
         ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: public.app-category.productivity
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: OperationsFloater.entitlements
