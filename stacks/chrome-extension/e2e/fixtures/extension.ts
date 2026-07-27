@@ -1,6 +1,12 @@
 import path from 'node:path';
 
-import { chromium, test as base, type BrowserContext, type Page } from '@playwright/test';
+import {
+  chromium,
+  test as base,
+  type BrowserContext,
+  type Page,
+  type Worker,
+} from '@playwright/test';
 
 // Path to the built extension (run `make build` first). Override with EXTENSION_PATH.
 const EXTENSION_PATH =
@@ -10,18 +16,20 @@ const USER_DATA_DIR =
   process.env.E2E_USER_DATA_DIR || path.resolve(process.cwd(), '.auth', 'chrome-profile');
 
 // An MV3 extension's id is the hostname of its background service worker's URL.
-async function resolveExtensionId(context: BrowserContext): Promise<string> {
+async function resolveServiceWorker(context: BrowserContext): Promise<Worker> {
   let [sw] = context.serviceWorkers();
   if (!sw) {
     sw = await context.waitForEvent('serviceworker', { timeout: 30_000 });
   }
-  return new URL(sw.url()).hostname;
+  return sw;
 }
 
 type Fixtures = {
   context: BrowserContext;
+  serviceWorker: Worker;
   extensionId: string;
   sidebarPage: Page;
+  fixturePage: Page;
 };
 
 export const test = base.extend<Fixtures>({
@@ -44,14 +52,27 @@ export const test = base.extend<Fixtures>({
     await context.close();
   },
 
-  extensionId: async ({ context }, use) => {
-    await use(await resolveExtensionId(context));
+  serviceWorker: async ({ context }, use) => {
+    await use(await resolveServiceWorker(context));
+  },
+
+  extensionId: async ({ serviceWorker }, use) => {
+    await use(new URL(serviceWorker.url()).hostname);
   },
 
   // Open the side panel page directly (chrome-extension://<id>/sidebar.html).
   sidebarPage: async ({ context, extensionId }, use) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/sidebar.html`);
+    await use(page);
+    await page.close();
+  },
+
+  fixturePage: async ({ context }, use) => {
+    const page = await context.newPage();
+    await page.goto('http://127.0.0.1:4175/navigation/index.html', {
+      waitUntil: 'domcontentloaded',
+    });
     await use(page);
     await page.close();
   },

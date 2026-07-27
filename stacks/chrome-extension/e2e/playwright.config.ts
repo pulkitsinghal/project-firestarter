@@ -10,6 +10,12 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
+  webServer: {
+    command: 'node scripts/static-server.mjs',
+    url: 'http://127.0.0.1:4175/navigation/index.html',
+    reuseExistingServer: !process.env.CI,
+    timeout: 30_000,
+  },
   use: {
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
