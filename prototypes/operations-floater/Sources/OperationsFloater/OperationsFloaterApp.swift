@@ -155,6 +155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @MainActor
 final class DashboardWindowController {
+    static let frameAutosaveName = "OperationsDashboardWindowDenseV1"
+
     private(set) var panel: NSWindow?
     private let state: DashboardState
     private let activatesApplication: Bool
@@ -182,7 +184,10 @@ final class DashboardWindowController {
 
     private func makeDashboardWindow() -> NSWindow {
         let panel = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 680),
+            contentRect: NSRect(
+                origin: .zero,
+                size: DashboardLayoutMetrics.defaultWindowSize
+            ),
             styleMask: [.titled, .closable, .resizable, .utilityWindow, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -194,9 +199,9 @@ final class DashboardWindowController {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.tabbingMode = .disallowed
-        panel.setFrameAutosaveName("OperationsDashboardWindow")
+        panel.setFrameAutosaveName(Self.frameAutosaveName)
         panel.level = state.pinned ? .floating : .normal
-        panel.minSize = NSSize(width: 340, height: 440)
+        panel.minSize = DashboardLayoutMetrics.minimumWindowSize
         panel.center()
         panel.contentView = NSHostingView(rootView: DashboardView(state: state))
         state.onPinnedChange = { [weak panel] isPinned in
@@ -266,6 +271,13 @@ final class DashboardState: ObservableObject {
     }
 }
 
+private struct QueueLaneDefinition: Identifiable {
+    let state: QueueRecord.State
+    let title: String
+
+    var id: QueueRecord.State { state }
+}
+
 private struct DashboardView: View {
     @StateObject private var state: DashboardState
 
@@ -274,25 +286,26 @@ private struct DashboardView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    avatar
-                    queueSummary
-                    queueLane(title: "Running", queueState: .running)
-                    queueLane(title: "Queued", queueState: .queued)
-                    queueLane(title: "Waiting", queueState: .waiting)
-                    queueLane(title: "Ready", queueState: .ready)
-                    testSection
-                    resourceSection
-                    signalSection
+        GeometryReader { geometry in
+            let metrics = DashboardLayoutMetrics(width: geometry.size.width)
+            VStack(spacing: 0) {
+                header
+                Divider()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
+                        guideStrip(metrics: metrics)
+                        resourceBudgetPanel(metrics: metrics)
+                        queueGrid(metrics: metrics)
+                        supportingGrid(metrics: metrics)
+                    }
+                    .padding(metrics.contentPadding)
                 }
-                .padding(18)
             }
         }
-        .frame(minWidth: 340, minHeight: 440)
+        .frame(
+            minWidth: DashboardLayoutMetrics.minimumWindowSize.width,
+            minHeight: DashboardLayoutMetrics.minimumWindowSize.height
+        )
         .background(.regularMaterial)
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             state.reload()
@@ -313,120 +326,273 @@ private struct DashboardView: View {
                 .controlSize(.small)
                 .accessibilityLabel("Keep dashboard in front")
         }
-        .padding(16)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
     }
 
-    private var avatar: some View {
-        HStack(spacing: 14) {
-            AnimatedGuideAvatar()
-                .frame(width: 92, height: 92)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Queue guide").font(.headline)
-                Text(
-                    state.snapshot.queue.contains(where: { $0.state == .running })
-                    ? "Tracking the active lane."
-                    : "The active lane is clear."
-                )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+    private func guideStrip(metrics: DashboardLayoutMetrics) -> some View {
+        let cue = state.snapshot.guideCue
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 12) {
+                AnimatedGuideAvatar(cue: cue)
+                    .frame(width: metrics.guideSize, height: metrics.guideSize)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(cue.title)
+                        .font(.headline)
+                    Text(cue.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Local procedural guide")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(guideAccent(for: cue.activity))
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(minimum: 52), spacing: 7),
+                    count: 4
+                ),
+                spacing: 7
+            ) {
+                compactMetric(state.itemCount(for: .running), "running", .blue)
+                compactMetric(state.itemCount(for: .queued), "queued", .orange)
+                compactMetric(state.itemCount(for: .waiting), "waiting", .purple)
+                compactMetric(state.itemCount(for: .ready), "ready", .green)
+            }
         }
-        .padding(14)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(11)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(guideAccent(for: cue.activity).opacity(0.22), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Queue guide: \(cue.title). \(cue.detail)")
     }
 
-    private var queueSummary: some View {
-        HStack(spacing: 10) {
-            metric(count(for: .running), "running", .blue)
-            metric(count(for: .queued), "queued", .orange)
-            metric(count(for: .waiting), "waiting", .purple)
-        }
-    }
-
-    private func count(for stateToCount: QueueRecord.State) -> String {
-        String(state.itemCount(for: stateToCount))
-    }
-
-    private func metric(_ number: String, _ label: String, _ color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(number).font(.title2.bold()).foregroundStyle(color)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+    private func compactMetric(_ count: Int, _ label: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(String(count))
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(color)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(color.opacity(0.11), in: RoundedRectangle(cornerRadius: 8))
     }
 
-    @ViewBuilder
-    private func queueLane(title: String, queueState: QueueRecord.State) -> some View {
-        let selected = state.snapshot.queue.filter { $0.state == queueState }
-        if !selected.isEmpty {
-            recordSection(title: title, records: selected) { record in
-                recordCard(
-                    title: record.title,
-                    detail: record.detail,
-                    badge: record.verification.rawValue
-                )
+    private func resourceBudgetPanel(metrics: DashboardLayoutMetrics) -> some View {
+        dashboardPanel(
+            title: "Resource budget",
+            subtitle: "Scheduling evidence",
+            metrics: metrics
+        ) {
+            LazyVGrid(
+                columns: gridColumns(metrics: metrics),
+                alignment: .leading,
+                spacing: 0
+            ) {
+                ForEach(state.snapshot.resourceBudget) { record in
+                    recordRow(
+                        title: record.title,
+                        detail: record.detail,
+                        status: record.displayValue,
+                        verification: record.verification.rawValue,
+                        metrics: metrics
+                    )
+                }
             }
         }
     }
 
-    private var testSection: some View {
-        recordSection(title: "Tests", records: state.snapshot.tests) { record in
-            recordCard(title: record.title, detail: record.detail, badge: record.result.rawValue)
+    private func queueGrid(metrics: DashboardLayoutMetrics) -> some View {
+        let definitions = [
+            QueueLaneDefinition(state: .running, title: "Running"),
+            QueueLaneDefinition(state: .queued, title: "Queued"),
+            QueueLaneDefinition(state: .waiting, title: "Waiting"),
+            QueueLaneDefinition(state: .ready, title: "Ready")
+        ].filter { definition in
+            state.snapshot.queue.contains { $0.state == definition.state }
+        }
+
+        return LazyVGrid(
+            columns: gridColumns(metrics: metrics),
+            alignment: .leading,
+            spacing: metrics.sectionSpacing
+        ) {
+            ForEach(definitions) { definition in
+                let records = state.snapshot.queue.filter { $0.state == definition.state }
+                dashboardPanel(
+                    title: definition.title,
+                    subtitle: "\(records.count) records",
+                    metrics: metrics
+                ) {
+                    VStack(spacing: 0) {
+                        ForEach(records) { record in
+                            recordRow(
+                                title: record.title,
+                                detail: record.detail,
+                                status: nil,
+                                verification: record.verification.rawValue,
+                                metrics: metrics
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
-    private var resourceSection: some View {
-        recordSection(title: "Resource budget", records: state.snapshot.resourceBudget) { record in
-            recordCard(title: record.title, detail: record.detail, badge: record.displayValue)
+    private func supportingGrid(metrics: DashboardLayoutMetrics) -> some View {
+        LazyVGrid(
+            columns: gridColumns(metrics: metrics),
+            alignment: .leading,
+            spacing: metrics.sectionSpacing
+        ) {
+            dashboardPanel(
+                title: "Tests and quality",
+                subtitle: "\(state.snapshot.tests.count) records",
+                metrics: metrics
+            ) {
+                VStack(spacing: 0) {
+                    ForEach(state.snapshot.tests) { record in
+                        recordRow(
+                            title: record.title,
+                            detail: record.detail,
+                            status: record.result.rawValue,
+                            verification: record.verification.rawValue,
+                            metrics: metrics
+                        )
+                    }
+                }
+            }
+
+            dashboardPanel(
+                title: "Signals",
+                subtitle: "\(state.snapshot.signals.count) records",
+                metrics: metrics
+            ) {
+                VStack(spacing: 0) {
+                    ForEach(state.snapshot.signals) { record in
+                        recordRow(
+                            title: record.title,
+                            detail: record.detail,
+                            status: record.state.rawValue,
+                            verification: record.verification.rawValue,
+                            metrics: metrics
+                        )
+                    }
+                }
+            }
         }
     }
 
-    private var signalSection: some View {
-        recordSection(title: "Signals", records: state.snapshot.signals) { record in
-            recordCard(title: record.title, detail: record.detail, badge: record.state.rawValue)
-        }
+    private func gridColumns(metrics: DashboardLayoutMetrics) -> [GridItem] {
+        Array(
+            repeating: GridItem(
+                .flexible(minimum: 170),
+                spacing: metrics.sectionSpacing,
+                alignment: .top
+            ),
+            count: metrics.columnCount
+        )
     }
 
-    private func recordSection<Record: Identifiable, Content: View>(
+    private func dashboardPanel<Content: View>(
         title: String,
-        records: [Record],
-        @ViewBuilder content: @escaping (Record) -> Content
+        subtitle: String,
+        metrics: DashboardLayoutMetrics,
+        @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            ForEach(records) { record in
-                content(record)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, metrics.recordPadding)
+            .padding(.vertical, 7)
+            Divider()
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 11))
+        .clipShape(RoundedRectangle(cornerRadius: 11))
+    }
+
+    private func recordRow(
+        title: String,
+        detail: String,
+        status: String?,
+        verification: String,
+        metrics: DashboardLayoutMetrics
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(2)
+                Spacer(minLength: 4)
+                if let status {
+                    compactBadge(status)
+                }
+            }
+            Text(detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(metrics.density == .dense ? 2 : 3)
+            compactBadge(verification)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(metrics.recordPadding)
+        .overlay(alignment: .bottom) {
+            Divider()
         }
     }
 
-    private func recordCard(title: String, detail: String, badge: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.body.weight(.medium))
-                Spacer()
-                Text(badge.replacingOccurrences(of: "-", with: " "))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            Text(detail).font(.caption).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+    private func compactBadge(_ value: String) -> some View {
+        Text(value.replacingOccurrences(of: "-", with: " "))
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(.quinary, in: Capsule())
     }
+
+    private func guideAccent(for activity: GuideActivity) -> Color {
+        switch activity {
+        case .attention:
+            .orange
+        case .active:
+            .cyan
+        case .ready:
+            .green
+        case .waiting:
+            .purple
+        case .idle:
+            .secondary
+        }
+    }
+
 }
 
 /// A procedural, non-personal avatar. No image asset, camera, microphone, or
 /// network service is used; the motion is generated locally by TimelineView.
 private struct AnimatedGuideAvatar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let cue: GuideCue
 
     var body: some View {
         TimelineView(
@@ -436,55 +602,71 @@ private struct AnimatedGuideAvatar: View {
             )
         ) { timeline in
             let time = timeline.date.timeIntervalSinceReferenceDate
-            let bob = reduceMotion ? 0 : sin(time * 2.0) * 3.0
-            let blink = reduceMotion ? 1.0 : (abs(sin(time * 0.72)) > 0.985 ? 0.12 : 1.0)
-            let wave = reduceMotion ? 0 : sin(time * 2.0) * 12.0
-            let pulse = reduceMotion ? 1.0 : 1.0 + sin(time * 1.6) * 0.035
+            let frame = GuideMotionSampler.frame(
+                at: time,
+                activity: cue.activity,
+                reduceMotion: reduceMotion
+            )
 
             ZStack {
                 Circle()
                     .fill(
                         AngularGradient(
-                            colors: [.indigo, .cyan, .mint, .indigo],
+                            colors: [.indigo, accent, .mint, .indigo],
                             center: .center
                         )
                     )
                     .opacity(0.23)
-                    .scaleEffect(pulse)
+                    .scaleEffect(frame.pulse)
                 Circle()
                     .fill(.ultraThinMaterial)
                     .overlay(Circle().stroke(.white.opacity(0.38), lineWidth: 1))
                     .padding(7)
 
                 Circle()
-                    .fill(Color.indigo.opacity(0.95))
+                    .fill(accent.gradient)
                     .frame(width: 54, height: 54)
-                    .offset(y: bob)
+                    .offset(y: frame.bob)
                 Circle()
-                    .fill(Color.indigo.opacity(0.85))
+                    .fill(accent.opacity(0.85))
                     .frame(width: 17, height: 17)
-                    .offset(x: -27, y: bob + 4)
+                    .offset(x: -27, y: frame.bob + 4)
                 Circle()
-                    .fill(Color.indigo.opacity(0.85))
+                    .fill(accent.opacity(0.85))
                     .frame(width: 17, height: 17)
-                    .offset(x: 27, y: bob + 4)
+                    .offset(x: 27, y: frame.bob + 4)
 
                 HStack(spacing: 13) {
-                    Capsule().fill(.white).frame(width: 7, height: 10 * blink)
-                    Capsule().fill(.white).frame(width: 7, height: 10 * blink)
+                    Capsule().fill(.white).frame(width: 7, height: 10 * frame.eyeScale)
+                    Capsule().fill(.white).frame(width: 7, height: 10 * frame.eyeScale)
                 }
-                .offset(y: bob - 5)
+                .offset(y: frame.bob - 5)
                 Capsule()
                     .fill(.white.opacity(0.9))
                     .frame(width: 18, height: 4)
-                    .offset(y: bob + 13)
+                    .offset(y: frame.bob + 13)
                 Capsule()
-                    .fill(Color.cyan.opacity(0.9))
+                    .fill(accent.opacity(0.9))
                     .frame(width: 10, height: 29)
-                    .rotationEffect(.degrees(-35 + wave))
-                    .offset(x: 31, y: bob + 29)
+                    .rotationEffect(.degrees(-35 + frame.wave))
+                    .offset(x: 31, y: frame.bob + 29)
             }
             .drawingGroup()
+        }
+    }
+
+    private var accent: Color {
+        switch cue.activity {
+        case .attention:
+            .orange
+        case .active:
+            .cyan
+        case .ready:
+            .green
+        case .waiting:
+            .purple
+        case .idle:
+            .indigo
         }
     }
 }

@@ -15,6 +15,7 @@ struct DashboardStateTests {
         #expect(state.itemCount(for: .running) == 1)
         #expect(state.itemCount(for: .queued) == 1)
         #expect(state.itemCount(for: .waiting) == 0)
+        #expect(state.itemCount(for: .ready) == 0)
         #expect(state.snapshot.resourceBudget.first?.verification == .unavailable)
     }
 
@@ -197,6 +198,11 @@ struct DashboardStateTests {
         let firstWindow = controller.show()
         #expect(firstWindow.isVisible)
         #expect(firstWindow.level == .floating)
+        #expect(firstWindow.minSize == DashboardLayoutMetrics.minimumWindowSize)
+        #expect(
+            firstWindow.frameAutosaveName
+                == NSWindow.FrameAutosaveName(DashboardWindowController.frameAutosaveName)
+        )
 
         state.pinned = false
         #expect(firstWindow.level == .normal)
