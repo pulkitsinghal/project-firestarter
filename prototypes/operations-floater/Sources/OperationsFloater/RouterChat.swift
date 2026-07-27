@@ -8,6 +8,117 @@ enum RouterAvailability: Equatable, Sendable {
     case offline
 }
 
+struct RouterResponder: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case claude
+        case codex
+        case localLLM
+        case reportedProvider
+        case unreported
+    }
+
+    static let maximumLabelCharacters = 80
+
+    let kind: Kind
+    let provider: String?
+    let model: String
+
+    init(kindHint: String? = nil, provider: String? = nil, model: String? = nil) {
+        let cleanKind = Self.boundedSingleLine(kindHint)
+        let cleanProvider = Self.boundedSingleLine(provider)
+        let cleanModel = Self.boundedSingleLine(model) ?? "auto"
+        if let reportedKind = Self.classify(cleanKind, includeLocal: true) {
+            kind = reportedKind
+        } else if let reportedProvider = Self.classify(cleanProvider, includeLocal: true) {
+            kind = reportedProvider
+        } else if let reportedModel = Self.classify(cleanModel, includeLocal: false) {
+            kind = reportedModel
+        } else if cleanProvider != nil || cleanKind != nil {
+            kind = .reportedProvider
+        } else {
+            kind = .unreported
+        }
+
+        self.provider = cleanProvider ?? (
+            kind == .reportedProvider ? cleanKind : nil
+        )
+        self.model = cleanModel
+    }
+
+    var displayName: String {
+        switch kind {
+        case .claude:
+            "Claude"
+        case .codex:
+            "Codex"
+        case .localLLM:
+            "Local LLM"
+        case .reportedProvider:
+            "Router · \(provider ?? "provider reported")"
+        case .unreported:
+            "Router · provider not reported"
+        }
+    }
+
+    var modelDetail: String? {
+        model.lowercased() == "auto" ? nil : model
+    }
+
+    var systemImage: String {
+        switch kind {
+        case .claude:
+            "sparkles"
+        case .codex:
+            "chevron.left.forwardslash.chevron.right"
+        case .localLLM:
+            "desktopcomputer"
+        case .reportedProvider:
+            "point.3.connected.trianglepath.dotted"
+        case .unreported:
+            "questionmark.circle"
+        }
+    }
+
+    var helpText: String {
+        switch kind {
+        case .unreported:
+            "The Router returned no provider identity. The dashboard will not guess who answered."
+        default:
+            modelDetail.map { "\(displayName) reported model \($0)." }
+                ?? "\(displayName) was reported by the Router."
+        }
+    }
+
+    private static func boundedSingleLine(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let singleLine = value
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard !singleLine.isEmpty else { return nil }
+        return String(singleLine.prefix(maximumLabelCharacters))
+    }
+
+    private static func classify(_ value: String?, includeLocal: Bool) -> Kind? {
+        guard let value = value?.lowercased() else { return nil }
+        if value.contains("claude") || value.contains("anthropic") {
+            return .claude
+        }
+        if value.contains("codex") {
+            return .codex
+        }
+        if includeLocal,
+           value == "local"
+            || value == "local_llm"
+            || value == "local-llm"
+            || value.contains("ollama")
+            || value.contains("mlx")
+            || value.contains("lm studio") {
+            return .localLLM
+        }
+        return nil
+    }
+}
+
 struct RouterChatMessage: Identifiable, Equatable, Sendable {
     enum Role: String, Codable, Sendable {
         case user
@@ -17,17 +128,32 @@ struct RouterChatMessage: Identifiable, Equatable, Sendable {
     let id: UUID
     let role: Role
     let text: String
+    let responder: RouterResponder?
 
-    init(id: UUID = UUID(), role: Role, text: String) {
+    init(
+        id: UUID = UUID(),
+        role: Role,
+        text: String,
+        responder: RouterResponder? = nil
+    ) {
         self.id = id
         self.role = role
         self.text = text
+        self.responder = responder
     }
 }
 
 struct RouterChatReply: Equatable, Sendable {
     let text: String
     let model: String
+    let responder: RouterResponder
+
+    init(text: String, model: String, responder: RouterResponder? = nil) {
+        let resolvedResponder = responder ?? RouterResponder(model: model)
+        self.text = text
+        self.model = resolvedResponder.model
+        self.responder = resolvedResponder
+    }
 }
 
 struct RouterChatCritique: Equatable, Sendable {
@@ -88,7 +214,8 @@ struct RouterChatClient: RouterChatTransport {
     static let modelsURL = URL(string: "http://127.0.0.1:11500/v1/models")!
     static let maximumResponseBytes = 1_048_576
     static let maximumReplyCharacters = 32_000
-    static let maximumModelLabelCharacters = 80
+    static let maximumModelLabelCharacters = RouterResponder.maximumLabelCharacters
+    static let maximumProviderLabelCharacters = RouterResponder.maximumLabelCharacters
     static let maximumCritiqueBytes = 32_768
 
     private final class LoopbackSessionDelegate: NSObject, URLSessionTaskDelegate,
@@ -247,12 +374,15 @@ struct RouterChatClient: RouterChatTransport {
         guard text.count <= maximumReplyCharacters else {
             throw ClientError.responseTooLarge
         }
-        let model = envelope.model?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let modelLabel = model.flatMap { $0.isEmpty ? nil : $0 } ?? "auto"
+        let responder = RouterResponder(
+            kindHint: envelope.responder?.kind,
+            provider: envelope.responder?.provider ?? envelope.provider,
+            model: envelope.responder?.model ?? envelope.model
+        )
         return RouterChatReply(
             text: text,
-            model: String(modelLabel.prefix(maximumModelLabelCharacters))
+            model: responder.model,
+            responder: responder
         )
     }
 
@@ -315,6 +445,25 @@ struct RouterChatClient: RouterChatTransport {
     }
 
     private struct CompletionResponse: Decodable {
+        struct Responder: Decodable {
+            let kind: String?
+            let provider: String?
+            let model: String?
+
+            enum CodingKeys: CodingKey {
+                case kind
+                case provider
+                case model
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                kind = try? container.decode(String.self, forKey: .kind)
+                provider = try? container.decode(String.self, forKey: .provider)
+                model = try? container.decode(String.self, forKey: .model)
+            }
+        }
+
         struct Choice: Decodable {
             struct Message: Decodable {
                 let content: String
@@ -324,7 +473,24 @@ struct RouterChatClient: RouterChatTransport {
         }
 
         let model: String?
+        let provider: String?
+        let responder: Responder?
         let choices: [Choice]
+
+        enum CodingKeys: CodingKey {
+            case model
+            case provider
+            case responder
+            case choices
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            model = try? container.decode(String.self, forKey: .model)
+            provider = try? container.decode(String.self, forKey: .provider)
+            responder = try? container.decode(Responder.self, forKey: .responder)
+            choices = try container.decode([Choice].self, forKey: .choices)
+        }
     }
 
     private struct CritiquePayload: Decodable {
@@ -430,7 +596,11 @@ final class RouterChatSession: ObservableObject {
             do {
                 let reply = try await transport.complete(messages: context)
                 try Task.checkCancellation()
-                let assistantMessage = RouterChatMessage(role: .assistant, text: reply.text)
+                let assistantMessage = RouterChatMessage(
+                    role: .assistant,
+                    text: reply.text,
+                    responder: reply.responder
+                )
                 messages.append(assistantMessage)
                 modelLabel = reply.model
                 availability = .online
@@ -520,7 +690,12 @@ final class RouterChatSession: ObservableObject {
             guard remaining > 0 else { break }
             let text = String(message.text.suffix(min(message.text.count, remaining)))
             selected.append(
-                RouterChatMessage(id: message.id, role: message.role, text: text)
+                RouterChatMessage(
+                    id: message.id,
+                    role: message.role,
+                    text: text,
+                    responder: message.responder
+                )
             )
             remaining -= text.count
         }
@@ -734,9 +909,13 @@ struct RouterChatPanel: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 7) {
-                    Text(message.role == .user ? "You" : "Assistant")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                    if message.role == .user {
+                        Text("You")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        responderLabel(message.responder ?? RouterResponder())
+                    }
                     if message.role == .assistant {
                         reviewControl(message)
                     }
@@ -760,6 +939,27 @@ struct RouterChatPanel: View {
                 Spacer(minLength: 34)
             }
         }
+    }
+
+    private func responderLabel(_ responder: RouterResponder) -> some View {
+        HStack(spacing: 4) {
+            Label(responder.displayName, systemImage: responder.systemImage)
+                .foregroundStyle(
+                    responder.kind == .unreported ? Color.orange : Color.secondary
+                )
+            if let model = responder.modelDetail {
+                Text(model)
+                    .lineLimit(1)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(.quinary, in: Capsule())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 9, weight: .semibold))
+        .help(responder.helpText)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Response from \(responder.displayName)")
     }
 
     @ViewBuilder
@@ -843,7 +1043,7 @@ struct RouterChatPanel: View {
         case .checking:
             "CHECKING"
         case .online:
-            session.modelLabel.uppercased()
+            "ROUTER ONLINE"
         case .offline:
             "ROUTER OFFLINE"
         }
