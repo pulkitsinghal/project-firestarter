@@ -74,10 +74,10 @@
   <div class="badges">
     <span class="badge">🐳 0 host SDKs</span>
     <span class="badge">🤖 AI-reviewed PRs</span>
-    <span class="badge">🧩 3 stacks + 4 add-ons</span>
+    <span class="badge">🧩 4 stacks + 8 add-ons</span>
     <span class="badge">♻️ self-dogfooding</span>
   </div>
-  <p class="updated">Last updated <span id="lastUpdated">2026-07-26</span> ·
+  <p class="updated">Last updated <span id="lastUpdated">2026-07-27</span> ·
     <a href="https://github.com/pulkitsinghal/project-firestarter/blob/master/CHANGELOG.md">Changelog&nbsp;↗</a></p>
   <div class="cta">
     <a class="btn primary" href="https://github.com/pulkitsinghal/project-firestarter">View on GitHub</a>
@@ -115,8 +115,8 @@
       <div class="card"><div class="ic">📐</div><h3>Conventions enforced</h3><p>Conventional Commits + forward-only migrations enforced by git hooks <em>and</em> CI — not left to discipline.</p></div>
       <div class="card"><div class="ic">🔭</div><h3>It documents itself</h3><p>A storyboard harness renders a live planned-vs-implemented map from real screenshots of your UI — now a stack precept, so every stack ships one.</p></div>
       <div class="card"><div class="ic">🛡️</div><h3>Privacy-split dashboards</h3><p>Opt-in native and static-web references share one verified operational model while keeping local-only records on-device and publishing only an explicit sanitized snapshot.</p></div>
-      <div class="card"><div class="ic">🚀</div><h3>Share in one button</h3><p><code>make deploy</code> exposes your local app on a public Cloudflare URL — no account, no cloud bill.</p></div>
-      <div class="card"><div class="ic">🧩</div><h3>Stacks + add-ons</h3><p>FastAPI+Next.js, Supabase+Flutter, or a Manifest V3 browser extension — gotchas baked into comments. Passwordless auth, in-app bug capture, SSRF-safe fetch, and k8s are each one flag away.</p></div>
+      <div class="card"><div class="ic">🚀</div><h3>Share where safe</h3><p>Deploy-enabled web stacks expose a local app through <code>make deploy</code>; client-only and security-gated stacks keep distribution owner-gated.</p></div>
+      <div class="card"><div class="ic">🧩</div><h3>Stacks + add-ons</h3><p>FastAPI+Next.js, Supabase+Flutter, a Manifest V3 browser extension, or a durable Node notifier — gotchas baked into comments. Auth, capture, narration, secret, orchestration, SSRF, agent, and k8s add-ons stay opt-in.</p></div>
       <div class="card"><div class="ic">🤝</div><h3>AI-agent ready</h3><p>A root <code>AGENTS.md</code> lets Claude Code, Codex, Cursor, or Aider drive the repo on sight.</p></div>
     </div>
   </section>
@@ -128,7 +128,7 @@
     <div class="stat">
       <div><div class="n">100%</div><div class="l">of its own features shipped via AI-reviewed auto-merge</div></div>
       <div><div class="n">0</div><div class="l">host SDKs required to build</div></div>
-      <div><div class="n">3</div><div class="l">production stacks ready to stamp</div></div>
+      <div><div class="n">4</div><div class="l">production-track stacks ready to stamp</div></div>
       <div><div class="n">1</div><div class="l">command to share your app publicly</div></div>
     </div>
   </section>
@@ -172,8 +172,11 @@
 # Non-interactive:
 ./bin/firestart.sh --defaults --set project_slug=lighthouse --set stack=fastapi-next
 
-# A browser-extension project (the third stack):
+# A browser-extension project:
 ./bin/firestart.sh --defaults --set stack=chrome-extension --set project_slug=buddy
+
+# A durable notification tutorial:
+./bin/firestart.sh --defaults --set stack=node-notifier --set project_slug=relay
 
 # Opt-in add-ons (all off by default):
 ./bin/firestart.sh --set include_auth=yes   # or include_bug_report, include_ssrf_fetch, include_k8s</code></pre>
@@ -182,7 +185,7 @@
   </section>
 
   <section>
-    <h2>Three real stacks</h2>
+    <h2>Four real stacks</h2>
     <div class="grid">
       <div class="card">
         <span class="pill">fastapi-next lineage</span>
@@ -198,6 +201,11 @@
         <span class="pill">chrome-extension lineage</span>
         <h3>chrome-extension</h3>
         <p>Manifest V3 extension · esbuild build · Vitest units · host-only Playwright e2e that loads the unpacked extension · a side-panel storyboard. The first DB-less stack.</p>
+      </div>
+      <div class="card">
+        <span class="pill">durable notification lineage</span>
+        <h3>node-notifier</h3>
+        <p>Express + BullMQ + private Redis + Socket.IO · saved task reconciliation · explicit acknowledgement · local signed sessions · provider-neutral OIDC production boundary · real-Redis tests and a live lifecycle storyboard.</p>
       </div>
     </div>
   </section>

@@ -1,0 +1,5 @@
+# Generated locally by `make storyboard`; committed previews live in docs/assets.
+output/
+
+# Ignore directories, symlinks, or stray files with this name.
+node_modules

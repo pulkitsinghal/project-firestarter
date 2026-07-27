@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+coverage
+docs
+node_modules
+npm-debug.log*
+sequence diagram 1.png
+sequence diagram 2.png

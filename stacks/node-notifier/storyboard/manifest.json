@@ -1,0 +1,56 @@
+{
+  "_comment": "Planned-vs-implemented map for {{ project_name }}. Run make storyboard to recapture the real UI and regenerate docs/STORYBOARD.md.",
+  "versions": [
+    {
+      "title": "v0.1 — Durable notification slice",
+      "subtitle": "The socket is a hint; Redis-backed task state and acknowledgement are authoritative.",
+      "groups": [
+        {
+          "name": "Browser lifecycle",
+          "rows": [
+            {
+              "screen": "Ready lab",
+              "shot": "01-ready.png",
+              "story": "The browser establishes a local identity and a live update channel.",
+              "status": "done",
+              "note": "Fresh state is explicit; no completed task is invented."
+            },
+            {
+              "screen": "Queued or running",
+              "shot": "02-in-flight.png",
+              "story": "POST returns 202 with a task id while a separate worker owns execution.",
+              "status": "done",
+              "note": "The UI renders authoritative task state after creation."
+            },
+            {
+              "screen": "Completed",
+              "shot": "03-completed.png",
+              "story": "A socket hint triggers reconciliation, and the saved result survives refresh.",
+              "status": "done",
+              "note": "Terminal state comes from GET /api/tasks/:id."
+            },
+            {
+              "screen": "Acknowledged",
+              "shot": "04-acknowledged.png",
+              "story": "The client records an idempotent terminal acknowledgement.",
+              "status": "done",
+              "note": "The receipt proves an authorized API call, not human understanding."
+            }
+          ]
+        },
+        {
+          "name": "Production boundary",
+          "rows": [
+            {
+              "screen": "OIDC deployment",
+              "shot": null,
+              "story": "Use a validated external tenant and subject plus TLS/ACL Redis.",
+              "status": "planned",
+              "note": "Owner-gated: this scaffold neither provisions nor deploys production infrastructure."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

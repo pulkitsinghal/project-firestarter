@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/pulkitsinghal/project-firestarter/actions/workflows/ci.yml"><img src="https://github.com/pulkitsinghal/project-firestarter/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/stacks-3-blue" alt="stacks">
+  <img src="https://img.shields.io/badge/stacks-4-blue" alt="stacks">
   <img src="https://img.shields.io/badge/host%20SDKs-0-success" alt="no host SDKs">
   <img src="https://img.shields.io/badge/PRs-AI%20reviewed%20%26%20auto--merged-purple" alt="AI reviewed">
 </p>
@@ -40,8 +40,8 @@ process ([LIFT-LOG](docs/LIFT-LOG.md)) for folding new lessons back in.
 | 🔭 **It documents itself** | A storyboard harness renders a live *planned-vs-implemented* map with screenshots straight from the running app. |
 | 🎬 **Evidence-backed handoffs** | Every feature reaches review with exact acceptance, failure/rollback, and verification evidence. Visible work adds real storyboard frames and a state map; supported flows capture asserted E2E story beats at normal speed, then post-produce narration, captions, focus effects, and a 20–40s release cut. |
 | 🛡️ **Privacy-split operations dashboards** | Opt-in native and browser references share one verified queue/test/resource model while keeping local-only state on-device and publishing only an explicit sanitized static snapshot. |
-| 🚀 **Share in one button** | Server-backed stacks use `make deploy` for a public Cloudflare URL with no cloud bill; client-only stacks keep distribution owner-gated. |
-| 🧩 **Three real stacks + opt-in add-ons** | FastAPI+Next.js, Supabase+Flutter, or a Manifest V3 Chrome extension, with the painful gotchas baked into comments. k8s is one flag away for the server-backed stacks. |
+| 🚀 **Share in one button where safe** | Deploy-enabled web stacks use `make deploy` for a public Cloudflare URL with no cloud bill; client-only and security-gated stacks keep distribution owner-gated. |
+| 🧩 **Four real stacks + opt-in add-ons** | FastAPI+Next.js, Supabase+Flutter, a Manifest V3 Chrome extension, or a durable Node notifier, with the painful gotchas baked into comments. k8s is one flag away for supported server-backed stacks. |
 | 🤝 **AI-agent ready** | A root `AGENTS.md` (the cross-tool standard) lets Claude Code, Codex, Cursor, or Aider drive the repo on sight. |
 
 ## Proven, not theoretical
@@ -85,6 +85,7 @@ gh secret set ANTHROPIC_API_KEY   # turn on the AI reviewer
   - `fastapi-next` — FastAPI + PostgreSQL/pgvector + Redis · Next.js.
   - `supabase-flutter` — Postgres/PostGIS + PostgREST + GoTrue · Flutter · React.
   - `chrome-extension` — Manifest V3 · TypeScript/esbuild · Vitest · Playwright.
+  - `node-notifier` — Express · BullMQ · Redis · Socket.IO · OIDC resource-server starter.
 - **Optional add-ons** (`addons/`) — e.g. `k8s` Kustomize (opt in with
   `include_k8s=yes`).
 - **Reference prototypes** (`prototypes/`) — an opt-in unified operations

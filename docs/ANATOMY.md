@@ -17,6 +17,7 @@ stacks/
   fastapi-next/           FastAPI + Next.js (fastapi-next lineage)
   supabase-flutter/       Supabase + Flutter + React (supabase-flutter lineage)
   chrome-extension/       Manifest V3 + TypeScript (browser-extension lineage)
+  node-notifier/          Express + BullMQ + Redis + Socket.IO notification lab
 addons/                   OPTIONAL modules, overlaid only when opted in
   k8s/<stack>/            Kustomize manifests (include_k8s=yes)
   kokoro_warm/common/     stack-agnostic narration audio standard (include_kokoro_warm=yes)
@@ -160,6 +161,41 @@ inert for this stack.
 - **No host SDKs, arm64 native deps:** node_modules lives in a named volume so the container builds esbuild's platform-specific binary, not the host's.
 - **e2e is host-only:** loading an MV3 extension needs a real headed Chromium — a headless container can't, so it isn't a CI gate.
 
+## Stack profile: `node-notifier` (durable notification lineage)
+
+A Redis-backed teaching stack with no relational database. `make migrate` is a
+documented no-op because BullMQ owns its Redis key schema.
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yml` | Hardened API and worker containers plus network-private Redis 8; `test` and `storyboard` profiles. Only the loopback web port is published. |
+| `Makefile` | Docker-only lifecycle, unit/integration gates, production image build, storyboard, cleanup, hooks, environment check, and version sync. Ordinary `down` preserves task state; `clean-data` is the explicit destructive path. |
+| `.github/workflows/ci.yml` | Exact **Tests**, **Lint & Typecheck**, and **Build** display names. Redis-backed cross-instance tests run through the same Compose target used locally. |
+| `src/` | Express 5 API, BullMQ worker, signed local sessions, provider-neutral OIDC JWT validation, tenant/user-derived opaque ownership, Redis-backed rate limiting, task index, and idempotent acknowledgement. |
+| `public/` | Dependency-light browser lab: create a task, reconcile saved state after socket hints or reload, and mark a terminal result seen. |
+| `test/` | Hermetic unit suite plus real-Redis coverage for two-API fan-out, missed-event recovery, retry exhaustion, tenant isolation, token refresh, acknowledgement replay, and distributed rate limiting. |
+| `storyboard/` | Drives the real local API/worker path, captures ready → in-flight → completed → acknowledged, and regenerates the planned-vs-implemented map. |
+| `docs/tutorial.md` | Guided failure experiments, checkpoints, cleanup, and a safe path for replacing the simulated worker operation. |
+| `docs/production.md` | Explicit OIDC, Redis TLS/ACL, retention, rate-limit, WebSocket, MV3 client, deployment-gate, and rollback boundaries. |
+
+### Documented gotchas baked into this stack
+
+- **A socket is a hint, not state or identity:** BullMQ job state is
+  authoritative; Socket.IO only prompts a refresh. The browser never submits a
+  socket id as an authorization target.
+- **Pub/Sub is not the work queue:** Redis Pub/Sub fans out low-latency update
+  hints after the worker saves state. BullMQ holds retryable work durably.
+- **Extension service workers suspend:** an MV3 client reconciles the REST task
+  list on open/resume; it must not depend on a permanent background socket.
+- **Local auth is not production auth:** anonymous signed cookies are
+  loopback-only. Production startup requires HTTPS, validated OIDC tenant and
+  subject claims, and `rediss://` with an ACL username and password.
+- **Acknowledgement is narrowly defined:** it proves an authorized client
+  called the endpoint; it does not prove a person understood or acted.
+- **Redis 8 licensing is an owner choice:** the lab pins the unmodified official
+  image, while redistribution and production selection remain a documented
+  owner gate.
+
 ## Optional add-ons (`addons/`)
 
 Add-ons are opinionated or heavy modules kept **out of the default scaffold** and
@@ -213,7 +249,7 @@ Declared in `firestarter.config.json` and substituted as `{{ key }}`:
 | `project_slug` | lowercase id; drives db name, container prefix, package names |
 | `project_tagline` | one-liner used across docs |
 | `github_owner` / `github_repo` | for secret/clone commands |
-| `stack` | which profile to overlay (`fastapi-next` \| `supabase-flutter`) |
+| `stack` | which profile to overlay (`fastapi-next` \| `supabase-flutter` \| `chrome-extension` \| `node-notifier`) |
 | `db_name` | defaults to `project_slug` |
 | `commit_scopes` | allowed conventional-commit scopes |
 | `require_coauthor` / `coauthor_footer` | whether commits need a co-author line |

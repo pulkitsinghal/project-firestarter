@@ -8,7 +8,7 @@
   "github_owner": "pulkitsinghal",
   "github_repo": "project-acme",
 
-  "stack": ["fastapi-next", "supabase-flutter", "chrome-extension"],
+  "stack": ["fastapi-next", "supabase-flutter", "chrome-extension", "node-notifier"],
 
   "include_k8s": ["no", "yes"],
   "include_auth": ["no", "yes"],
