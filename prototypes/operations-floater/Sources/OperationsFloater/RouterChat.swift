@@ -46,6 +46,15 @@ struct RouterChatCritique: Equatable, Sendable {
     }
 }
 
+enum RouterChatComposerReturnAction: Equatable {
+    case send
+    case insertNewline
+
+    static func resolve(isShiftPressed: Bool) -> Self {
+        isShiftPressed ? .insertNewline : .send
+    }
+}
+
 protocol RouterChatTransport: Sendable {
     func isAvailable() async -> Bool
     func complete(messages: [RouterChatMessage]) async throws -> RouterChatReply
@@ -606,14 +615,44 @@ struct RouterChatPanel: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                TextField(
-                    "Message the local-first assistant",
-                    text: $session.draft,
-                    axis: .vertical
-                )
-                .lineLimit(1...4)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("Assistant message")
+                ZStack(alignment: .topLeading) {
+                    if session.draft.isEmpty {
+                        Text("Message the local-first assistant")
+                            .font(.body)
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+
+                    TextEditor(text: $session.draft)
+                        .font(.body)
+                        .scrollContentBackground(.hidden)
+                        .padding(.horizontal, 2)
+                        .padding(.vertical, 1)
+                        .accessibilityLabel("Assistant message")
+                        .accessibilityHint(
+                            "Return sends. Shift-Return inserts a new line."
+                        )
+                        .onKeyPress(.return, phases: .down) { keyPress in
+                            switch RouterChatComposerReturnAction.resolve(
+                                isShiftPressed: keyPress.modifiers.contains(.shift)
+                            ) {
+                            case .send:
+                                session.send()
+                                return .handled
+                            case .insertNewline:
+                                return .ignored
+                            }
+                        }
+                }
+                .frame(height: 54)
+                .background(.background, in: RoundedRectangle(cornerRadius: 6))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(.quaternary)
+                }
 
                 Button {
                     session.send()
@@ -631,6 +670,10 @@ struct RouterChatPanel: View {
                 .disabled(!session.canSend)
                 .accessibilityLabel("Send assistant message")
             }
+
+            Text("Return sends · Shift-Return adds a line")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
 
             Text(
                 "Fixed loopback Router · Router selects the model · "
