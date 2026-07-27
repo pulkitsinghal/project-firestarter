@@ -6,7 +6,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": ["node", "chrome"],
     "noEmit": true
   },
   "include": ["fixtures/**/*.ts", "specs/**/*.ts", "playwright.config.ts"]

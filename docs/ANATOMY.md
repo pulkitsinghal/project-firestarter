@@ -149,8 +149,9 @@ inert for this stack.
 | `Makefile` | `install/build/typecheck/test-unit/test/lint/precommit/clean/storyboard/e2e/hook-install`; `up` builds + prints load-unpacked instructions, `down` cleans, `migrate` is a documented no-op |
 | `.github/workflows/ci.yml` | Jobs **Tests** (vitest), **Lint & Typecheck** (`tsc --noEmit`), **Build** (esbuild) — the contract names |
 | `.github/workflows/storyboard.yml` | Overrides the meta-layer's DB-centric one: builds the extension, then runs the harness (no postgres/migrate) |
-| `extension/` | MV3 skeleton: `public/manifest.json` (side panel + background SW + content script), `src/` (background/content-script/sidebar + a pure-logic module & Vitest test), `scripts/build.mjs` (esbuild → IIFE bundles + static copy), `tsconfig`, `vitest.config` |
-| `e2e/` | Playwright MV3 harness: a fixture that `--load-extension`s a persistent Chromium (with container-safe `--no-sandbox`/`--disable-dev-shm-usage` flags) and resolves the extension id from the background service-worker URL + a side-panel smoke spec. `e2e/scripts/with-xvfb.sh` runs it headed on a display-less runner (idempotent Xvfb boot) |
+| `extension/` | MV3 skeleton: narrow manifest, side panel/background/content entry points, plus the cohesive `src/browser-assistant/` reference module for deterministic intent, exact accessible-label resolution, typed cross-world messaging, metadata-only audit, permission pinning, and fail-closed tests |
+| `docs/BROWSER_ASSISTANT.md` | Durable choice guide for content scripts vs debugger/CDP vs native messaging, permission/profile handling, prompt-injection isolation, confirmations, retries/idempotency, audit/privacy, testing, real-toolbar acceptance, and Store policy |
+| `e2e/` | Playwright MV3 harness: persistent headed Chromium, direct side-panel smoke, and a real compiled content-script check against a local hostile fixture (duplicate/ambiguous/hidden/unsafe cases). Xvfb makes it opt-in CI-capable; real toolbar attachment remains a distinct human release gate |
 | `.github/workflows/e2e.yml` | **Opt-in** (`workflow_dispatch`) headed e2e on a display-less runner via Xvfb — least-privilege, a distinct job name, never a required gate. Closes the "wire an opt-in job once you have a runner with a display" TODO |
 | `storyboard/` | Screenshots the built side panel (`dist/sidebar.html`) → committed `docs/STORYBOARD.md` (honours the storyboard precept for a UI with no server) |
 | `tools/demo-recording/` | Records the **real** side panel as video (page + panel + cursor) with no login: iframe the live `sidebar.html` into a staged page, seed auth/data offline via the service worker, capture with Playwright `recordVideo`. A fill-in-the-blanks `record.template.mjs` + generic primitives (`visual_cursor_overlay.js`, `video_processor.py`) + a README of the hard-won gotchas. Complements `storyboard/` (stills) with a moving release/QA clip |
@@ -160,6 +161,8 @@ inert for this stack.
 - **Per-page video misses the side panel:** to record the panel + cursor, iframe the live `sidebar.html` into one page and use Playwright `recordVideo` (not `ffmpeg x11grab`, which is black on a bare Xvfb). See `tools/demo-recording/README.md`.
 - **No host SDKs, arm64 native deps:** node_modules lives in a named volume so the container builds esbuild's platform-specific binary, not the host's.
 - **e2e is host-only:** loading an MV3 extension needs a real headed Chromium — a headless container can't, so it isn't a CI gate.
+- **Direct extension pages are not toolbar-attached panels:** `chrome-extension://…/sidebar.html` can become the active tab and hide tab-association bugs. Keep a distinct branded-Chrome toolbar smoke; Playwright cannot reliably operate native extension toolbar/permission UI.
+- **Page prose is data, never control:** the browser-assistant module accepts a bounded user grammar and resolves one exact visible safe link. Hostile page text cannot add commands, tools, permissions, or selectors.
 
 ## Stack profile: `node-notifier` (durable notification lineage)
 
