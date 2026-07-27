@@ -355,6 +355,8 @@ export function renderSnapshot(snapshot) {
   document.querySelector("#queue-count").textContent = `${snapshot.queue.length} lanes`;
   renderList("#tests-list", "#tests-count", snapshot.tests, (record) => record.result.replace("-", " "));
   renderList("#signals-list", "#signals-count", snapshot.signals, (record) => record.state);
+  document.querySelector("#snapshot-status").textContent = "Published snapshot rendered.";
+  document.querySelector("#dashboard-content").hidden = false;
 }
 
 async function loadFixture() {
@@ -368,5 +370,7 @@ if (typeof document !== "undefined") {
     const banner = document.querySelector("#error");
     banner.hidden = false;
     banner.textContent = `Snapshot unavailable: ${error.message}`;
+    document.querySelector("#snapshot-status").textContent = "Snapshot could not be rendered.";
+    document.querySelector("#dashboard-content").hidden = true;
   });
 }
