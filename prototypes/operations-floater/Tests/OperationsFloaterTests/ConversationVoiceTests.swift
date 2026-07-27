@@ -122,6 +122,46 @@ struct ConversationVoiceTests {
         #expect(session.transcriptPreview.isEmpty)
     }
 
+    @Test("A stable partial transcript submits after exactly two seconds")
+    func partialTranscriptLifecycle() async {
+        let engine = SyntheticTranscriptionEngine()
+        let sleeper = ControlledDebounceSleeper()
+        let session = VoiceConversationSession(
+            engine: engine,
+            speechOutput: SyntheticSpeechOutput(),
+            debounceSleeper: { duration in
+                try await sleeper.sleep(for: duration)
+            }
+        )
+        var staged: [String] = []
+        var submitted: (String, ConversationTranscriptProvider)?
+        session.onTranscriptStaged = { staged.append($0) }
+        session.onFinalTranscript = { text, provider in
+            submitted = (text, provider)
+        }
+
+        await session.start()
+        engine.emit(.success(ConversationTranscriptResult(
+            text: "Stable partial narration",
+            isFinal: false
+        )))
+        await waitForSleeper(sleeper, count: 1)
+
+        #expect(staged == ["Stable partial narration"])
+        #expect(session.state == .listening)
+        #expect(session.hasPendingSubmission)
+        #expect(submitted == nil)
+        #expect(await sleeper.requestedDurations() == [.seconds(2)])
+
+        await sleeper.resumeNext()
+        await settle()
+
+        #expect(session.state == .thinking)
+        #expect(submitted?.0 == "Stable partial narration")
+        #expect(submitted?.1 == .syntheticFixture)
+        #expect(!engine.isRunning)
+    }
+
     @Test("Resumed speech cancels and restarts the two-second pause")
     func resumedSpeechRestartsDebounce() async {
         let engine = SyntheticTranscriptionEngine()
@@ -141,24 +181,22 @@ struct ConversationVoiceTests {
         await session.start()
         engine.emit(.success(ConversationTranscriptResult(
             text: "First segment",
-            isFinal: true
-        )))
-        await waitForSleeper(sleeper, count: 1)
-
-        engine.emit(.success(ConversationTranscriptResult(
-            text: "resumed",
             isFinal: false
         )))
-        await settle()
-        #expect(!session.hasPendingSubmission)
-        #expect(submitted.isEmpty)
-        #expect(staged.last == "First segment resumed")
+        await waitForSleeper(sleeper, count: 1)
 
         engine.emit(.success(ConversationTranscriptResult(
-            text: "resumed",
-            isFinal: true
+            text: "First segment resumed",
+            isFinal: false
         )))
-        await waitForSleeper(sleeper, count: 1)
+        await waitForSleeperState(
+            sleeper,
+            requestedCount: 2,
+            activeCount: 1
+        )
+        #expect(session.hasPendingSubmission)
+        #expect(submitted.isEmpty)
+        #expect(staged.last == "First segment resumed")
         #expect(await sleeper.requestedDurations() == [.seconds(2), .seconds(2)])
 
         await sleeper.resumeNext()
@@ -238,6 +276,20 @@ struct ConversationVoiceTests {
     ) async {
         for _ in 0..<100 {
             if await sleeper.activeWaiterCount() == count {
+                return
+            }
+            await Task.yield()
+        }
+    }
+
+    private func waitForSleeperState(
+        _ sleeper: ControlledDebounceSleeper,
+        requestedCount: Int,
+        activeCount: Int
+    ) async {
+        for _ in 0..<100 {
+            if await sleeper.requestedDurations().count == requestedCount,
+               await sleeper.activeWaiterCount() == activeCount {
                 return
             }
             await Task.yield()
