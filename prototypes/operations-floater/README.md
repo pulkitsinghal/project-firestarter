@@ -33,15 +33,35 @@ Window lifecycle, foreground level, pinning, and source provenance are
 native-only capabilities. They are deliberately absent from the shared
 snapshot. The browser surface never reads or connects to the native app.
 
+## Shared presentation structure
+
+The native and web dashboards use the same information hierarchy without
+sharing runtime code or creating a device bridge:
+
+1. resource-budget evidence;
+2. queue lanes for running, queued, waiting, and ready work; and
+3. compact tests-and-quality and signals panels.
+
+The native surface adds a local queue guide and window controls. At widths of
+560 points or more, operational panels use a dense two-column grid; below that
+breakpoint, they collapse deterministically to one column. The canonical
+snapshot remains schema version `1.0`.
+
 ## Current behavior
 
 - The dashboard opens visibly in front and defaults to **Keep in front**.
 - Turning off **Keep in front** immediately restores normal window level.
 - Closing the window, including with Command-W, retains the app; use **Show
   Dashboard** or click the Dock icon to reopen the same window.
-- A procedural animated guide is rendered locally. It uses no image feed,
-  camera, microphone, network service, analytics, or external transmission.
-  Reduce Motion is respected.
+- A procedural animated guide summarizes only canonical state. Verified
+  failures and attention signals take priority; unverified failures do not
+  become attention cues.
+- Guide motion is a deterministic function of time and canonical state. Reduce
+  Motion produces a fully stable frame.
+- The guide uses no image feed, camera, microphone, network service, analytics,
+  or external transmission.
+- The default 620-by-640 window shows a dense two-column operational grid and
+  remains usable down to a 380-by-480 compact single-column layout.
 - The application target is sandboxed, uses hardened runtime, and includes a
   macOS app icon, encryption declaration, and productivity category.
 
@@ -50,7 +70,8 @@ preflight, local update procedure, acceptance checks, and rollback path.
 
 ## Validation
 
-Run the focused source and lifecycle tests:
+Run the focused source, deterministic-guide, compact-layout, privacy, and
+lifecycle tests:
 
 ```bash
 swift test
