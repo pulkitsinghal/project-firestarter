@@ -109,9 +109,10 @@ snapshot remains schema version `1.0`.
   on-device transcript update is staged immediately as a pending **You**
   bubble, then follows the same host send path after exactly 2.000 seconds
   without another update. This does not depend on Apple's optional final-result
-  signal. Resumed speech cancels and restarts that timer. Pause, stop, floor
-  revoke, module switch, clear, and window teardown cancel the pending turn;
-  transcript/session memory is ephemeral.
+  signal. A visible linear countdown resets whenever speech resumes. Every
+  human and assistant bubble shows its local creation time beside the reported
+  sender. Pause, stop, floor revoke, module switch, clear, and window teardown
+  cancel the pending turn; transcript/session memory is ephemeral.
 - The UI warns that private or patient data must not be entered because an
   already-configured Router escalation may leave the device. Router policy
   remains the authoritative egress guard.

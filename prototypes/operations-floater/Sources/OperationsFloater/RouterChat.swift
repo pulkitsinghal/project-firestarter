@@ -134,6 +134,7 @@ struct RouterChatMessage: Identifiable, Equatable, Sendable {
     let responder: RouterResponder?
     let module: ConversationModuleAttribution?
     let isPendingVoice: Bool
+    let createdAt: Date
 
     init(
         id: UUID = UUID(),
@@ -141,7 +142,8 @@ struct RouterChatMessage: Identifiable, Equatable, Sendable {
         text: String,
         responder: RouterResponder? = nil,
         module: ConversationModuleAttribution? = nil,
-        isPendingVoice: Bool = false
+        isPendingVoice: Bool = false,
+        createdAt: Date = Date()
     ) {
         self.id = id
         self.role = role
@@ -149,6 +151,7 @@ struct RouterChatMessage: Identifiable, Equatable, Sendable {
         self.responder = responder
         self.module = module
         self.isPendingVoice = isPendingVoice
+        self.createdAt = createdAt
     }
 }
 
@@ -669,7 +672,8 @@ final class RouterChatSession: ObservableObject {
                 id: messageID,
                 role: .user,
                 text: text,
-                isPendingVoice: true
+                isPendingVoice: true,
+                createdAt: messages[index].createdAt
             )
         } else {
             let message = RouterChatMessage(
@@ -707,7 +711,8 @@ final class RouterChatSession: ObservableObject {
                 id: messageID,
                 role: .user,
                 text: text,
-                isPendingVoice: false
+                isPendingVoice: false,
+                createdAt: messages[index].createdAt
             )
             pendingVoiceMessageID = nil
         } else {
@@ -910,7 +915,8 @@ final class RouterChatSession: ObservableObject {
                     text: text,
                     responder: message.responder,
                     module: nil,
-                    isPendingVoice: false
+                    isPendingVoice: false,
+                    createdAt: message.createdAt
                 )
             )
             remaining -= text.count
@@ -1209,10 +1215,26 @@ struct RouterChatPanel: View {
                 .foregroundStyle(.orange)
             }
 
-            if voice.hasPendingSubmission {
-                Text("Voice turn staged · sends after 2.000 seconds of continuous pause")
+            if let submissionWindow = voice.pendingSubmissionWindow {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text("Quiet-time countdown")
+                        Spacer()
+                        Text("2.000 seconds")
+                            .monospacedDigit()
+                    }
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
+
+                    TimelineView(.animation(minimumInterval: 0.05)) { context in
+                        ProgressView(value: submissionWindow.progress(at: context.date))
+                            .progressViewStyle(.linear)
+                            .accessibilityLabel("Quiet-time submission countdown")
+                            .accessibilityValue(
+                                "\(Int(submissionWindow.progress(at: context.date) * 100)) percent"
+                            )
+                    }
+                }
             }
 
             Text(
@@ -1466,11 +1488,7 @@ struct RouterChatPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 7) {
                     if message.role == .user {
-                        Text(
-                            message.isPendingVoice
-                                ? "You · waiting for 2s pause"
-                                : "You"
-                        )
+                        Text("You")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(
                                 message.isPendingVoice ? Color.orange : Color.secondary
@@ -1490,6 +1508,18 @@ struct RouterChatPanel: View {
                     }
                     if message.role == .assistant, message.module == nil {
                         reviewControl(message)
+                    }
+                    Text(message.createdAt, style: .time)
+                        .font(.system(size: 9))
+                        .monospacedDigit()
+                        .foregroundStyle(.tertiary)
+                        .accessibilityLabel(
+                            "Sent at \(message.createdAt.formatted(date: .omitted, time: .shortened))"
+                        )
+                    if message.isPendingVoice {
+                        Text("waiting for quiet")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.orange)
                     }
                 }
                 Text(message.text)
