@@ -67,6 +67,22 @@ snapshot remains schema version `1.0`.
 - Queue races can retain source order or sort by last activity, completion,
   memory, CPU, or a deterministic needs-attention score. Missing evidence sorts
   last and is labeled unavailable rather than estimated.
+- The assistant panel is disabled by default. After explicit enablement, its
+  non-persistent in-app chat talks only to the fixed local AI Router endpoint at
+  `http://127.0.0.1:11500/v1/chat/completions` with model `auto`. The app sends
+  no provider key, Relay token, dashboard snapshot, or stored file. The Router
+  owns model choice and any separately configured, policy-guarded escalation.
+- Reply monitoring is independently default-off. When enabled, or when
+  **Review** is clicked, a second Router-selected request checks whether the
+  reply answered the request, stayed evidence-aware, and gave a useful next
+  action. Concrete failures receive an in-memory **Assistant Coach** suggestion.
+  Critiques are advisory and never block or replace the original answer.
+- Chat fails visibly when the local Router is unavailable; it never falls back
+  to an arbitrary host or direct provider endpoint, follows no redirects, and
+  uses an ephemeral no-cache session.
+- The UI warns that private or patient data must not be entered because an
+  already-configured Router escalation may leave the device. Router policy
+  remains the authoritative egress guard.
 - The default 620-by-640 window shows a dense two-column operational grid and
   remains usable down to a 380-by-480 compact single-column layout.
 - The application target is sandboxed, uses hardened runtime, and includes a
@@ -77,8 +93,8 @@ preflight, local update procedure, acceptance checks, and rollback path.
 
 ## Validation
 
-Run the focused source, deterministic-guide, compact-layout, privacy, and
-lifecycle tests:
+Run the focused source, deterministic-guide, compact-layout, loopback-chat,
+privacy, and lifecycle tests:
 
 ```bash
 swift test

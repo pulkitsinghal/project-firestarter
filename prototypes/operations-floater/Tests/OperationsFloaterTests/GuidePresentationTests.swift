@@ -170,7 +170,7 @@ struct GuidePresentationTests {
         #expect(minimumMetrics.estimatedCardWidth(containerWidth: 380) == 352)
     }
 
-    @Test("Application entitlements contain no network, microphone, or camera capability")
+    @Test("Application entitlements allow only user-selected files and outbound networking")
     func entitlementsRemainLocalOnly() throws {
         let data = try Data(
             contentsOf: packageRoot().appendingPathComponent("OperationsFloater.entitlements")
@@ -182,14 +182,30 @@ struct GuidePresentationTests {
         )
         let entitlements = try #require(value as? [String: Any])
 
-        #expect(entitlements.count == 2)
+        #expect(entitlements.count == 3)
         #expect(entitlements["com.apple.security.app-sandbox"] as? Bool == true)
         #expect(
             entitlements["com.apple.security.files.user-selected.read-only"] as? Bool == true
         )
-        #expect(entitlements["com.apple.security.network.client"] == nil)
+        #expect(entitlements["com.apple.security.network.client"] as? Bool == true)
+        #expect(entitlements["com.apple.security.network.server"] == nil)
         #expect(entitlements["com.apple.security.device.audio-input"] == nil)
         #expect(entitlements["com.apple.security.device.camera"] == nil)
+    }
+
+    @Test("Transport security allows local networking without disabling ATS globally")
+    func transportSecurityRemainsLoopbackCompatible() throws {
+        let data = try Data(contentsOf: packageRoot().appendingPathComponent("Info.plist"))
+        let value = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        )
+        let info = try #require(value as? [String: Any])
+        let transport = try #require(info["NSAppTransportSecurity"] as? [String: Any])
+
+        #expect(transport["NSAllowsLocalNetworking"] as? Bool == true)
+        #expect(transport["NSAllowsArbitraryLoads"] == nil)
     }
 
     private func makeSnapshot(
