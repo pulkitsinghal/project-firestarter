@@ -273,6 +273,7 @@ final class DashboardState: ObservableObject {
 
 private struct DashboardView: View {
     @StateObject private var state: DashboardState
+    @StateObject private var chat = RouterChatSession()
 
     init(state: DashboardState) {
         _state = StateObject(wrappedValue: state)
@@ -287,6 +288,7 @@ private struct DashboardView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
                         guideStrip(metrics: metrics)
+                        RouterChatPanel(session: chat, metrics: metrics)
                         resourceBudgetPanel(metrics: metrics)
                         QueueRaceBoard(records: state.snapshot.queue, metrics: metrics)
                         supportingGrid(metrics: metrics)

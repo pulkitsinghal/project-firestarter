@@ -15,7 +15,8 @@ harnesses.
 - Owns foreground, pinning, close, and reopen behavior.
 - Keeps window controls and local file provenance in its private adapter rather
   than adding those capabilities to the shared snapshot.
-- Performs no network access or telemetry transmission.
+- Never transmits snapshot state or telemetry. The native app's optional chat
+  client is a separate, fixed-loopback contract and receives no snapshot data.
 
 ### Web
 
