@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2200D085E7B69957855949ED /* LocalSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEED0760241BADE47AB545B7 /* LocalSnapshotStore.swift */; };
+		9B233F7676FC120A1BC3C6EB /* NeutralGeometryCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98029EC2964C84D24843E9F4 /* NeutralGeometryCapture.swift */; };
 		A705BC6F0D3A543F75D84535 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6D7388421B1A4219EF55A7B2 /* Assets.xcassets */; };
 		B62C2C7DCF69BD92439B2DAF /* OperationsFloaterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */; };
 		C3C29CC6F7D8859A4E569D23 /* GuidePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36310E1C2D59EB7955C2B76F /* GuidePresentation.swift */; };
@@ -27,6 +28,7 @@
 		62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationsFloaterApp.swift; sourceTree = "<group>"; };
 		675EB43F01F9FDA3CC6763B1 /* ConversationModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationModule.swift; sourceTree = "<group>"; };
 		6D7388421B1A4219EF55A7B2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		98029EC2964C84D24843E9F4 /* NeutralGeometryCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeutralGeometryCapture.swift; sourceTree = "<group>"; };
 		A37B6D58036BC8B9F8A47688 /* ConversationVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationVoice.swift; sourceTree = "<group>"; };
 		CEED0760241BADE47AB545B7 /* LocalSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSnapshotStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -49,6 +51,7 @@
 				02D2103622C4FB3754F316FE /* DashboardContract.swift */,
 				36310E1C2D59EB7955C2B76F /* GuidePresentation.swift */,
 				CEED0760241BADE47AB545B7 /* LocalSnapshotStore.swift */,
+				98029EC2964C84D24843E9F4 /* NeutralGeometryCapture.swift */,
 				62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */,
 				4A9DF97AD77E17679BD52803 /* QueueRace.swift */,
 				42AF18361984088F8616CB04 /* RouterChat.swift */,
@@ -140,6 +143,7 @@
 				FD43F65E79771F0CB6719A1D /* DashboardContract.swift in Sources */,
 				C3C29CC6F7D8859A4E569D23 /* GuidePresentation.swift in Sources */,
 				2200D085E7B69957855949ED /* LocalSnapshotStore.swift in Sources */,
+				9B233F7676FC120A1BC3C6EB /* NeutralGeometryCapture.swift in Sources */,
 				B62C2C7DCF69BD92439B2DAF /* OperationsFloaterApp.swift in Sources */,
 				C5CF829831A8C373615B6D78 /* QueueRace.swift in Sources */,
 				C8B57BCE1270FE6351B6218A /* RouterChat.swift in Sources */,

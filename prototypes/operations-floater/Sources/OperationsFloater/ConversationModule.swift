@@ -25,6 +25,8 @@ enum ConversationModuleCapability: String, Codable, CaseIterable, Sendable {
     case narration
     case normalizedPointerEvents = "normalized-pointer-events"
     case navigationKeys = "navigation-keys"
+    case rawKeyboardEvents = "raw-keyboard-events"
+    case scrollEvents = "scroll-events"
     case placeholderEvents = "placeholder-events"
     case neutralWindowContext = "neutral-window-context"
     case checkpoints
@@ -219,6 +221,12 @@ enum ConversationPointerPhase: String, Codable, Sendable {
     case drag
 }
 
+enum ConversationKeyPhase: String, Codable, Sendable {
+    case down
+    case up
+    case flagsChanged = "flags-changed"
+}
+
 enum ConversationNavigationKey: String, Codable, Sendable {
     case tab
     case returnKey = "return"
@@ -240,6 +248,8 @@ enum ConversationPlaceholderKind: String, Codable, Sendable {
 enum ConversationModuleEventKind: String, Codable, Sendable {
     case normalizedPointer = "normalized-pointer"
     case navigationKey = "navigation-key"
+    case rawKeyboard = "raw-keyboard"
+    case scroll
     case placeholder
 }
 
@@ -251,7 +261,48 @@ struct ConversationModuleEvent: Codable, Equatable, Sendable {
     let normalizedX: Double?
     let normalizedY: Double?
     let navigationKey: ConversationNavigationKey?
+    let keyPhase: ConversationKeyPhase?
+    let keyCode: Int?
+    let modifierFlags: UInt64?
+    let buttonNumber: Int?
+    let scrollDeltaX: Double?
+    let scrollDeltaY: Double?
+    let elapsedMilliseconds: Int?
     let placeholder: ConversationPlaceholderKind?
+
+    init(
+        eventID: String,
+        sequence: Int,
+        kind: ConversationModuleEventKind,
+        pointerPhase: ConversationPointerPhase? = nil,
+        normalizedX: Double? = nil,
+        normalizedY: Double? = nil,
+        navigationKey: ConversationNavigationKey? = nil,
+        keyPhase: ConversationKeyPhase? = nil,
+        keyCode: Int? = nil,
+        modifierFlags: UInt64? = nil,
+        buttonNumber: Int? = nil,
+        scrollDeltaX: Double? = nil,
+        scrollDeltaY: Double? = nil,
+        elapsedMilliseconds: Int? = nil,
+        placeholder: ConversationPlaceholderKind? = nil
+    ) {
+        self.eventID = eventID
+        self.sequence = sequence
+        self.kind = kind
+        self.pointerPhase = pointerPhase
+        self.normalizedX = normalizedX
+        self.normalizedY = normalizedY
+        self.navigationKey = navigationKey
+        self.keyPhase = keyPhase
+        self.keyCode = keyCode
+        self.modifierFlags = modifierFlags
+        self.buttonNumber = buttonNumber
+        self.scrollDeltaX = scrollDeltaX
+        self.scrollDeltaY = scrollDeltaY
+        self.elapsedMilliseconds = elapsedMilliseconds
+        self.placeholder = placeholder
+    }
 
     func validate() throws {
         guard eventID.range(
@@ -269,6 +320,11 @@ struct ConversationModuleEvent: Codable, Equatable, Sendable {
                   (0...1).contains(normalizedX),
                   (0...1).contains(normalizedY),
                   navigationKey == nil,
+                  keyPhase == nil,
+                  keyCode == nil,
+                  buttonNumber.map({ (0...31).contains($0) }) ?? true,
+                  scrollDeltaX == nil,
+                  scrollDeltaY == nil,
                   placeholder == nil else {
                 throw ConversationModuleError.invalidEvent
             }
@@ -277,6 +333,47 @@ struct ConversationModuleEvent: Codable, Equatable, Sendable {
                   pointerPhase == nil,
                   normalizedX == nil,
                   normalizedY == nil,
+                  keyPhase == nil,
+                  keyCode == nil,
+                  buttonNumber == nil,
+                  scrollDeltaX == nil,
+                  scrollDeltaY == nil,
+                  placeholder == nil else {
+                throw ConversationModuleError.invalidEvent
+            }
+        case .rawKeyboard:
+            guard keyPhase != nil,
+                  let keyCode,
+                  (0...255).contains(keyCode),
+                  modifierFlags != nil,
+                  pointerPhase == nil,
+                  normalizedX == nil,
+                  normalizedY == nil,
+                  navigationKey == nil,
+                  buttonNumber == nil,
+                  scrollDeltaX == nil,
+                  scrollDeltaY == nil,
+                  placeholder == nil else {
+                throw ConversationModuleError.invalidEvent
+            }
+        case .scroll:
+            guard pointerPhase == nil,
+                  let normalizedX,
+                  let normalizedY,
+                  normalizedX.isFinite,
+                  normalizedY.isFinite,
+                  (0...1).contains(normalizedX),
+                  (0...1).contains(normalizedY),
+                  let scrollDeltaX,
+                  let scrollDeltaY,
+                  scrollDeltaX.isFinite,
+                  scrollDeltaY.isFinite,
+                  abs(scrollDeltaX) <= 10_000,
+                  abs(scrollDeltaY) <= 10_000,
+                  navigationKey == nil,
+                  keyPhase == nil,
+                  keyCode == nil,
+                  buttonNumber == nil,
                   placeholder == nil else {
                 throw ConversationModuleError.invalidEvent
             }
@@ -285,7 +382,17 @@ struct ConversationModuleEvent: Codable, Equatable, Sendable {
                   pointerPhase == nil,
                   normalizedX == nil,
                   normalizedY == nil,
-                  navigationKey == nil else {
+                  navigationKey == nil,
+                  keyPhase == nil,
+                  keyCode == nil,
+                  buttonNumber == nil,
+                  scrollDeltaX == nil,
+                  scrollDeltaY == nil else {
+                throw ConversationModuleError.invalidEvent
+            }
+        }
+        if let elapsedMilliseconds {
+            guard (0...86_400_000).contains(elapsedMilliseconds) else {
                 throw ConversationModuleError.invalidEvent
             }
         }
@@ -377,6 +484,14 @@ struct ConversationModuleRequest: Codable, Equatable, Sendable {
                 }
             case .navigationKey:
                 guard manifest.capabilities.contains(.navigationKeys) else {
+                    throw ConversationModuleError.capabilityRejected
+                }
+            case .rawKeyboard:
+                guard manifest.capabilities.contains(.rawKeyboardEvents) else {
+                    throw ConversationModuleError.capabilityRejected
+                }
+            case .scroll:
+                guard manifest.capabilities.contains(.scrollEvents) else {
                     throw ConversationModuleError.capabilityRejected
                 }
             case .placeholder:
@@ -749,6 +864,28 @@ enum ConversationModuleAllowlist {
         ]
     )
 
+    static let relativeXYRecorderManifest = ConversationModuleManifest(
+        contractVersion: ConversationModuleContract.version,
+        moduleID: "auggie.verbal-orders.relative-xy-recorder",
+        displayName: "Relative XY recorder",
+        capabilities: [
+            .narration,
+            .normalizedPointerEvents,
+            .navigationKeys,
+            .rawKeyboardEvents,
+            .scrollEvents,
+            .neutralWindowContext,
+            .checkpoints,
+            .proposedActions,
+        ],
+        privacy: .hostControlled,
+        provenanceSourceID: "auggie.project-verbal-orders.relative-xy-recorder",
+        allowedTranscriptProviders: [.onDevice, .syntheticFixture],
+        allowedWindowBindingIDs: [
+            "verbal-orders.neutral.selected-window",
+        ]
+    )
+
     static func liveRegistrations() -> [ConversationModuleRegistration] {
         [
             ConversationModuleRegistration(
@@ -757,6 +894,10 @@ enum ConversationModuleAllowlist {
             ),
             ConversationModuleRegistration(
                 manifest: geometryRecorderManifest,
+                transport: LoopbackConversationModuleClient()
+            ),
+            ConversationModuleRegistration(
+                manifest: relativeXYRecorderManifest,
                 transport: LoopbackConversationModuleClient()
             ),
         ]

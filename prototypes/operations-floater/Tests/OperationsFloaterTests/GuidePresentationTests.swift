@@ -185,7 +185,7 @@ struct GuidePresentationTests {
         #expect(entitlements.count == 4)
         #expect(entitlements["com.apple.security.app-sandbox"] as? Bool == true)
         #expect(
-            entitlements["com.apple.security.files.user-selected.read-only"] as? Bool == true
+            entitlements["com.apple.security.files.user-selected.read-write"] as? Bool == true
         )
         #expect(entitlements["com.apple.security.network.client"] as? Bool == true)
         #expect(entitlements["com.apple.security.network.server"] == nil)

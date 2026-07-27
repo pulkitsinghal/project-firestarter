@@ -559,6 +559,7 @@ final class RouterChatSession: ObservableObject {
     @Published private(set) var reviewingMessageIDs: Set<UUID> = []
 
     let modules: ConversationModuleHostSession
+    let geometryCapture: NeutralGeometryCaptureSession
     var onAssistantReply: ((String) -> Void)?
     var onAssistantFailure: (() -> Void)?
     var onConversationControlChanged: (() -> Void)?
@@ -567,19 +568,27 @@ final class RouterChatSession: ObservableObject {
     private var sendTask: Task<Void, Never>?
     private var reviewTasks: [UUID: Task<Void, Never>] = [:]
     private var moduleObservation: AnyCancellable?
+    private var geometryCaptureObservation: AnyCancellable?
     private var moduleContextFloorToken: String?
     private var moduleContextTurns: [ConversationModuleContextTurn] = []
     private var pendingVoiceMessageID: UUID?
 
     init(
         transport: any RouterChatTransport = RouterChatClient(),
-        modules: ConversationModuleHostSession = ConversationModuleHostSession()
+        modules: ConversationModuleHostSession = ConversationModuleHostSession(),
+        geometryCapture: NeutralGeometryCaptureSession =
+            NeutralGeometryCaptureSession()
     ) {
         self.transport = transport
         self.modules = modules
+        self.geometryCapture = geometryCapture
         moduleObservation = modules.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+        geometryCaptureObservation =
+            geometryCapture.objectWillChange.sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
     }
 
     var canSend: Bool {
@@ -732,9 +741,16 @@ final class RouterChatSession: ObservableObject {
                         moduleContextFloorToken = floorToken
                         moduleContextTurns = []
                     }
-                    let fixture = Self.syntheticFixtureInput(
-                        for: modules.activeManifest
-                    )
+                    let isRelativeXY =
+                        modules.activeManifest?.moduleID
+                            == ConversationModuleAllowlist
+                                .relativeXYRecorderManifest.moduleID
+                    let captureSnapshot = try isRelativeXY
+                        ? geometryCapture.snapshot()
+                        : nil
+                    let fixture = captureSnapshot.map {
+                        (events: $0.events, window: Optional($0.window))
+                    } ?? Self.syntheticFixtureInput(for: modules.activeManifest)
                     let reply = try await modules.submit(
                         narration: text,
                         transcriptProvider: transcriptProvider,
@@ -743,6 +759,13 @@ final class RouterChatSession: ObservableObject {
                         window: fixture.window
                     )
                     try Task.checkCancellation()
+                    if let captureSnapshot {
+                        geometryCapture.accept(
+                            captureSnapshot,
+                            narration: text,
+                            response: reply
+                        )
+                    }
                     let responseText = Self.moduleResponseText(reply)
                     if !responseText.isEmpty,
                        let manifest = modules.activeManifest {
@@ -768,6 +791,11 @@ final class RouterChatSession: ObservableObject {
                 } catch is CancellationError {
                     return
                 } catch {
+                    if modules.activeFloor == nil {
+                        geometryCapture.revoke(reason: error.localizedDescription)
+                    } else {
+                        geometryCapture.preserveAfterFailure(error)
+                    }
                     onConversationControlChanged?()
                     discardPendingVoiceTranscript()
                     clearModuleContext()
@@ -852,12 +880,14 @@ final class RouterChatSession: ObservableObject {
         isSending = false
         clearModuleContext()
         pendingVoiceMessageID = nil
+        geometryCapture.revoke()
     }
 
     func revokeModuleFloor() async {
         onConversationControlChanged?()
         discardPendingVoiceTranscript()
         clearModuleContext()
+        geometryCapture.revoke()
         await modules.revokeFloor()
     }
 
@@ -869,6 +899,7 @@ final class RouterChatSession: ObservableObject {
         onConversationControlChanged?()
         discardPendingVoiceTranscript()
         clearModuleContext()
+        geometryCapture.revoke()
         modules.selectedModuleID = moduleID
     }
 
@@ -1278,6 +1309,11 @@ struct RouterChatPanel: View {
                 if session.modules.activeFloor == nil {
                     Button("Give floor") {
                         Task {
+                            if session.modules.selectedModuleID
+                                == ConversationModuleAllowlist
+                                    .relativeXYRecorderManifest.moduleID {
+                                session.geometryCapture.refreshWindows()
+                            }
                             await session.modules.grantSelectedFloor()
                         }
                     }
@@ -1307,13 +1343,30 @@ struct RouterChatPanel: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
                         .background(Color.accentColor.opacity(0.14), in: Capsule())
-                    Text("Ephemeral · host mic/UI/TTS · no capture, replay, or persistence")
+                    Text(
+                        manifest.moduleID
+                            == ConversationModuleAllowlist
+                                .relativeXYRecorderManifest.moduleID
+                            ? "Ephemeral · selected-window input only · no pixels, OCR, "
+                                + "character recovery, injection, or replay"
+                            : "Ephemeral · host mic/UI/TTS · no capture, replay, or persistence"
+                    )
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                 }
                 .help(
                     "Escape returns control to the dashboard. The module receives only "
                         + "its allowlisted bounded contract fields."
+                )
+            }
+
+            if session.modules.activeManifest?.moduleID
+                == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID {
+                NeutralGeometryCapturePanel(
+                    capture: session.geometryCapture,
+                    provenance: session.modules.healthByModuleID[
+                        ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
+                    ]?.provenance
                 )
             }
 

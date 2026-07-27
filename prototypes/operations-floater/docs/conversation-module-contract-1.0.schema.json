@@ -79,6 +79,8 @@
               "narration",
               "normalized-pointer-events",
               "navigation-keys",
+              "raw-keyboard-events",
+              "scroll-events",
               "placeholder-events",
               "neutral-window-context",
               "checkpoints",
@@ -150,7 +152,15 @@
           "pattern": "^event_[a-z0-9-]{1,64}$"
         },
         "sequence": {"type": "integer", "minimum": 1},
-        "kind": {"enum": ["normalized-pointer", "navigation-key", "placeholder"]},
+        "kind": {
+          "enum": [
+            "normalized-pointer",
+            "navigation-key",
+            "raw-keyboard",
+            "scroll",
+            "placeholder"
+          ]
+        },
         "pointerPhase": {
           "type": ["string", "null"],
           "enum": ["move", "down", "up", "drag", null]
@@ -170,6 +180,39 @@
             "delete",
             null
           ]
+        },
+        "keyPhase": {
+          "type": ["string", "null"],
+          "enum": ["down", "up", "flags-changed", null]
+        },
+        "keyCode": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "modifierFlags": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "buttonNumber": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 31
+        },
+        "scrollDeltaX": {
+          "type": ["number", "null"],
+          "minimum": -10000,
+          "maximum": 10000
+        },
+        "scrollDeltaY": {
+          "type": ["number", "null"],
+          "minimum": -10000,
+          "maximum": 10000
+        },
+        "elapsedMilliseconds": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 86400000
         },
         "placeholder": {
           "type": ["string", "null"],
