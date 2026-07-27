@@ -80,6 +80,9 @@ snapshot remains schema version `1.0`.
 - Chat fails visibly when the local Router is unavailable; it never falls back
   to an arbitrary host or direct provider endpoint, follows no redirects, and
   uses an ephemeral no-cache session.
+- The chat composer is a multiline text area: **Return** sends a non-empty
+  draft, while **Shift-Return** inserts a newline without contacting the
+  Router. The same behavior is exposed as an accessibility hint.
 - The UI warns that private or patient data must not be entered because an
   already-configured Router escalation may leave the device. Router policy
   remains the authoritative egress guard.
@@ -110,6 +113,9 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build
 ```
+
+A synthetic still-frame walkthrough and compact key/state map live in
+[`docs/CHAT_COMPOSER_STATE.md`](docs/CHAT_COMPOSER_STATE.md).
 
 A distributable archive still requires the owner's unique bundle identifier,
 Apple signing team, certificates, and profiles. Those settings are intentionally

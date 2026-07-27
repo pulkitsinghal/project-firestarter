@@ -296,6 +296,35 @@ private actor StubRouterTransport: RouterChatTransport {
 @Suite("Router chat session")
 @MainActor
 struct RouterChatSessionTests {
+    @Test("Return sends while Shift-Return inserts a newline")
+    func composerReturnPolicy() {
+        #expect(
+            RouterChatComposerReturnAction.resolve(isShiftPressed: false)
+                == .send
+        )
+        #expect(
+            RouterChatComposerReturnAction.resolve(isShiftPressed: true)
+                == .insertNewline
+        )
+    }
+
+    @Test("Submitting a multiline draft preserves its newline")
+    func multilineDraftIsPreserved() async {
+        let transport = StubRouterTransport(
+            available: true,
+            result: .success(RouterChatReply(text: "Synthetic reply", model: "auto"))
+        )
+        let session = RouterChatSession(transport: transport)
+        await session.enable()
+        session.draft = "First line\nSecond line"
+
+        session.send()
+        await waitUntilSettled(session)
+
+        #expect(session.messages.first?.text == "First line\nSecond line")
+        #expect(session.draft.isEmpty)
+    }
+
     @Test("Chat and automatic review are disabled by default")
     func disabledByDefault() async {
         let transport = StubRouterTransport(
