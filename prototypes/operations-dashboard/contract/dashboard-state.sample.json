@@ -8,7 +8,13 @@
       "detail": "Replace with approved local or sanitized state.",
       "state": "running",
       "exposure": "sanitized",
-      "verification": "estimated"
+      "verification": "estimated",
+      "completedSteps": 5,
+      "totalSteps": 8,
+      "currentStep": "Verifying the bounded build",
+      "lastActiveSeconds": 18,
+      "memoryMB": 2450,
+      "cpuPercent": 36.5
     },
     {
       "id": "EX-Q2",
@@ -16,7 +22,41 @@
       "detail": "Awaiting a generic follow-up.",
       "state": "queued",
       "exposure": "sanitized",
-      "verification": "estimated"
+      "verification": "estimated",
+      "completedSteps": 1,
+      "totalSteps": 6,
+      "currentStep": "Waiting for a worker slot",
+      "lastActiveSeconds": 240,
+      "memoryMB": 180,
+      "cpuPercent": 0.4
+    },
+    {
+      "id": "EX-Q3",
+      "title": "Example dependency review",
+      "detail": "A synthetic dependency added two more steps.",
+      "state": "waiting",
+      "exposure": "sanitized",
+      "verification": "estimated",
+      "completedSteps": 3,
+      "totalSteps": 9,
+      "currentStep": "Resolve the added dependency",
+      "lastActiveSeconds": 900,
+      "memoryMB": 620,
+      "cpuPercent": 1.2
+    },
+    {
+      "id": "EX-Q4",
+      "title": "Example ready item",
+      "detail": "Synthetic work completed every declared step.",
+      "state": "ready",
+      "exposure": "sanitized",
+      "verification": "estimated",
+      "completedSteps": 8,
+      "totalSteps": 8,
+      "currentStep": "Ready for owner review",
+      "lastActiveSeconds": 45,
+      "memoryMB": 96,
+      "cpuPercent": 0
     }
   ],
   "tests": [

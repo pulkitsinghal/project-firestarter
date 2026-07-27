@@ -25,6 +25,12 @@ function localSnapshot(label = "First") {
         title: `${label} sanitized queue record`,
         detail: "Approved for the remote snapshot.",
         state: "running",
+        completedSteps: 3,
+        totalSteps: 5,
+        currentStep: "Synthetic validation",
+        lastActiveSeconds: 15,
+        memoryMB: 512,
+        cpuPercent: 12.5,
         ...recordMetadata(),
       },
       {
@@ -103,6 +109,24 @@ test("sanitization keeps allowlisted records and drops every local-only record",
     "signals",
     "tests",
   ]);
+  assert.deepEqual(
+    {
+      completedSteps: sanitized.queue[0].completedSteps,
+      totalSteps: sanitized.queue[0].totalSteps,
+      currentStep: sanitized.queue[0].currentStep,
+      lastActiveSeconds: sanitized.queue[0].lastActiveSeconds,
+      memoryMB: sanitized.queue[0].memoryMB,
+      cpuPercent: sanitized.queue[0].cpuPercent,
+    },
+    {
+      completedSteps: 3,
+      totalSteps: 5,
+      currentStep: "Synthetic validation",
+      lastActiveSeconds: 15,
+      memoryMB: 512,
+      cpuPercent: 12.5,
+    },
+  );
 });
 
 test("an unverified local-only record fails before it can be filtered", () => {

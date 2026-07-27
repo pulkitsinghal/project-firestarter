@@ -7,7 +7,14 @@ const FORBIDDEN_FIELD_FRAGMENTS = ["endpoint", "url", "host", "ip", "path", "cre
 const RECORD_SPECS = {
   queue: {
     required: ["id", "title", "detail", "state", "exposure", "verification"],
-    optional: [],
+    optional: [
+      "completedSteps",
+      "totalSteps",
+      "currentStep",
+      "lastActiveSeconds",
+      "memoryMB",
+      "cpuPercent",
+    ],
     stateKey: "state",
     states: new Set(["running", "queued", "waiting", "ready"]),
   },
@@ -122,6 +129,57 @@ function assertRecord(section, record, index) {
       )
     ) {
       fail(`${path} has an invalid numeric resource value.`);
+    }
+  }
+  if (section === "queue") {
+    const hasCompleted = "completedSteps" in record;
+    const hasTotal = "totalSteps" in record;
+    if (
+      hasCompleted !== hasTotal
+      || (
+        hasCompleted
+        && (
+          !Number.isInteger(record.completedSteps)
+          || !Number.isInteger(record.totalSteps)
+          || record.completedSteps < 0
+          || record.totalSteps <= 0
+          || record.completedSteps > record.totalSteps
+          || record.totalSteps > 100000
+        )
+      )
+    ) {
+      fail(`${path} has invalid step progress.`);
+    }
+    if ("currentStep" in record) assertText(record.currentStep, 120, `${path}.currentStep`);
+    if (
+      "lastActiveSeconds" in record
+      && (
+        !Number.isInteger(record.lastActiveSeconds)
+        || record.lastActiveSeconds < 0
+        || record.lastActiveSeconds > 315360000
+      )
+    ) {
+      fail(`${path}.lastActiveSeconds is outside the supported range.`);
+    }
+    if (
+      "memoryMB" in record
+      && (
+        !Number.isFinite(record.memoryMB)
+        || record.memoryMB < 0
+        || record.memoryMB > 16777216
+      )
+    ) {
+      fail(`${path}.memoryMB is outside the supported range.`);
+    }
+    if (
+      "cpuPercent" in record
+      && (
+        !Number.isFinite(record.cpuPercent)
+        || record.cpuPercent < 0
+        || record.cpuPercent > 100
+      )
+    ) {
+      fail(`${path}.cpuPercent is outside the supported range.`);
     }
   }
   assertPrivacyNeutralValues(record, path);
