@@ -18,46 +18,49 @@
     </header>
 
     <p id="error" class="error" role="alert" hidden></p>
+    <p id="snapshot-status" class="snapshot-status" role="status" aria-live="polite">Loading supplied snapshot…</p>
 
-    <section aria-labelledby="resource-title" class="panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Scheduling snapshot</p>
-          <h2 id="resource-title">Resource budget</h2>
-        </div>
-        <span>Scheduling truth · no device data</span>
-      </div>
-      <div id="resource-grid" class="resource-grid"></div>
-    </section>
-
-    <section aria-labelledby="queue-title" class="panel portfolio">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Synthetic ten-lane view</p>
-          <h2 id="queue-title">Work lifecycle</h2>
-        </div>
-        <span id="queue-count"></span>
-      </div>
-      <div id="state-summary" class="state-summary" aria-label="Lifecycle totals"></div>
-      <div id="queue-grid" class="portfolio-grid" role="list"></div>
-    </section>
-
-    <div class="lower-grid">
-      <section class="panel compact-panel" aria-labelledby="tests-title">
+    <div id="dashboard-content" hidden>
+      <section aria-labelledby="resource-title" class="panel">
         <div class="section-heading">
-          <h2 id="tests-title">Tests and quality</h2>
-          <span id="tests-count"></span>
+          <div>
+            <p class="eyebrow">Scheduling snapshot</p>
+            <h2 id="resource-title">Resource budget</h2>
+          </div>
+          <span>Scheduling truth · no device data</span>
         </div>
-        <div id="tests-list" class="record-list"></div>
+        <div id="resource-grid" class="resource-grid"></div>
       </section>
 
-      <section class="panel compact-panel" aria-labelledby="signals-title">
+      <section aria-labelledby="queue-title" class="panel portfolio">
         <div class="section-heading">
-          <h2 id="signals-title">Privacy and exposure</h2>
-          <span id="signals-count"></span>
+          <div>
+            <p class="eyebrow">Synthetic ten-lane view</p>
+            <h2 id="queue-title">Work lifecycle</h2>
+          </div>
+          <span id="queue-count"></span>
         </div>
-        <div id="signals-list" class="record-list"></div>
+        <div id="state-summary" class="state-summary" aria-label="Lifecycle totals"></div>
+        <div id="queue-grid" class="portfolio-grid" role="list"></div>
       </section>
+
+      <div class="lower-grid">
+        <section class="panel compact-panel" aria-labelledby="tests-title">
+          <div class="section-heading">
+            <h2 id="tests-title">Tests and quality</h2>
+            <span id="tests-count"></span>
+          </div>
+          <div id="tests-list" class="record-list"></div>
+        </section>
+
+        <section class="panel compact-panel" aria-labelledby="signals-title">
+          <div class="section-heading">
+            <h2 id="signals-title">Privacy and exposure</h2>
+            <span id="signals-count"></span>
+          </div>
+          <div id="signals-list" class="record-list"></div>
+        </section>
+      </div>
     </div>
 
     <footer>

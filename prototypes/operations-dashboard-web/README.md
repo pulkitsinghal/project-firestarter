@@ -46,6 +46,7 @@ ten-lane view does not infer or display those optional local scheduling values.
 | `fixtures/sanitized-remote.snapshot.json` | Synthetic privacy-neutral fixture |
 | `tests/test_privacy_contract.py` | Contract-shape and privacy-boundary tests |
 | `tests/dashboard.test.mjs` | Executable validator and missing-evidence unit tests |
+| `tests/browser-smoke.mjs` | Reproducible fail-closed, injection, maximum-text, and responsive browser gate |
 | `docs/state-flow.md` | Compact rendering/failure-flow map and still-frame walkthrough |
 | `docs/media/` | Rebuilt desktop and narrow-screen browser evidence |
 
@@ -60,6 +61,11 @@ docker run --rm -v "$PWD:/repo:ro" -w /repo python:3.12-slim \
 
 docker run --rm -v "$PWD:/repo:ro" -w /repo node:22-slim \
   node --test prototypes/operations-dashboard-web/tests/*.test.mjs
+
+docker run --rm --ipc=host \
+  -v "$PWD:/repo:ro" -w /repo \
+  mcr.microsoft.com/playwright:v1.58.2-noble \
+  bash -lc 'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --prefix /tmp/dashboard-pw --no-save playwright@1.58.2 >/tmp/dashboard-pw-install.log && PLAYWRIGHT_MODULE=file:///tmp/dashboard-pw/node_modules/playwright/index.mjs node prototypes/operations-dashboard-web/tests/browser-smoke.mjs'
 ```
 
 To inspect the static prototype without installing a host SDK:
