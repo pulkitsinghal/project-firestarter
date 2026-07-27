@@ -13,7 +13,9 @@
 		C3C29CC6F7D8859A4E569D23 /* GuidePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36310E1C2D59EB7955C2B76F /* GuidePresentation.swift */; };
 		C5CF829831A8C373615B6D78 /* QueueRace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A9DF97AD77E17679BD52803 /* QueueRace.swift */; };
 		C8B57BCE1270FE6351B6218A /* RouterChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42AF18361984088F8616CB04 /* RouterChat.swift */; };
+		F333740CE69F4C5EBA9536A2 /* ConversationModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 675EB43F01F9FDA3CC6763B1 /* ConversationModule.swift */; };
 		FD43F65E79771F0CB6719A1D /* DashboardContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D2103622C4FB3754F316FE /* DashboardContract.swift */; };
+		FE30922D27D73D155CBD75EC /* ConversationVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A37B6D58036BC8B9F8A47688 /* ConversationVoice.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,7 +25,9 @@
 		42AF18361984088F8616CB04 /* RouterChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouterChat.swift; sourceTree = "<group>"; };
 		4A9DF97AD77E17679BD52803 /* QueueRace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueRace.swift; sourceTree = "<group>"; };
 		62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationsFloaterApp.swift; sourceTree = "<group>"; };
+		675EB43F01F9FDA3CC6763B1 /* ConversationModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationModule.swift; sourceTree = "<group>"; };
 		6D7388421B1A4219EF55A7B2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A37B6D58036BC8B9F8A47688 /* ConversationVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationVoice.swift; sourceTree = "<group>"; };
 		CEED0760241BADE47AB545B7 /* LocalSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSnapshotStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -40,6 +44,8 @@
 		B80BC94537001B87D87E8E07 /* OperationsFloater */ = {
 			isa = PBXGroup;
 			children = (
+				675EB43F01F9FDA3CC6763B1 /* ConversationModule.swift */,
+				A37B6D58036BC8B9F8A47688 /* ConversationVoice.swift */,
 				02D2103622C4FB3754F316FE /* DashboardContract.swift */,
 				36310E1C2D59EB7955C2B76F /* GuidePresentation.swift */,
 				CEED0760241BADE47AB545B7 /* LocalSnapshotStore.swift */,
@@ -129,6 +135,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F333740CE69F4C5EBA9536A2 /* ConversationModule.swift in Sources */,
+				FE30922D27D73D155CBD75EC /* ConversationVoice.swift in Sources */,
 				FD43F65E79771F0CB6719A1D /* DashboardContract.swift in Sources */,
 				C3C29CC6F7D8859A4E569D23 /* GuidePresentation.swift in Sources */,
 				2200D085E7B69957855949ED /* LocalSnapshotStore.swift in Sources */,

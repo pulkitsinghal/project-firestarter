@@ -170,7 +170,7 @@ struct GuidePresentationTests {
         #expect(minimumMetrics.estimatedCardWidth(containerWidth: 380) == 352)
     }
 
-    @Test("Application entitlements allow only user-selected files and outbound networking")
+    @Test("Application entitlements allow only explicit audio input, selected files, and outbound networking")
     func entitlementsRemainLocalOnly() throws {
         let data = try Data(
             contentsOf: packageRoot().appendingPathComponent("OperationsFloater.entitlements")
@@ -182,14 +182,14 @@ struct GuidePresentationTests {
         )
         let entitlements = try #require(value as? [String: Any])
 
-        #expect(entitlements.count == 3)
+        #expect(entitlements.count == 4)
         #expect(entitlements["com.apple.security.app-sandbox"] as? Bool == true)
         #expect(
             entitlements["com.apple.security.files.user-selected.read-only"] as? Bool == true
         )
         #expect(entitlements["com.apple.security.network.client"] as? Bool == true)
         #expect(entitlements["com.apple.security.network.server"] == nil)
-        #expect(entitlements["com.apple.security.device.audio-input"] == nil)
+        #expect(entitlements["com.apple.security.device.audio-input"] as? Bool == true)
         #expect(entitlements["com.apple.security.device.camera"] == nil)
     }
 

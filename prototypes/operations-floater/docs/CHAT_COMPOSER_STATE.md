@@ -24,23 +24,21 @@ bounded completion response:
 ```text
 completion response
 ├─ responder kind/provider says Anthropic or Claude ─> Claude
-├─ responder kind/provider/model says Codex ─────────> Codex
-├─ responder kind/provider says local/Ollama/MLX ────> Local LLM
-├─ another provider is reported ─────────────────────> Router · <provider>
-└─ no provider identity; model is auto ──────────────> Router · provider not reported
+├─ responder kind/provider says Codex ───────────────> Codex
+├─ responder kind/provider says local/Ollama/MLX ────> local-LLM
+├─ another provider is reported ─────────────────────> reject reply
+└─ no provider identity; model is auto ──────────────> reject reply
 ```
 
 The top status capsule reports only Router reachability. It does not present
-`auto` as a model or responder identity. Optional malformed provenance is
-ignored without hiding an otherwise valid answer; missing provenance remains
-visibly unreported.
+`auto` as a model or responder identity. Missing, malformed, or non-closed
+provenance fails visibly and no assistant bubble is added.
 
 ## Rebuilt-app evidence
 
-The rebuilt Release frame below uses only synthetic text. The live loopback
-Router returned `model: "auto"` without provider metadata, so the assistant
-bubble visibly and correctly says **Router · provider not reported** while the
-top capsule says only **Router online**.
+The frame below is retained as historical evidence of the former compatibility
+behavior. Current builds reject its providerless `model: "auto"` response
+instead of rendering a generically attributed assistant bubble.
 
 ![Native responder provenance label](media/chat-responder-provenance.jpg)
 

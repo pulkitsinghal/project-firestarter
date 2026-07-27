@@ -27,5 +27,9 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Start Voice Conversation uses the microphone only while you explicitly listen.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Voice Conversation requires on-device speech recognition and keeps transcripts ephemeral.</string>
 </dict>
 </plist>

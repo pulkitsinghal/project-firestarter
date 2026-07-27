@@ -6,6 +6,53 @@ import Testing
 @Suite("Dashboard state")
 @MainActor
 struct DashboardStateTests {
+    @Test("Interactive launch is unpinned while retaining explicit foreground behavior")
+    func interactiveLaunchConfiguration() {
+        let configuration = DashboardLaunchConfiguration(arguments: ["/tmp/Operations Floater"])
+
+        #expect(!configuration.isBackgroundUITest)
+        #expect(!configuration.initialPinned)
+        #expect(configuration.activatesApplication)
+        #expect(configuration.foregroundsWindow)
+        #expect(configuration.joinsAllSpaces)
+        #expect(configuration.usesSavedFrame)
+        #expect(!configuration.usesSyntheticConversationFixture)
+    }
+
+    @Test("Background UI testing is unpinned, nonactivating, and single-Space")
+    func backgroundUITestLaunchConfiguration() {
+        let configuration = DashboardLaunchConfiguration(
+            arguments: [
+                "/tmp/Operations Floater",
+                DashboardLaunchConfiguration.backgroundUITestArgument,
+                DashboardLaunchConfiguration.syntheticConversationUITestArgument,
+                DashboardLaunchConfiguration.compactUITestArgument,
+            ]
+        )
+
+        #expect(configuration.isBackgroundUITest)
+        #expect(!configuration.initialPinned)
+        #expect(!configuration.activatesApplication)
+        #expect(!configuration.foregroundsWindow)
+        #expect(!configuration.joinsAllSpaces)
+        #expect(!configuration.usesSavedFrame)
+        #expect(configuration.usesSyntheticConversationFixture)
+        #expect(
+            configuration.initialWindowSize
+                == DashboardLayoutMetrics.minimumWindowSize
+        )
+    }
+
+    @Test("Background UI testing starts with Keep in front disabled")
+    func backgroundUITestInitialPinning() {
+        let state = DashboardState(
+            snapshotURL: missingFixtureURL(),
+            initialPinned: false
+        )
+
+        #expect(!state.pinned)
+    }
+
     @Test("Missing local state uses the canonical generic sample")
     func missingLocalStateUsesSample() {
         let state = DashboardState(snapshotURL: missingFixtureURL())
@@ -208,7 +255,10 @@ struct DashboardStateTests {
     @Test("Window opens frontmost, unpins, closes, and reopens as the same retained window")
     func windowLifecycleAndPinning() {
         _ = NSApplication.shared
-        let state = DashboardState(snapshotURL: missingFixtureURL())
+        let state = DashboardState(
+            snapshotURL: missingFixtureURL(),
+            initialPinned: true
+        )
         let controller = DashboardWindowController(state: state, activatesApplication: false)
 
         let firstWindow = controller.show()
@@ -231,6 +281,14 @@ struct DashboardStateTests {
         #expect(reopenedWindow.isVisible)
         #expect(reopenedWindow.level == .normal)
         controller.close()
+    }
+
+    @Test("Single-Space presentation does not opt into following the user")
+    func singleSpaceWindowPresentation() {
+        let behavior = DashboardWindowController.collectionBehavior(joinsAllSpaces: false)
+
+        #expect(behavior.contains(.managed))
+        #expect(!behavior.contains(.canJoinAllSpaces))
     }
 
     private func missingFixtureURL() -> URL {
