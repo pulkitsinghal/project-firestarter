@@ -194,7 +194,7 @@ generator overlays:
 | Path | What it demonstrates | Privacy boundary |
 |------|----------------------|------------------|
 | `prototypes/operations-dashboard/` | Version `1.0` contract and an offline, content-addressed sanitized publication workflow | No endpoint, URL, host, IP, path, credential, identity, or live-value fields in the shared model |
-| `prototypes/operations-dashboard-web/` | Compact one-shot renderer for a synthetic or explicitly supplied `sanitized-remote` snapshot | Rejects non-sanitized records and forbidden field names; no polling or workstation bridge |
+| `prototypes/operations-dashboard-web/` | Compact one-shot renderer with a dense synthetic ten-lane lifecycle view, resource/test/privacy evidence, responsive breakpoints, executable validator tests, and rebuilt browser frames | Rejects non-sanitized records, private-looking values, and unknown fields; renders text without HTML interpolation; no polling or workstation bridge |
 | `prototypes/operations-floater/` | Sandboxed macOS floater with local snapshot import, native window controls, and reversible local snapshot updates | Reads local state only; local-only records must be verified; no network updater |
 
 The contract represents queue, tests, resource budget, and signals as record

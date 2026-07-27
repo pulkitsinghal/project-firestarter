@@ -49,6 +49,12 @@ const PRIVATE_VALUE_PATTERNS = [
   new RegExp(`\\b(?:api[-_ ]?key|${"credential"}|password|${"secret"}|${"token"})\\b`, "i"),
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i,
 ];
+const QUEUE_LABELS = {
+  running: "Running",
+  queued: "Queued",
+  waiting: "Waiting",
+  ready: "Ready",
+};
 
 function text(tag, value, className) {
   const element = document.createElement(tag);
@@ -215,6 +221,10 @@ function chip(label, className) {
   return text("span", label, `chip ${className}`);
 }
 
+function emptyState(message) {
+  return text("p", message, "empty-state");
+}
+
 function recordCard(record, extraLabel) {
   const article = document.createElement("article");
   article.className = "record";
@@ -237,10 +247,14 @@ function recordCard(record, extraLabel) {
 function renderResources(records) {
   const root = document.querySelector("#resource-grid");
   root.replaceChildren();
+  if (!records.length) {
+    root.append(emptyState("No sanitized resource records were supplied."));
+    return;
+  }
   records.forEach((record) => {
     const article = document.createElement("article");
     article.className = "resource-card";
-    article.append(text("span", record.title, "record-kicker"));
+    article.append(text("h3", record.title, "record-kicker"));
 
     const value = document.createElement("div");
     value.className = "resource-value";
@@ -254,11 +268,14 @@ function renderResources(records) {
       meter.setAttribute("aria-label", `${record.title}: ${record.displayValue}`);
       meter.setAttribute("aria-valuemin", "0");
       meter.setAttribute("aria-valuemax", String(record.capacity));
-      meter.setAttribute("aria-valuenow", String(record.value));
+      meter.setAttribute("aria-valuenow", String(Math.min(record.value, record.capacity)));
+      meter.setAttribute("aria-valuetext", record.displayValue);
       const fill = document.createElement("span");
       fill.style.width = `${Math.min(100, Math.round((record.value / record.capacity) * 100))}%`;
       meter.append(fill);
       article.append(meter);
+    } else {
+      article.append(text("span", "Meter unavailable", "resource-missing"));
     }
     article.append(text("p", record.detail));
     const meta = document.createElement("div");
@@ -274,30 +291,60 @@ function renderResources(records) {
 
 function renderQueue(records) {
   const root = document.querySelector("#queue-grid");
+  const summary = document.querySelector("#state-summary");
   root.replaceChildren();
-  const labels = { running: "Running", queued: "Queued", waiting: "Waiting", ready: "Ready" };
-  Object.entries(labels).forEach(([state, label]) => {
-    const items = records.filter((record) => record.state === state);
-    if (!items.length) return;
-    const lane = document.createElement("section");
-    lane.className = "lane";
-    lane.setAttribute("aria-label", label);
-    const heading = document.createElement("div");
-    heading.className = "lane-header";
-    heading.append(text("h2", label), text("span", items.length));
-    lane.append(heading);
-    const list = document.createElement("div");
-    list.className = "record-list";
-    items.forEach((record) => list.append(recordCard(record)));
-    lane.append(list);
-    root.append(lane);
+  summary.replaceChildren();
+
+  Object.entries(QUEUE_LABELS).forEach(([state, label]) => {
+    const count = records.filter((record) => record.state === state).length;
+    const item = document.createElement("div");
+    item.className = `state-count state-${state}`;
+    item.append(text("strong", count), text("span", label));
+    summary.append(item);
+  });
+
+  if (!records.length) {
+    root.append(emptyState("No sanitized lifecycle records were supplied."));
+    return;
+  }
+
+  records.forEach((record) => {
+    const article = document.createElement("article");
+    article.className = `portfolio-lane state-${record.state}`;
+    article.setAttribute("role", "listitem");
+    const titleId = `queue-${record.id}`;
+    article.setAttribute("aria-labelledby", titleId);
+
+    const state = document.createElement("div");
+    state.className = "portfolio-state";
+    const dot = document.createElement("span");
+    dot.className = `state-dot state-${record.state}`;
+    dot.setAttribute("aria-hidden", "true");
+    state.append(dot, text("strong", QUEUE_LABELS[record.state]));
+
+    const title = text("h3", record.title);
+    title.id = titleId;
+    article.append(state, title, text("p", record.detail));
+
+    const meta = document.createElement("div");
+    meta.className = "record-meta";
+    meta.append(
+      chip(record.verification.replace("-", " "), record.verification),
+      chip(record.exposure.replace("-", " "), record.exposure),
+    );
+    article.append(meta);
+    root.append(article);
   });
 }
 
 function renderList(selector, countSelector, records, labelFor) {
   const root = document.querySelector(selector);
   root.replaceChildren();
-  records.forEach((record) => root.append(recordCard(record, labelFor(record))));
+  if (records.length) {
+    records.forEach((record) => root.append(recordCard(record, labelFor(record))));
+  } else {
+    root.append(emptyState("No sanitized records were supplied."));
+  }
   document.querySelector(countSelector).textContent = `${records.length} records`;
 }
 
@@ -305,6 +352,7 @@ export function renderSnapshot(snapshot) {
   assertSanitizedSnapshot(snapshot);
   renderResources(snapshot.resourceBudget);
   renderQueue(snapshot.queue);
+  document.querySelector("#queue-count").textContent = `${snapshot.queue.length} lanes`;
   renderList("#tests-list", "#tests-count", snapshot.tests, (record) => record.result.replace("-", " "));
   renderList("#signals-list", "#signals-count", snapshot.signals, (record) => record.state);
 }

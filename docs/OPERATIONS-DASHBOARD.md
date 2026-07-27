@@ -7,7 +7,7 @@ back door:
 | Surface | Intended data | Network behavior |
 |---|---|---|
 | Native macOS floater | Canonical local snapshots, including verified `local-only` records | Reads its sandboxed local store; does not transmit it |
-| Static web dashboard | An explicitly produced `sanitized-remote` snapshot | Loads one static snapshot; does not poll or connect to a workstation |
+| Static web dashboard | An explicitly produced `sanitized-remote` snapshot | Loads one static snapshot into a responsive ten-lane reference view; does not poll or connect to a workstation |
 
 These prototypes are reusable source under `prototypes/`; the Firestarter
 generator does not stamp them into new projects by default.
@@ -46,6 +46,13 @@ docker run --rm -v "$PWD:/repo:ro" -w /repo python:3.12-slim \
   python -m unittest discover prototypes/operations-dashboard-web/tests -v
 ```
 
+Run the executable web validator unit tests:
+
+```bash
+docker run --rm -v "$PWD:/repo:ro" -w /repo node:22-slim \
+  node --test prototypes/operations-dashboard-web/tests/*.test.mjs
+```
+
 Then serve the synthetic fixture locally:
 
 ```bash
@@ -54,7 +61,12 @@ docker run --rm -p 8080:8080 -v "$PWD:/repo:ro" -w /repo python:3.12-slim \
 ```
 
 The browser renderer validates once and fails closed. It has no WebSocket,
-polling loop, local agent, or Mac bridge.
+polling loop, local agent, or Mac bridge. The committed fixture has exactly ten
+synthetic lifecycle lanes and makes missing resource measurements, unrun tests,
+and unimplemented automation visible instead of manufacturing positive
+results. Desktop and narrow-screen evidence plus the compact failure/rollback
+map live in
+[`prototypes/operations-dashboard-web/docs/state-flow.md`](../prototypes/operations-dashboard-web/docs/state-flow.md).
 
 ## Use the native surface
 
