@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="{{ project_tagline }}"
+    >
+    <title>{{ project_name }} · Notifier Lab</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <p class="eyebrow">{{ project_name }} · background job notification tutorial</p>
+        <h1>Start a job. Leave the page. Come back to the result.</h1>
+        <p class="lede">
+          The live update is fast. The saved task state is reliable. This demo
+          teaches why a production system needs both.
+        </p>
+        <div class="connection" aria-live="polite">
+          <span id="connection-dot" class="connection__dot"></span>
+          <span id="connection-status">Connecting to notifier…</span>
+        </div>
+      </header>
+
+      <section class="panel" aria-labelledby="run-heading">
+        <div>
+          <p class="step">Step 1</p>
+          <h2 id="run-heading">Queue a simulated task</h2>
+          <p>
+            The API validates this message, stores a durable job, and returns
+            immediately. A separate worker finishes it in the background.
+          </p>
+        </div>
+        <form id="task-form">
+          <label for="task-message">What should the worker process?</label>
+          <div class="form-row">
+            <input
+              id="task-message"
+              name="message"
+              maxlength="120"
+              value="Prepare the sample report"
+              required
+            >
+            <button type="submit">Run task</button>
+          </div>
+          <p id="form-error" class="form-error" role="alert"></p>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="results-heading">
+        <div>
+          <p class="step">Step 2</p>
+          <h2 id="results-heading">Observe state reconciliation</h2>
+          <p>
+            Socket events trigger an immediate refresh. Reloading the page
+            asks the API for recent task state, and “Mark seen” records an
+            explicit delivery acknowledgement.
+          </p>
+        </div>
+        <ol id="task-list" class="task-list" aria-live="polite">
+          <li id="empty-state" class="empty-state">
+            No tasks yet. Queue one above.
+          </li>
+        </ol>
+      </section>
+
+      <aside class="lesson">
+        <p class="step">Core lesson</p>
+        <p>
+          A socket ID identifies one transport connection; it is neither an
+          identity nor a delivery receipt. Local mode uses a server-derived
+          session identity; production mode requires validated tenant and user
+          claims. Both keep results and acknowledgements outside the socket.
+        </p>
+        <a
+          href="https://github.com/{{ github_owner }}/{{ github_repo }}/blob/master/docs/tutorial.md"
+        >Read the guided experiments in the repository</a>
+      </aside>
+    </main>
+
+    <template id="task-template">
+      <li class="task">
+        <div class="task__topline">
+          <span class="task__status"></span>
+          <time class="task__time"></time>
+        </div>
+        <p class="task__message"></p>
+        <p class="task__result"></p>
+        <button class="task__ack" type="button" hidden>Mark seen</button>
+        <code class="task__id"></code>
+      </li>
+    </template>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,146 @@
+name: {{ container_prefix }}-notifier
+
+x-app-environment: &app-environment
+  NODE_ENV: development
+  HOST: 0.0.0.0
+  PORT: 3000
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:{{ port_web }}}
+  AUTH_MODE: anonymous
+  REDIS_URL: redis://redis:6379
+  QUEUE_NAME: {{ project_slug }}
+  EVENT_CHANNEL: {{ project_slug }}:events
+  SESSION_SECRET: ${SESSION_SECRET:-local-tutorial-secret-change-before-production}
+  TASK_DELAY_MS: ${TASK_DELAY_MS:-1200}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+  TASK_RETENTION_SECONDS: ${TASK_RETENTION_SECONDS:-86400}
+  TASK_RATE_LIMIT: ${TASK_RATE_LIMIT:-30}
+  TASK_RATE_WINDOW_SECONDS: ${TASK_RATE_WINDOW_SECONDS:-60}
+  REPLAY_LIMIT: ${REPLAY_LIMIT:-50}
+
+x-app: &app
+  build:
+    context: .
+    target: runtime
+  environment: *app-environment
+  depends_on:
+    redis:
+      condition: service_healthy
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *app
+    command: ["node", "src/start-api.js"]
+    ports:
+      - "127.0.0.1:${HOST_PORT:-{{ port_web }}}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  worker:
+    <<: *app
+    command: ["node", "src/start-worker.js"]
+
+  redis:
+    image: redis:8.2.8-alpine@sha256:a7859ed111db3c1f5404a973a4747505d559fb5ca32d37e447afc0ef845a2103
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--save",
+        "60",
+        "1",
+      ]
+    expose:
+      - "6379"
+    volumes:
+      - {{ project_slug }}_notifier_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+
+  test:
+    profiles:
+      - test
+    build:
+      context: .
+      target: test
+    environment:
+      TEST_REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # Firestarter storyboard precept: capture the real running tutorial UI and
+  # regenerate docs/STORYBOARD.md from those screenshots. The harness uses
+  # API requests with the configured public Origin, so it exercises the same
+  # task/worker/reconciliation path without weakening same-origin writes.
+  storyboard:
+    profiles:
+      - storyboard
+    image: mcr.microsoft.com/playwright:v1.49.1-jammy
+    working_dir: /work/storyboard
+    environment:
+      APP_URL: http://api:3000
+      PUBLIC_ORIGIN: http://api:3000
+      OUT_DIR: /out
+      DOCS_DIR: /docs
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    volumes:
+      # Keep the bind writable so Docker can create the nested node_modules
+      # mountpoint. Dependencies still live only in the named volume below.
+      - ./storyboard:/work/storyboard
+      - storyboard_node_modules:/work/storyboard/node_modules
+      - ./storyboard/output:/out
+      - ./docs:/docs
+    command: ["sh", "-c", "npm install --ignore-scripts --no-audit --no-fund && node storyboard.mjs"]
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  {{ project_slug }}_notifier_data:
+  storyboard_node_modules:

@@ -54,7 +54,8 @@ jobs:
           # 3. Generated shell parses.
           bash -n "$OUT/fastapi-next/backend/scripts/migrate.sh"
           bash -n "$OUT/supabase-flutter/backend/scripts/migrate.sh"
-          for stack in fastapi-next supabase-flutter chrome-extension; do
+          bash -n "$OUT/node-notifier/scripts/sync_version.sh"
+          for stack in fastapi-next supabase-flutter chrome-extension node-notifier; do
             for h in commit-msg pre-commit pre-push; do
               sh -n "$OUT/$stack/.githooks/$h"
             done
