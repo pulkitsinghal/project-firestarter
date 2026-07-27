@@ -21,6 +21,10 @@ addons/                   OPTIONAL modules, overlaid only when opted in
   k8s/<stack>/            Kustomize manifests (include_k8s=yes)
   kokoro_warm/common/     stack-agnostic narration audio standard (include_kokoro_warm=yes)
   orchestrator_session/common/  stack-agnostic master-orchestrator bootstrap (include_orchestrator_session=yes)
+prototypes/               OPT-IN reference implementations, not generator output
+  operations-dashboard/   shared contract + offline sanitized publisher
+  operations-dashboard-web/  static sanitized snapshot renderer
+  operations-floater/     native macOS local dashboard
 docs/                     this map, plus how-to guides
 ```
 
@@ -181,6 +185,23 @@ project layout** (e.g. `addons/k8s/<stack>/k8s/base/...` lands at
 `<project>/k8s/base/...`), add an `include_<name>` flag to
 `firestarter.config.json`, and register `<name>` in the add-on loop in
 `bin/generate.py`.
+
+## Opt-in operations-dashboard prototypes
+
+These directories are reusable references in the Firestarter repository, not
+generator overlays:
+
+| Path | What it demonstrates | Privacy boundary |
+|------|----------------------|------------------|
+| `prototypes/operations-dashboard/` | Version `1.0` contract and an offline, content-addressed sanitized publication workflow | No endpoint, URL, host, IP, path, credential, identity, or live-value fields in the shared model |
+| `prototypes/operations-dashboard-web/` | Compact one-shot renderer for a synthetic or explicitly supplied `sanitized-remote` snapshot | Rejects non-sanitized records and forbidden field names; no polling or workstation bridge |
+| `prototypes/operations-floater/` | Sandboxed macOS floater with local snapshot import, native window controls, and reversible local snapshot updates | Reads local state only; local-only records must be verified; no network updater |
+
+The contract represents queue, tests, resource budget, and signals as record
+arrays. Every record declares exposure and verification so unrun tests,
+unavailable telemetry, and scheduling estimates remain visibly distinct.
+[`docs/OPERATIONS-DASHBOARD.md`](OPERATIONS-DASHBOARD.md) contains the usage,
+validation, publication, and rollback runbook.
 
 ## Tokens
 

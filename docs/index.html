@@ -77,11 +77,12 @@
     <span class="badge">🧩 3 stacks + 4 add-ons</span>
     <span class="badge">♻️ self-dogfooding</span>
   </div>
-  <p class="updated">Last updated <span id="lastUpdated">2026-07-06</span> ·
+  <p class="updated">Last updated <span id="lastUpdated">2026-07-26</span> ·
     <a href="https://github.com/pulkitsinghal/project-firestarter/blob/master/CHANGELOG.md">Changelog&nbsp;↗</a></p>
   <div class="cta">
     <a class="btn primary" href="https://github.com/pulkitsinghal/project-firestarter">View on GitHub</a>
     <a class="btn ghost" href="#start">Quickstart</a>
+    <a class="btn ghost" href="#dashboards">Dashboards</a>
     <a class="btn ghost" href="https://github.com/pulkitsinghal/project-firestarter/blob/master/docs/ANATOMY.md">Anatomy</a>
   </div>
 </header>
@@ -113,6 +114,7 @@
       <div class="card"><div class="ic">✅</div><h3>Green before push</h3><p>One <code>make precommit</code> mirrors every CI gate locally, in Docker. Stop pushing to "see if CI passes."</p></div>
       <div class="card"><div class="ic">📐</div><h3>Conventions enforced</h3><p>Conventional Commits + forward-only migrations enforced by git hooks <em>and</em> CI — not left to discipline.</p></div>
       <div class="card"><div class="ic">🔭</div><h3>It documents itself</h3><p>A storyboard harness renders a live planned-vs-implemented map from real screenshots of your UI — now a stack precept, so every stack ships one.</p></div>
+      <div class="card"><div class="ic">🛡️</div><h3>Privacy-split dashboards</h3><p>Opt-in native and static-web references share one verified operational model while keeping local-only records on-device and publishing only an explicit sanitized snapshot.</p></div>
       <div class="card"><div class="ic">🚀</div><h3>Share in one button</h3><p><code>make deploy</code> exposes your local app on a public Cloudflare URL — no account, no cloud bill.</p></div>
       <div class="card"><div class="ic">🧩</div><h3>Stacks + add-ons</h3><p>FastAPI+Next.js, Supabase+Flutter, or a Manifest V3 browser extension — gotchas baked into comments. Passwordless auth, in-app bug capture, SSRF-safe fetch, and k8s are each one flag away.</p></div>
       <div class="card"><div class="ic">🤝</div><h3>AI-agent ready</h3><p>A root <code>AGENTS.md</code> lets Claude Code, Codex, Cursor, or Aider drive the repo on sight.</p></div>
@@ -129,6 +131,36 @@
       <div><div class="n">3</div><div class="l">production stacks ready to stamp</div></div>
       <div><div class="n">1</div><div class="l">command to share your app publicly</div></div>
     </div>
+  </section>
+
+  <section id="dashboards">
+    <h2>One operational model, two safe surfaces</h2>
+    <p class="lead">The opt-in dashboard references keep workstation state and
+      browser sharing as separate trust decisions. Both validate the same
+      queue, test, resource-budget, and signal records; every record declares
+      whether it is sanitized or local-only and whether it is verified,
+      estimated, unavailable, or not implemented.</p>
+    <div class="two">
+      <div class="card">
+        <span class="pill">local control surface</span>
+        <h3>Native macOS floater</h3>
+        <p>Imports a canonical local snapshot into sandboxed storage, rejects
+          unverified local-only records and unsafe input files, and retains a
+          validated snapshot rollback. It does not transmit local state or
+          self-update.</p>
+      </div>
+      <div class="card">
+        <span class="pill">sanitized sharing surface</span>
+        <h3>Static browser dashboard</h3>
+        <p>Renders one explicitly supplied <code>sanitized-remote</code>
+          snapshot. An offline publisher drops local-only records, verifies
+          privacy and immutable release hashes, compensates failed activation,
+          and never opens a browser-to-workstation bridge.</p>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:18px">
+      <a href="https://github.com/pulkitsinghal/project-firestarter/blob/master/docs/OPERATIONS-DASHBOARD.md">Read the usage, validation, publication, and rollback guide&nbsp;↗</a>
+    </p>
   </section>
 
   <section id="start">
