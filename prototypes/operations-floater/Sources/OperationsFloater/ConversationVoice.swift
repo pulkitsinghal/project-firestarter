@@ -116,6 +116,7 @@ final class OnDeviceConversationTranscriber: NSObject, ConversationTranscription
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var recognitionGeneration = 0
+    private var tapInstalled = false
 
     init(locale: Locale = Locale(identifier: "en_US")) {
         recognizer = SFSpeechRecognizer(locale: locale)
@@ -192,12 +193,14 @@ final class OnDeviceConversationTranscriber: NSObject, ConversationTranscription
             [weak self] buffer, _ in
             self?.request?.append(buffer)
         }
+        tapInstalled = true
 
         audioEngine.prepare()
         do {
             try audioEngine.start()
         } catch {
             input.removeTap(onBus: 0)
+            tapInstalled = false
             self.request = nil
             throw ConversationVoiceError.audioUnavailable
         }
@@ -236,7 +239,10 @@ final class OnDeviceConversationTranscriber: NSObject, ConversationTranscription
         if audioEngine.isRunning {
             audioEngine.stop()
         }
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if tapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
         request = nil
         recognitionTask = nil
         isRunning = false

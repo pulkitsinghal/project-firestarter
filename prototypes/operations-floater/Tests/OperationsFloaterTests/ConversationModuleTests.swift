@@ -18,10 +18,12 @@ struct ConversationModuleTests {
     func allowlistPrivacy() throws {
         try ConversationModuleAllowlist.syntheticManifest.validate()
         try ConversationModuleAllowlist.geometryRecorderManifest.validate()
+        try ConversationModuleAllowlist.relativeXYRecorderManifest.validate()
 
         for manifest in [
             ConversationModuleAllowlist.syntheticManifest,
             ConversationModuleAllowlist.geometryRecorderManifest,
+            ConversationModuleAllowlist.relativeXYRecorderManifest,
         ] {
             #expect(manifest.privacy == .hostControlled)
             #expect(manifest.privacy.ephemeralOnly)
@@ -34,6 +36,69 @@ struct ConversationModuleTests {
             #expect(!manifest.privacy.inputInjection)
             #expect(!manifest.privacy.executableReplay)
         }
+    }
+
+    @Test("Relative XY accepts any selected window and the complete input vocabulary")
+    func relativeXYInputVocabulary() throws {
+        let manifest = ConversationModuleAllowlist.relativeXYRecorderManifest
+        #expect(
+            manifest.allowedWindowBindingIDs
+                == ["verbal-orders.neutral.selected-window"]
+        )
+        #expect(manifest.capabilities.contains(.rawKeyboardEvents))
+        #expect(manifest.capabilities.contains(.scrollEvents))
+
+        let events = [
+            ConversationModuleEvent(
+                eventID: "event_pointer-1",
+                sequence: 1,
+                kind: .normalizedPointer,
+                pointerPhase: .drag,
+                normalizedX: 0.45,
+                normalizedY: 0.55,
+                buttonNumber: 0,
+                elapsedMilliseconds: 100
+            ),
+            ConversationModuleEvent(
+                eventID: "event_key-2",
+                sequence: 2,
+                kind: .rawKeyboard,
+                keyPhase: .down,
+                keyCode: 12,
+                modifierFlags: 1 << 17,
+                elapsedMilliseconds: 110
+            ),
+            ConversationModuleEvent(
+                eventID: "event_scroll-3",
+                sequence: 3,
+                kind: .scroll,
+                normalizedX: 0.45,
+                normalizedY: 0.55,
+                scrollDeltaX: 0,
+                scrollDeltaY: -4,
+                elapsedMilliseconds: 120
+            ),
+        ]
+        let value = request(
+            manifest: manifest,
+            floor: ConversationFloorGrant(
+                state: .granted,
+                moduleID: manifest.moduleID,
+                token: floor.token
+            ),
+            provenance: ConversationModuleProvenance(
+                sourceID: manifest.provenanceSourceID,
+                buildDigest: provenance.buildDigest
+            ),
+            events: events,
+            window: ConversationModuleWindowContext(
+                bindingID: "verbal-orders.neutral.selected-window",
+                width: 1_437,
+                height: 913
+            )
+        )
+
+        try value.validate(for: manifest)
     }
 
     @Test("A module cannot request microphone, UI, network, persistence, capture, or replay")
