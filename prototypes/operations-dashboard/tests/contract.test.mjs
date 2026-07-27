@@ -51,11 +51,56 @@ test("the schema exposes the canonical consumer sections and no transport fields
     assert.ok(definition.required.includes("verification"));
   }
 
+  assert.deepEqual(
+    Object.keys(schema.$defs.queueRecord.properties).sort(),
+    [
+      "completedSteps",
+      "cpuPercent",
+      "currentStep",
+      "detail",
+      "exposure",
+      "id",
+      "lastActiveSeconds",
+      "memoryMB",
+      "state",
+      "title",
+      "totalSteps",
+      "verification",
+    ],
+  );
+
   const serialized = JSON.stringify(schema);
   assert.doesNotMatch(
     serialized,
     /endpoint|hostname|localUrl|tailnetUrl|ipAddress|filePath|snapshotKind|qualityChecks/i,
   );
+});
+
+test("queue progress and resource evidence is optional, bounded, and internally consistent", async () => {
+  const fixture = await readJSON(fixtureURL);
+  const legacyCompatible = structuredClone(fixture);
+  for (const record of legacyCompatible.queue) {
+    delete record.completedSteps;
+    delete record.totalSteps;
+    delete record.currentStep;
+    delete record.lastActiveSeconds;
+    delete record.memoryMB;
+    delete record.cpuPercent;
+  }
+  assert.doesNotThrow(() => assertDashboardSnapshot(legacyCompatible));
+
+  const unpaired = structuredClone(fixture);
+  delete unpaired.queue[0].totalSteps;
+  assert.throws(() => assertDashboardSnapshot(unpaired), /supplied together/);
+
+  const regressed = structuredClone(fixture);
+  regressed.queue[0].completedSteps = 6;
+  regressed.queue[0].totalSteps = 5;
+  assert.throws(() => assertDashboardSnapshot(regressed), /cannot exceed/);
+
+  const excessiveCPU = structuredClone(fixture);
+  excessiveCPU.queue[0].cpuPercent = 100.1;
+  assert.throws(() => assertDashboardSnapshot(excessiveCPU), /no greater than 100/);
 });
 
 test("web snapshots require sanitized-remote mode and sanitized records", async () => {

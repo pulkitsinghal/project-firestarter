@@ -49,10 +49,14 @@ release.
    At the default size, confirm queue and supporting panels use two columns.
    Resize to the minimum and confirm they collapse to one column without
    clipping the guide summary or four queue counters.
-4. Choose **Import Local Snapshot…** only if a canonical `local` version `1.0`
+4. Confirm each queue race shows a bounded progress chip, hover detail, and
+   click-to-expand detail. Exercise last-active, completion, memory, CPU, and
+   needs-attention sorting. Confirm an increased total-step count can move a
+   chip backward and Reduce Motion replaces animation with a stable frame.
+5. Choose **Import Local Snapshot…** only if a canonical `local` version `1.0`
    snapshot is ready. The app validates before writing and gives the stored file
    private permissions.
-5. Confirm the header reports a locally verified snapshot rather than the
+6. Confirm the header reports a locally verified snapshot rather than the
    generic sample.
 
 ## Update

@@ -14,8 +14,9 @@ struct DashboardStateTests {
         #expect(state.sourceDescription == "Generic sample — local only")
         #expect(state.itemCount(for: .running) == 1)
         #expect(state.itemCount(for: .queued) == 1)
-        #expect(state.itemCount(for: .waiting) == 0)
-        #expect(state.itemCount(for: .ready) == 0)
+        #expect(state.itemCount(for: .waiting) == 1)
+        #expect(state.itemCount(for: .ready) == 1)
+        #expect(state.snapshot.queue.first?.progressFraction == 0.625)
         #expect(state.snapshot.resourceBudget.first?.verification == .unavailable)
     }
 
@@ -44,6 +45,9 @@ struct DashboardStateTests {
         #expect(state.snapshot.tests.first?.result == .queued)
         #expect(state.snapshot.resourceBudget.first?.displayValue == "Busy")
         #expect(state.snapshot.signals.first?.verification == .verified)
+        #expect(state.snapshot.queue.first?.completedSteps == 3)
+        #expect(state.snapshot.queue.first?.totalSteps == 5)
+        #expect(state.snapshot.queue.first?.cpuPercent == 42.5)
     }
 
     @Test("Draft contract aliases fail closed to the generic sample")
@@ -189,6 +193,18 @@ struct DashboardStateTests {
         #expect(state.snapshot == .sample)
     }
 
+    @Test("Invalid or unpaired progress evidence fails closed")
+    func invalidProgressFailsClosed() throws {
+        let invalid = localFixture(verification: "verified")
+            .replacingOccurrences(of: #""totalSteps": 5"#, with: #""totalSteps": 2"#)
+        let fixtureURL = try makeFixture(contents: invalid)
+        defer { try? FileManager.default.removeItem(at: fixtureURL.deletingLastPathComponent()) }
+
+        let state = DashboardState(snapshotURL: fixtureURL)
+
+        #expect(state.snapshot == .sample)
+    }
+
     @Test("Window opens frontmost, unpins, closes, and reopens as the same retained window")
     func windowLifecycleAndPinning() {
         _ = NSApplication.shared
@@ -259,7 +275,13 @@ struct DashboardStateTests {
               "detail": "Local record",
               "state": "running",
               "exposure": "local-only",
-              "verification": "\(verification)"
+              "verification": "\(verification)",
+              "completedSteps": 3,
+              "totalSteps": 5,
+              "currentStep": "Synthetic verification",
+              "lastActiveSeconds": 12,
+              "memoryMB": 768,
+              "cpuPercent": 42.5
             },
             {
               "id": "Q2",

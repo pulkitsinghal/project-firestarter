@@ -31,6 +31,15 @@ operating-system measurements. Numeric `value` and `capacity` fields are
 optional. The committed shared fixture omits them rather than claiming live
 capacity or telemetry.
 
+Queue records may add the optional, privacy-neutral evidence fields
+`completedSteps`, `totalSteps`, `currentStep`, `lastActiveSeconds`, `memoryMB`,
+and `cpuPercent`. The two step counts must appear together and completed work
+cannot exceed the current total. Increasing the total may therefore lower the
+derived completion percentage without erasing completed work. Consumers must
+treat missing evidence as unavailable rather than estimating it. These
+additive fields preserve compatibility with version `1.0` records that omit
+them.
+
 ## Canonical shape
 
 The root keys are exactly `schemaVersion`, `mode`, `queue`, `tests`,
