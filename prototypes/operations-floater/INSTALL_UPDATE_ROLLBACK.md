@@ -46,6 +46,9 @@ release.
 2. Copy the candidate to `INSTALLED_APP` using a metadata-preserving local copy.
 3. Launch it and verify one visible dashboard window, default frontmost state,
    unpin behavior, Command-W close, Dock reopen, and Reduce Motion.
+   At the default size, confirm queue and supporting panels use two columns.
+   Resize to the minimum and confirm they collapse to one column without
+   clipping the guide summary or four queue counters.
 4. Choose **Import Local Snapshot…** only if a canonical `local` version `1.0`
    snapshot is ready. The app validates before writing and gives the stored file
    private permissions.
@@ -70,7 +73,8 @@ is retained, and no import data is transmitted.
 ## Rollback
 
 Rollback triggers include failure to launch, signature or Gatekeeper rejection,
-missing window lifecycle behavior, unreadable canonical state, or a material
+missing window lifecycle behavior, an unreadable compact layout, motion that
+continues with Reduce Motion enabled, unreadable canonical state, or a material
 display regression.
 
 1. Quit the app.
