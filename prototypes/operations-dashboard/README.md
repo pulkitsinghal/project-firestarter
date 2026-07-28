@@ -2,13 +2,14 @@
 
 Firestarter preserves two complementary dashboard surfaces:
 
-- `../operations-floater/` is the native macOS control surface. It may read
-  locally verified state from its sandboxed Application Support container. It
-  never transmits that state. Its default-off assistant chat uses a separate
+- `../operations-floater/` is the native macOS control surface. It accepts
+  locally verified state from the fixed loopback Router metrics endpoint, then
+  a sandboxed Application Support snapshot, and otherwise renders empty lanes.
+  It never transmits that state. Its default-off assistant chat uses a separate
   fixed loopback Router contract and is not persisted by the app. Optional reply
   review uses the same Router-owned model-selection contract and surfaces
-  actionable coaching for concrete failures. Neither path includes dashboard
-  state unless the user explicitly types it into the chat.
+  actionable coaching for concrete failures. Neither chat path includes
+  dashboard state unless the user explicitly types it into the chat.
 - `../operations-dashboard-web/` is the browser snapshot surface. It renders
   only an explicitly supplied, sanitized snapshot. It never fetches from or
   bridges to a Mac.

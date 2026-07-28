@@ -16,13 +16,19 @@ The app consumes the canonical contract in `../operations-dashboard/contract/`:
 the record arrays `queue`, `tests`, `resourceBudget`, and `signals`, with
 per-record `exposure` and `verification`.
 
-An optional runtime snapshot may be placed in the app's sandboxed Application
-Support container as `OperationsFloater/dashboard-state.json`. That local path
-is resolved by the app at runtime and is never committed or transmitted. The
-native adapter rejects unknown contract fields and rejects every `local-only`
-record unless it is marked `verified`. Invalid or missing input fails closed to
-the committed generic sample. Imports must be regular files no larger than one
-megabyte.
+The native app first polls only the fixed loopback Router metrics endpoint at
+`http://127.0.0.1:11500/metrics` and accepts its nested `operations` object only
+when it is a verified canonical `local` snapshot. It sends no credentials,
+cookies, dashboard state, or private file content, and follows no redirect.
+
+An optional runtime snapshot may also be placed in the app's sandboxed
+Application Support container as `OperationsFloater/dashboard-state.json`.
+That local path is resolved by the app at runtime and is never committed or
+transmitted. The native adapter rejects unknown contract fields and rejects
+every `local-only` record unless it is marked `verified`. Invalid or missing
+live and saved input fails closed to an empty dashboard; the committed generic
+sample remains storyboard/test data only. Imports must be regular files no
+larger than one megabyte.
 
 Choose **Import Local Snapshot…** to select and install a canonical local file.
 The app does not retain the selected source path. Installation validates before
