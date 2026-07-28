@@ -6,7 +6,7 @@ import Testing
 @Suite("Dashboard state")
 @MainActor
 struct DashboardStateTests {
-    @Test("Interactive launch is unpinned while retaining explicit foreground behavior")
+    @Test("Interactive launch is unpinned, foregrounded, and single-Space")
     func interactiveLaunchConfiguration() {
         let configuration = DashboardLaunchConfiguration(arguments: ["/tmp/Operations Floater"])
 
@@ -14,7 +14,7 @@ struct DashboardStateTests {
         #expect(!configuration.initialPinned)
         #expect(configuration.activatesApplication)
         #expect(configuration.foregroundsWindow)
-        #expect(configuration.joinsAllSpaces)
+        #expect(!configuration.joinsAllSpaces)
         #expect(configuration.usesSavedFrame)
         #expect(!configuration.usesSyntheticConversationFixture)
     }
@@ -37,10 +37,31 @@ struct DashboardStateTests {
         #expect(!configuration.joinsAllSpaces)
         #expect(!configuration.usesSavedFrame)
         #expect(configuration.usesSyntheticConversationFixture)
+        #expect(!configuration.usesRecorderNormalizerFixture)
         #expect(
             configuration.initialWindowSize
                 == DashboardLayoutMetrics.minimumWindowSize
         )
+    }
+
+    @Test("Recorder normalizer UI testing selects the Relative XY module")
+    func recorderNormalizerUITestLaunchConfiguration() {
+        let configuration = DashboardLaunchConfiguration(
+            arguments: [
+                "/tmp/Operations Floater",
+                DashboardLaunchConfiguration.backgroundUITestArgument,
+                DashboardLaunchConfiguration.recorderNormalizerUITestArgument,
+            ]
+        )
+
+        #expect(configuration.isBackgroundUITest)
+        #expect(configuration.usesRecorderNormalizerFixture)
+        #expect(
+            configuration.conversationFixtureModuleID
+                == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
+        )
+        #expect(!configuration.activatesApplication)
+        #expect(!configuration.joinsAllSpaces)
     }
 
     @Test("Background UI testing starts with Keep in front disabled")
@@ -290,6 +311,28 @@ struct DashboardStateTests {
 
         #expect(behavior.contains(.managed))
         #expect(!behavior.contains(.canJoinAllSpaces))
+    }
+
+    @Test("Snapshot polling stops only when every dependent panel is collapsed")
+    func collapsedPanelsSuspendSnapshotPolling() {
+        #expect(
+            !DashboardPanelActivity.shouldRefreshSnapshot(
+                guideCollapsed: true,
+                resourcesCollapsed: true,
+                racesCollapsed: true,
+                testsCollapsed: true,
+                signalsCollapsed: true
+            )
+        )
+        #expect(
+            DashboardPanelActivity.shouldRefreshSnapshot(
+                guideCollapsed: true,
+                resourcesCollapsed: true,
+                racesCollapsed: false,
+                testsCollapsed: true,
+                signalsCollapsed: true
+            )
+        )
     }
 
     private func missingFixtureURL() -> URL {

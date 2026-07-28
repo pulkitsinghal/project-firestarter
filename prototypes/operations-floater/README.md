@@ -56,12 +56,18 @@ snapshot remains schema version `1.0`.
 ## Current behavior
 
 - An explicit user launch opens visibly in front but defaults **Keep in front**
-  to off. Pinning is always a deliberate user choice.
+  to off and stays on one macOS Desktop. Pinning and showing the same window on
+  every Desktop are never implicit.
 - A deliberate `--background-ui-test` launch mode leaves **Keep in front** off,
   stays on one macOS Desktop, and neither activates the app nor force-orders its
   window above unrelated work. Normal user launches retain the foreground
   behavior above.
 - Turning off **Keep in front** immediately restores normal window level.
+- Every major dashboard component has a header collapse control. Collapsed state
+  persists locally across relaunches. Hidden operational sections stop snapshot
+  refresh work when all of them are collapsed; collapsing Assistant Chat stops
+  voice, cancels pending work, revokes the module floor, and clears its
+  ephemeral session instead of merely hiding it.
 - Closing the window, including with Command-W, retains the app; use **Show
   Dashboard** or click the Dock icon to reopen the same window.
 - A procedural animated guide summarizes only canonical state. Verified
@@ -117,6 +123,18 @@ snapshot remains schema version `1.0`.
   export uses a user-selected local JSON file. It contains no replay or input
   injection path. Calculator and Chess are neutral practice examples, not an
   application allowlist.
+- Recorder voice turns are normalized through the fixed loopback Router with the
+  explicit resident `qwen2.5:32b` model. The raw transcript and prior recorder
+  question are labeled untrusted data. Only a strict
+  `relative-xy-command-batch/v1` JSON object reaches the deterministic module;
+  non-local model provenance, extra fields, invalid identifiers, and unknown
+  commands fail closed.
+- A live recorder pipeline makes each transformation inspectable: on-device
+  transcript, local model, closed command sequence, capture state, module state,
+  selected-window dimensions, event count, and exact acceptance/refusal detail.
+  The selected-window input panel separately echoes the latest mouse, scroll,
+  and key-code events with elapsed time and relative coordinates. Printable
+  character strings are not reconstructed and replay remains disabled.
 - Voice conversation is separately explicit and default-off. Production speech
   recognition requires an on-device provider and fails closed when permission,
   provider metadata, or on-device support is unavailable. Start, pause, resume,
@@ -145,6 +163,9 @@ See
 [docs/CONVERSATION_MODULE_CONTRACT.md](docs/CONVERSATION_MODULE_CONTRACT.md)
 for the versioned module manifest, exact IPC envelope and bounds, floor
 lifecycle, privacy posture, and failure behavior.
+See [docs/RECORDER_LIVE_TRACE.md](docs/RECORDER_LIVE_TRACE.md) for the visible
+voice-to-command architecture, event-echo boundary, collapse lifecycle, and
+single-Space behavior.
 
 ## Validation
 

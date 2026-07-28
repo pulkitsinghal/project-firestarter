@@ -640,6 +640,28 @@ struct RouterChatSessionTests {
         #expect(session.messages.isEmpty)
     }
 
+    @Test("Collapsing chat suspends and clears its ephemeral lifecycle")
+    func collapsedChatIsInactive() async {
+        let session = RouterChatSession(
+            transport: StubRouterTransport(
+                available: true,
+                result: .success(localReply(text: "Unused"))
+            )
+        )
+        await session.enable()
+        session.automaticReviewEnabled = true
+        session.stageVoiceTranscript("Pending synthetic narration")
+
+        session.suspendForCollapsedPanel()
+
+        #expect(!session.isEnabled)
+        #expect(!session.automaticReviewEnabled)
+        #expect(session.availability == .disabled)
+        #expect(session.messages.isEmpty)
+        #expect(session.geometryCapture.mode == .disarmed)
+        #expect(session.recorderTrace == .idle)
+    }
+
     private func waitUntilSettled(_ session: RouterChatSession) async {
         for _ in 0..<100 where session.isSending {
             try? await Task.sleep(for: .milliseconds(10))
