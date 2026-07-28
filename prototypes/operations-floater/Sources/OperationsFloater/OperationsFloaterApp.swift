@@ -329,24 +329,46 @@ final class DashboardState: ObservableObject {
             .appendingPathComponent("dashboard-state.json")
     }()
     private let store: LocalSnapshotStore
+    private let liveClient: LoopbackOperationsSnapshotClient?
+    private var isRefreshing = false
 
-    init(snapshotURL: URL? = nil, initialPinned: Bool = false) {
+    init(
+        snapshotURL: URL? = nil,
+        initialPinned: Bool = false,
+        liveClient: LoopbackOperationsSnapshotClient? = LoopbackOperationsSnapshotClient()
+    ) {
         pinned = initialPinned
         store = LocalSnapshotStore(snapshotURL: snapshotURL ?? Self.defaultSnapshotURL)
-        snapshot = .sample
-        sourceDescription = "Generic sample — local only"
+        self.liveClient = liveClient
+        snapshot = .emptyLocal
+        sourceDescription = "No live or saved operations — lanes empty"
         canRestorePreviousSnapshot = false
         reload()
     }
 
     func reload() {
         guard let decoded = store.load() else {
-            snapshot = .sample
-            sourceDescription = "Generic sample — local only"
+            snapshot = .emptyLocal
+            sourceDescription = "No live or saved operations — lanes empty"
             canRestorePreviousSnapshot = store.hasValidPreviousSnapshot()
             return
         }
         use(decoded)
+    }
+
+    func refreshPreferredSource() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+
+        if let liveClient, let liveSnapshot = try? await liveClient.fetch() {
+            use(
+                liveSnapshot,
+                sourceDescription: "Live loopback operations — local only"
+            )
+            return
+        }
+        reload()
     }
 
     func importLocalSnapshot(from sourceURL: URL) throws {
@@ -361,12 +383,17 @@ final class DashboardState: ObservableObject {
         snapshot.queue.lazy.filter { $0.state == stateToCount }.count
     }
 
-    private func use(_ decoded: DashboardSnapshot) {
+    private func use(
+        _ decoded: DashboardSnapshot,
+        sourceDescription override: String? = nil
+    ) {
         snapshot = decoded
-        sourceDescription =
-            decoded.mode == .local
-            ? "Locally verified snapshot — refreshes automatically"
-            : "Sanitized snapshot — refreshes automatically"
+        sourceDescription = override
+            ?? (
+                decoded.mode == .local
+                    ? "Locally verified snapshot — refreshes automatically"
+                    : "Sanitized snapshot — refreshes automatically"
+            )
         canRestorePreviousSnapshot = store.hasValidPreviousSnapshot()
     }
 }
@@ -410,6 +437,7 @@ private struct DashboardView: View {
         )
         .background(.regularMaterial)
         .task {
+            await state.refreshPreferredSource()
             guard let conversationFixtureModuleID,
                   !didPrepareConversationFixture else {
                 return
@@ -420,7 +448,9 @@ private struct DashboardView: View {
             )
         }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
-            state.reload()
+            Task {
+                await state.refreshPreferredSource()
+            }
         }
     }
 

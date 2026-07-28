@@ -185,44 +185,54 @@ struct QueueRaceBoard: View {
 
             Divider()
 
-            HStack {
-                Text("0% · START")
-                Spacer()
-                Text("Steps added can move a task backward")
-                Spacer()
-                Text("FINISH · 100%")
-            }
-            .font(.system(size: 8, weight: .semibold))
-            .foregroundStyle(.tertiary)
-            .padding(.horizontal, metrics.recordPadding)
-            .padding(.vertical, 6)
-
-            VStack(spacing: 0) {
-                ForEach(Array(sortedRecords.enumerated()), id: \.element.id) { rank, record in
-                    QueueRaceLane(
-                        record: record,
-                        rank: rank + 1,
-                        metrics: metrics,
-                        isExpanded: expandedRecordID == record.id,
-                        isHovered: hoveredRecordID == record.id,
-                        onToggleExpanded: {
-                            withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) {
-                                expandedRecordID =
-                                    expandedRecordID == record.id ? nil : record.id
-                            }
-                        },
-                        onHover: { hovering in
-                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
-                                hoveredRecordID = hovering ? record.id : nil
-                            }
-                        }
-                    )
+            if sortedRecords.isEmpty {
+                ContentUnavailableView(
+                    "No active work lanes",
+                    systemImage: "flag.checkered",
+                    description: Text("No verified running, queued, waiting, or ready work was supplied.")
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 18)
+            } else {
+                HStack {
+                    Text("0% · START")
+                    Spacer()
+                    Text("Steps added can move a task backward")
+                    Spacer()
+                    Text("FINISH · 100%")
                 }
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, metrics.recordPadding)
+                .padding(.vertical, 6)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(sortedRecords.enumerated()), id: \.element.id) { rank, record in
+                        QueueRaceLane(
+                            record: record,
+                            rank: rank + 1,
+                            metrics: metrics,
+                            isExpanded: expandedRecordID == record.id,
+                            isHovered: hoveredRecordID == record.id,
+                            onToggleExpanded: {
+                                withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) {
+                                    expandedRecordID =
+                                        expandedRecordID == record.id ? nil : record.id
+                                }
+                            },
+                            onHover: { hovering in
+                                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+                                    hoveredRecordID = hovering ? record.id : nil
+                                }
+                            }
+                        )
+                    }
+                }
+                .animation(
+                    reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.86),
+                    value: sortedRecords.map(\.id)
+                )
             }
-            .animation(
-                reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.86),
-                value: sortedRecords.map(\.id)
-            )
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 11))

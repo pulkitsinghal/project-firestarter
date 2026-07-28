@@ -365,6 +365,15 @@ struct DashboardSnapshot: Decodable, Hashable {
         ]
     )
 
+    static let emptyLocal = DashboardSnapshot(
+        schemaVersion: "1.0",
+        mode: .local,
+        queue: [],
+        tests: [],
+        resourceBudget: [],
+        signals: []
+    )
+
     private static func requireKeys(
         in object: [String: Any],
         required: Set<String>,

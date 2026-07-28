@@ -47,24 +47,25 @@ struct DashboardStateTests {
     func backgroundUITestInitialPinning() {
         let state = DashboardState(
             snapshotURL: missingFixtureURL(),
-            initialPinned: false
+            initialPinned: false,
+            liveClient: nil
         )
 
         #expect(!state.pinned)
     }
 
-    @Test("Missing local state uses the canonical generic sample")
-    func missingLocalStateUsesSample() {
-        let state = DashboardState(snapshotURL: missingFixtureURL())
+    @Test("Missing local state renders every lane empty")
+    func missingLocalStateUsesEmptySnapshot() {
+        let state = DashboardState(snapshotURL: missingFixtureURL(), liveClient: nil)
 
-        #expect(state.snapshot == .sample)
-        #expect(state.sourceDescription == "Generic sample — local only")
-        #expect(state.itemCount(for: .running) == 1)
-        #expect(state.itemCount(for: .queued) == 1)
-        #expect(state.itemCount(for: .waiting) == 1)
-        #expect(state.itemCount(for: .ready) == 1)
-        #expect(state.snapshot.queue.first?.progressFraction == 0.625)
-        #expect(state.snapshot.resourceBudget.first?.verification == .unavailable)
+        #expect(state.snapshot == .emptyLocal)
+        #expect(state.sourceDescription == "No live or saved operations — lanes empty")
+        #expect(state.itemCount(for: .running) == 0)
+        #expect(state.itemCount(for: .queued) == 0)
+        #expect(state.itemCount(for: .waiting) == 0)
+        #expect(state.itemCount(for: .ready) == 0)
+        #expect(state.snapshot.queue.isEmpty)
+        #expect(state.snapshot.resourceBudget.isEmpty)
     }
 
     @Test("The native fallback exactly matches the shared committed fixture")
@@ -82,7 +83,7 @@ struct DashboardStateTests {
         let fixtureURL = try makeFixture(contents: localFixture(verification: "verified"))
         defer { try? FileManager.default.removeItem(at: fixtureURL.deletingLastPathComponent()) }
 
-        let state = DashboardState(snapshotURL: fixtureURL)
+        let state = DashboardState(snapshotURL: fixtureURL, liveClient: nil)
 
         #expect(state.snapshot.mode == .local)
         #expect(state.sourceDescription == "Locally verified snapshot — refreshes automatically")
@@ -97,17 +98,17 @@ struct DashboardStateTests {
         #expect(state.snapshot.queue.first?.cpuPercent == 42.5)
     }
 
-    @Test("Draft contract aliases fail closed to the generic sample")
-    func legacyShapeUsesSample() throws {
+    @Test("Draft contract aliases fail closed to an empty dashboard")
+    func legacyShapeUsesEmptySnapshot() throws {
         let legacy = localFixture(verification: "verified")
             .replacingOccurrences(of: #""mode": "local""#, with: #""snapshotKind": "local""#)
             .replacingOccurrences(of: #""tests":"#, with: #""qualityChecks":"#)
         let fixtureURL = try makeFixture(contents: legacy)
         defer { try? FileManager.default.removeItem(at: fixtureURL.deletingLastPathComponent()) }
 
-        let state = DashboardState(snapshotURL: fixtureURL)
+        let state = DashboardState(snapshotURL: fixtureURL, liveClient: nil)
 
-        #expect(state.snapshot == .sample)
+        #expect(state.snapshot == .emptyLocal)
     }
 
     @Test("Unverified local records fail closed")
@@ -115,11 +116,10 @@ struct DashboardStateTests {
         let fixtureURL = try makeFixture(contents: localFixture(verification: "estimated"))
         defer { try? FileManager.default.removeItem(at: fixtureURL.deletingLastPathComponent()) }
 
-        let state = DashboardState(snapshotURL: fixtureURL)
+        let state = DashboardState(snapshotURL: fixtureURL, liveClient: nil)
 
-        #expect(state.snapshot == .sample)
-        #expect(state.snapshot.signals.first?.verification == .notImplemented)
-        #expect(state.snapshot.signals.first?.exposure == .sanitized)
+        #expect(state.snapshot == .emptyLocal)
+        #expect(state.snapshot.signals.isEmpty)
     }
 
     @Test("Import installs a validated local snapshot with private file permissions")
@@ -131,7 +131,7 @@ struct DashboardStateTests {
             .appendingPathComponent("ApplicationSupport", isDirectory: true)
             .appendingPathComponent("dashboard-state.json")
         try Data(localFixture(verification: "verified").utf8).write(to: sourceURL)
-        let state = DashboardState(snapshotURL: installedURL)
+        let state = DashboardState(snapshotURL: installedURL, liveClient: nil)
 
         try state.importLocalSnapshot(from: sourceURL)
 
@@ -150,7 +150,7 @@ struct DashboardStateTests {
         let installedURL = directory
             .appendingPathComponent("ApplicationSupport", isDirectory: true)
             .appendingPathComponent("dashboard-state.json")
-        let state = DashboardState(snapshotURL: installedURL)
+        let state = DashboardState(snapshotURL: installedURL, liveClient: nil)
 
         try Data(
             localFixture(verification: "verified", queueTitle: "First version").utf8
@@ -175,7 +175,7 @@ struct DashboardStateTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let sourceURL = directory.appendingPathComponent("source.json")
         let installedURL = directory.appendingPathComponent("dashboard-state.json")
-        let state = DashboardState(snapshotURL: installedURL)
+        let state = DashboardState(snapshotURL: installedURL, liveClient: nil)
 
         try Data(
             localFixture(verification: "verified", queueTitle: "Accepted version").utf8
@@ -235,9 +235,9 @@ struct DashboardStateTests {
         )
         defer { try? FileManager.default.removeItem(at: fixtureURL.deletingLastPathComponent()) }
 
-        let state = DashboardState(snapshotURL: fixtureURL)
+        let state = DashboardState(snapshotURL: fixtureURL, liveClient: nil)
 
-        #expect(state.snapshot == .sample)
+        #expect(state.snapshot == .emptyLocal)
     }
 
     @Test("Invalid or unpaired progress evidence fails closed")
@@ -247,9 +247,9 @@ struct DashboardStateTests {
         let fixtureURL = try makeFixture(contents: invalid)
         defer { try? FileManager.default.removeItem(at: fixtureURL.deletingLastPathComponent()) }
 
-        let state = DashboardState(snapshotURL: fixtureURL)
+        let state = DashboardState(snapshotURL: fixtureURL, liveClient: nil)
 
-        #expect(state.snapshot == .sample)
+        #expect(state.snapshot == .emptyLocal)
     }
 
     @Test("Window opens frontmost, unpins, closes, and reopens as the same retained window")
@@ -257,7 +257,8 @@ struct DashboardStateTests {
         _ = NSApplication.shared
         let state = DashboardState(
             snapshotURL: missingFixtureURL(),
-            initialPinned: true
+            initialPinned: true,
+            liveClient: nil
         )
         let controller = DashboardWindowController(state: state, activatesApplication: false)
 
