@@ -27,6 +27,12 @@ and after the turn, the selected-window dimensions, accepted event count,
 normalizer model, and the module result. A refusal remains visible at the stage
 that rejected it instead of being flattened into a generic chat error.
 
+For the Relative XY recorder, **Give floor** is the single start action. It
+grants the module floor, starts selected-window recording, and starts on-device
+voice together. If either recording or voice cannot start, the host revokes the
+floor and leaves the dashboard in control; the user does not need to recover
+from a half-started recorder.
+
 The normalization boundary is deliberately narrow:
 
 - the transcript and recorder question are JSON-encoded as untrusted data;
