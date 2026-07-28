@@ -148,10 +148,21 @@ struct QueueRaceBoard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let records: [QueueRecord]
     let metrics: DashboardLayoutMetrics
+    @Binding var isCollapsed: Bool
 
     @State private var sort: QueueRaceSort = .recentlyActive
     @State private var expandedRecordID: String?
     @State private var hoveredRecordID: String?
+
+    init(
+        records: [QueueRecord],
+        metrics: DashboardLayoutMetrics,
+        isCollapsed: Binding<Bool> = .constant(false)
+    ) {
+        self.records = records
+        self.metrics = metrics
+        _isCollapsed = isCollapsed
+    }
 
     private var sortedRecords: [QueueRecord] {
         QueueRaceSorter.sorted(records, by: sort)
@@ -169,69 +180,86 @@ struct QueueRaceBoard: View {
                         .foregroundStyle(.tertiary)
                 }
                 Spacer(minLength: 8)
-                Picker("Sort work races", selection: $sort) {
-                    ForEach(QueueRaceSort.allCases) { option in
-                        Label(option.label, systemImage: option.systemImage)
-                            .tag(option)
+                if !isCollapsed {
+                    Picker("Sort work races", selection: $sort) {
+                        ForEach(QueueRaceSort.allCases) { option in
+                            Label(option.label, systemImage: option.systemImage)
+                                .tag(option)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .labelsHidden()
+                    .accessibilityLabel("Sort work races")
                 }
-                .pickerStyle(.menu)
-                .controlSize(.small)
-                .labelsHidden()
-                .accessibilityLabel("Sort work races")
+                Button {
+                    isCollapsed.toggle()
+                } label: {
+                    Image(
+                        systemName: isCollapsed
+                            ? "chevron.right"
+                            : "chevron.down"
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    "\(isCollapsed ? "Expand" : "Collapse") Work Races"
+                )
             }
             .padding(.horizontal, metrics.recordPadding)
             .padding(.vertical, 7)
 
-            Divider()
+            if !isCollapsed {
+                Divider()
 
-            if sortedRecords.isEmpty {
-                ContentUnavailableView(
-                    "No active work lanes",
-                    systemImage: "flag.checkered",
-                    description: Text("No verified running, queued, waiting, or ready work was supplied.")
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-            } else {
-                HStack {
-                    Text("0% · START")
-                    Spacer()
-                    Text("Steps added can move a task backward")
-                    Spacer()
-                    Text("FINISH · 100%")
-                }
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, metrics.recordPadding)
-                .padding(.vertical, 6)
-
-                VStack(spacing: 0) {
-                    ForEach(Array(sortedRecords.enumerated()), id: \.element.id) { rank, record in
-                        QueueRaceLane(
-                            record: record,
-                            rank: rank + 1,
-                            metrics: metrics,
-                            isExpanded: expandedRecordID == record.id,
-                            isHovered: hoveredRecordID == record.id,
-                            onToggleExpanded: {
-                                withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) {
-                                    expandedRecordID =
-                                        expandedRecordID == record.id ? nil : record.id
-                                }
-                            },
-                            onHover: { hovering in
-                                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
-                                    hoveredRecordID = hovering ? record.id : nil
-                                }
-                            }
-                        )
+                if sortedRecords.isEmpty {
+                    ContentUnavailableView(
+                        "No active work lanes",
+                        systemImage: "flag.checkered",
+                        description: Text("No verified running, queued, waiting, or ready work was supplied.")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                } else {
+                    HStack {
+                        Text("0% · START")
+                        Spacer()
+                        Text("Steps added can move a task backward")
+                        Spacer()
+                        Text("FINISH · 100%")
                     }
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, metrics.recordPadding)
+                    .padding(.vertical, 6)
+
+                    VStack(spacing: 0) {
+                        ForEach(Array(sortedRecords.enumerated()), id: \.element.id) { rank, record in
+                            QueueRaceLane(
+                                record: record,
+                                rank: rank + 1,
+                                metrics: metrics,
+                                isExpanded: expandedRecordID == record.id,
+                                isHovered: hoveredRecordID == record.id,
+                                onToggleExpanded: {
+                                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) {
+                                        expandedRecordID =
+                                            expandedRecordID == record.id ? nil : record.id
+                                    }
+                                },
+                                onHover: { hovering in
+                                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+                                        hoveredRecordID = hovering ? record.id : nil
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    .animation(
+                        reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.86),
+                        value: sortedRecords.map(\.id)
+                    )
                 }
-                .animation(
-                    reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.86),
-                    value: sortedRecords.map(\.id)
-                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)

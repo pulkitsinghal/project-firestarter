@@ -10,11 +10,14 @@ struct DashboardLaunchConfiguration: Equatable {
         "--synthetic-conversation-ui-test"
     static let geometryConversationUITestArgument =
         "--geometry-conversation-ui-test"
+    static let recorderNormalizerUITestArgument =
+        "--recorder-normalizer-ui-test"
     static let compactUITestArgument = "--compact-ui-test"
 
     let isBackgroundUITest: Bool
     let usesSyntheticConversationFixture: Bool
     let usesGeometryConversationFixture: Bool
+    let usesRecorderNormalizerFixture: Bool
     let usesCompactTestFrame: Bool
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
@@ -25,6 +28,9 @@ struct DashboardLaunchConfiguration: Equatable {
         usesGeometryConversationFixture =
             isBackgroundUITest
             && arguments.contains(Self.geometryConversationUITestArgument)
+        usesRecorderNormalizerFixture =
+            isBackgroundUITest
+            && arguments.contains(Self.recorderNormalizerUITestArgument)
         usesCompactTestFrame =
             isBackgroundUITest
             && arguments.contains(Self.compactUITestArgument)
@@ -33,7 +39,7 @@ struct DashboardLaunchConfiguration: Equatable {
     var initialPinned: Bool { false }
     var activatesApplication: Bool { !isBackgroundUITest }
     var foregroundsWindow: Bool { !isBackgroundUITest }
-    var joinsAllSpaces: Bool { !isBackgroundUITest }
+    var joinsAllSpaces: Bool { false }
     var usesSavedFrame: Bool { !isBackgroundUITest }
     var initialWindowSize: CGSize {
         usesCompactTestFrame
@@ -41,6 +47,9 @@ struct DashboardLaunchConfiguration: Equatable {
             : DashboardLayoutMetrics.defaultWindowSize
     }
     var conversationFixtureModuleID: String? {
+        if usesRecorderNormalizerFixture {
+            return ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
+        }
         if usesGeometryConversationFixture {
             return ConversationModuleAllowlist.geometryRecorderManifest.moduleID
         }
@@ -65,7 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         usesSavedFrame: launchConfiguration.usesSavedFrame,
         initialWindowSize: launchConfiguration.initialWindowSize,
         conversationFixtureModuleID:
-            launchConfiguration.conversationFixtureModuleID
+            launchConfiguration.conversationFixtureModuleID,
+        conversationFixtureUsesRecorderNormalizer:
+            launchConfiguration.usesRecorderNormalizerFixture
     )
 
     private override init() {
@@ -235,15 +246,17 @@ final class DashboardWindowController {
     private let usesSavedFrame: Bool
     private let initialWindowSize: CGSize
     private let conversationFixtureModuleID: String?
+    private let conversationFixtureUsesRecorderNormalizer: Bool
 
     init(
         state: DashboardState,
         activatesApplication: Bool = true,
         foregroundsWindow: Bool = true,
-        joinsAllSpaces: Bool = true,
+        joinsAllSpaces: Bool = false,
         usesSavedFrame: Bool = true,
         initialWindowSize: CGSize = DashboardLayoutMetrics.defaultWindowSize,
-        conversationFixtureModuleID: String? = nil
+        conversationFixtureModuleID: String? = nil,
+        conversationFixtureUsesRecorderNormalizer: Bool = false
     ) {
         self.state = state
         self.activatesApplication = activatesApplication
@@ -252,6 +265,8 @@ final class DashboardWindowController {
         self.usesSavedFrame = usesSavedFrame
         self.initialWindowSize = initialWindowSize
         self.conversationFixtureModuleID = conversationFixtureModuleID
+        self.conversationFixtureUsesRecorderNormalizer =
+            conversationFixtureUsesRecorderNormalizer
     }
 
     @discardableResult
@@ -300,7 +315,9 @@ final class DashboardWindowController {
         panel.contentView = NSHostingView(
             rootView: DashboardView(
                 state: state,
-                conversationFixtureModuleID: conversationFixtureModuleID
+                conversationFixtureModuleID: conversationFixtureModuleID,
+                conversationFixtureUsesRecorderNormalizer:
+                    conversationFixtureUsesRecorderNormalizer
             )
         )
         state.onPinnedChange = { [weak panel] isPinned in
@@ -402,15 +419,31 @@ private struct DashboardView: View {
     @StateObject private var state: DashboardState
     @StateObject private var chat: RouterChatSession
     @State private var didPrepareConversationFixture = false
+    @AppStorage("OperationsFloater.GuideCollapsedV1")
+    private var guideCollapsed = false
+    @AppStorage("OperationsFloater.AssistantCollapsedV1")
+    private var assistantCollapsed = false
+    @AppStorage("OperationsFloater.ResourcesCollapsedV1")
+    private var resourcesCollapsed = false
+    @AppStorage("OperationsFloater.RacesCollapsedV1")
+    private var racesCollapsed = false
+    @AppStorage("OperationsFloater.TestsCollapsedV1")
+    private var testsCollapsed = false
+    @AppStorage("OperationsFloater.SignalsCollapsedV1")
+    private var signalsCollapsed = false
     private let conversationFixtureModuleID: String?
+    private let conversationFixtureUsesRecorderNormalizer: Bool
 
     init(
         state: DashboardState,
-        conversationFixtureModuleID: String? = nil
+        conversationFixtureModuleID: String? = nil,
+        conversationFixtureUsesRecorderNormalizer: Bool = false
     ) {
         _state = StateObject(wrappedValue: state)
         _chat = StateObject(wrappedValue: RouterChatSession())
         self.conversationFixtureModuleID = conversationFixtureModuleID
+        self.conversationFixtureUsesRecorderNormalizer =
+            conversationFixtureUsesRecorderNormalizer
     }
 
     var body: some View {
@@ -422,9 +455,17 @@ private struct DashboardView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
                         guideStrip(metrics: metrics)
-                        RouterChatPanel(session: chat, metrics: metrics)
+                        RouterChatPanel(
+                            session: chat,
+                            metrics: metrics,
+                            isCollapsed: $assistantCollapsed
+                        )
                         resourceBudgetPanel(metrics: metrics)
-                        QueueRaceBoard(records: state.snapshot.queue, metrics: metrics)
+                        QueueRaceBoard(
+                            records: state.snapshot.queue,
+                            metrics: metrics,
+                            isCollapsed: $racesCollapsed
+                        )
                         supportingGrid(metrics: metrics)
                     }
                     .padding(metrics.contentPadding)
@@ -444,10 +485,13 @@ private struct DashboardView: View {
             }
             didPrepareConversationFixture = true
             await chat.prepareSyntheticConversationUITest(
-                moduleID: conversationFixtureModuleID
+                moduleID: conversationFixtureModuleID,
+                usesNaturalRecorderNormalization:
+                    conversationFixtureUsesRecorderNormalizer
             )
         }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
+            guard hasActiveSnapshotConsumers else { return }
             Task {
                 await state.refreshPreferredSource()
             }
@@ -475,34 +519,48 @@ private struct DashboardView: View {
     private func guideStrip(metrics: DashboardLayoutMetrics) -> some View {
         let cue = state.snapshot.guideCue
         return VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 12) {
-                AnimatedGuideAvatar(cue: cue)
-                    .frame(width: metrics.guideSize, height: metrics.guideSize)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(cue.title)
-                        .font(.headline)
-                    Text(cue.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("Local procedural guide")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(guideAccent(for: cue.activity))
-                }
+            HStack {
+                Text("LOCAL PROCEDURAL GUIDE")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                collapseButton(
+                    title: "Local procedural guide",
+                    isCollapsed: $guideCollapsed
+                )
             }
 
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(minimum: 52), spacing: 7),
-                    count: 4
-                ),
-                spacing: 7
-            ) {
-                compactMetric(state.itemCount(for: .running), "running", .blue)
-                compactMetric(state.itemCount(for: .queued), "queued", .orange)
-                compactMetric(state.itemCount(for: .waiting), "waiting", .purple)
-                compactMetric(state.itemCount(for: .ready), "ready", .green)
+            if !guideCollapsed {
+                Divider()
+                HStack(spacing: 12) {
+                    AnimatedGuideAvatar(cue: cue)
+                        .frame(width: metrics.guideSize, height: metrics.guideSize)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(cue.title)
+                            .font(.headline)
+                        Text(cue.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Local procedural guide")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(guideAccent(for: cue.activity))
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.flexible(minimum: 52), spacing: 7),
+                        count: 4
+                    ),
+                    spacing: 7
+                ) {
+                    compactMetric(state.itemCount(for: .running), "running", .blue)
+                    compactMetric(state.itemCount(for: .queued), "queued", .orange)
+                    compactMetric(state.itemCount(for: .waiting), "waiting", .purple)
+                    compactMetric(state.itemCount(for: .ready), "ready", .green)
+                }
             }
         }
         .padding(11)
@@ -535,6 +593,7 @@ private struct DashboardView: View {
         dashboardPanel(
             title: "Resource budget",
             subtitle: "Scheduling evidence",
+            isCollapsed: $resourcesCollapsed,
             metrics: metrics
         ) {
             LazyVGrid(
@@ -564,6 +623,7 @@ private struct DashboardView: View {
             dashboardPanel(
                 title: "Tests and quality",
                 subtitle: "\(state.snapshot.tests.count) records",
+                isCollapsed: $testsCollapsed,
                 metrics: metrics
             ) {
                 VStack(spacing: 0) {
@@ -582,6 +642,7 @@ private struct DashboardView: View {
             dashboardPanel(
                 title: "Signals",
                 subtitle: "\(state.snapshot.signals.count) records",
+                isCollapsed: $signalsCollapsed,
                 metrics: metrics
             ) {
                 VStack(spacing: 0) {
@@ -613,6 +674,7 @@ private struct DashboardView: View {
     private func dashboardPanel<Content: View>(
         title: String,
         subtitle: String,
+        isCollapsed: Binding<Bool>,
         metrics: DashboardLayoutMetrics,
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -625,11 +687,14 @@ private struct DashboardView: View {
                 Text(subtitle)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                collapseButton(title: title, isCollapsed: isCollapsed)
             }
             .padding(.horizontal, metrics.recordPadding)
             .padding(.vertical, 7)
-            Divider()
-            content()
+            if !isCollapsed.wrappedValue {
+                Divider()
+                content()
+            }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 11))
@@ -690,6 +755,51 @@ private struct DashboardView: View {
         }
     }
 
+    private var hasActiveSnapshotConsumers: Bool {
+        DashboardPanelActivity.shouldRefreshSnapshot(
+            guideCollapsed: guideCollapsed,
+            resourcesCollapsed: resourcesCollapsed,
+            racesCollapsed: racesCollapsed,
+            testsCollapsed: testsCollapsed,
+            signalsCollapsed: signalsCollapsed
+        )
+    }
+
+    private func collapseButton(
+        title: String,
+        isCollapsed: Binding<Bool>
+    ) -> some View {
+        Button {
+            isCollapsed.wrappedValue.toggle()
+        } label: {
+            Image(
+                systemName: isCollapsed.wrappedValue
+                    ? "chevron.right"
+                    : "chevron.down"
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            "\(isCollapsed.wrappedValue ? "Expand" : "Collapse") \(title)"
+        )
+    }
+
+}
+
+enum DashboardPanelActivity {
+    static func shouldRefreshSnapshot(
+        guideCollapsed: Bool,
+        resourcesCollapsed: Bool,
+        racesCollapsed: Bool,
+        testsCollapsed: Bool,
+        signalsCollapsed: Bool
+    ) -> Bool {
+        !guideCollapsed
+            || !resourcesCollapsed
+            || !racesCollapsed
+            || !testsCollapsed
+            || !signalsCollapsed
+    }
 }
 
 /// A procedural, non-personal avatar. No image asset, camera, microphone, or

@@ -295,6 +295,27 @@ struct ConversationModuleTests {
         #expect(fixture.window?.bindingID == "verbal-orders.synthetic.geometry-canvas")
     }
 
+    @Test("Relative XY UI fixture is explicit, bounded, and test-only")
+    @MainActor
+    func relativeXYFixtureIsClosedAndValid() throws {
+        let manifest = ConversationModuleAllowlist.relativeXYRecorderManifest
+        let productionFallback = RouterChatSession.syntheticFixtureInput(for: manifest)
+        let fixture = RouterChatSession.syntheticFixtureInput(
+            for: manifest,
+            includeRelativeXY: true
+        )
+
+        #expect(productionFallback.events.isEmpty)
+        #expect(productionFallback.window == nil)
+        #expect(fixture.events.count == 1)
+        #expect(fixture.events.first?.kind == .normalizedPointer)
+        #expect(fixture.events.first?.normalizedX == 0.2)
+        #expect(fixture.events.first?.normalizedY == 0.3)
+        #expect(fixture.window?.bindingID == "verbal-orders.neutral.selected-window")
+        #expect(fixture.window?.width == 935)
+        #expect(fixture.window?.height == 598)
+    }
+
     @Test("Unknown response and nested health fields fail closed")
     func strictUnknownFields() throws {
         let health = ConversationModuleHealth(
