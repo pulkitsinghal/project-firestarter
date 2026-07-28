@@ -71,6 +71,36 @@ struct NeutralGeometryCaptureTests {
         #expect(event.elapsedMilliseconds == 234)
         #expect(event.navigationKey == nil)
         #expect(event.placeholder == nil)
+
+        let echo = NeutralGeometryEventEcho.make(event, ordinal: 1)
+        #expect(echo.event == "Key down")
+        #expect(echo.detail.contains("Space"))
+        #expect(echo.detail.contains("code=49"))
+        #expect(!echo.detail.lowercased().contains("character"))
+    }
+
+    @Test("Pointer echo reports relative coordinates and elapsed time")
+    @MainActor
+    func echoesPointerGeometry() throws {
+        let event = try #require(
+            NeutralGeometryCaptureSession.makeEvent(
+                from: NeutralGeometryRawEvent(
+                    kind: .pointer(.down, 0),
+                    location: CGPoint(x: 300, y: 275),
+                    timestampNanoseconds: 100
+                ),
+                bounds: bounds,
+                pointerIsTopmost: true,
+                keyWindowIsActive: false,
+                elapsedMilliseconds: 1_240
+            )
+        )
+
+        let echo = NeutralGeometryEventEcho.make(event, ordinal: 2)
+        #expect(echo.elapsed == "+1.240s")
+        #expect(echo.event == "Mouse down")
+        #expect(echo.detail.contains("x=0.500"))
+        #expect(echo.detail.contains("y=0.250"))
     }
 
     @Test("Keys from any other active window are ignored")

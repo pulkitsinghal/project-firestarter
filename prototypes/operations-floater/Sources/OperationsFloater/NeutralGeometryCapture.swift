@@ -327,6 +327,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
     func accept(
         _ snapshot: NeutralGeometryCaptureSnapshot,
         narration: String,
+        commands: [RecorderNormalizedCommand] = [],
         response: ConversationModuleResponse
     ) {
         deliveredEventCount = capturedEvents.count
@@ -334,11 +335,15 @@ final class NeutralGeometryCaptureSession: ObservableObject {
             .lowercased()
             .split(whereSeparator: { !$0.isLetter })
             .map(String.init)
-        if response.state == .completed || words == ["stop", "recording"] {
+        let commandKinds = Set(commands.map(\.kind))
+        if response.state == .completed
+            || words == ["stop", "recording"]
+            || commandKinds.contains(.stop) {
             stop()
-        } else if words == ["pause", "recording"] {
+        } else if words == ["pause", "recording"] || commandKinds.contains(.pause) {
             pause()
-        } else if words == ["resume", "recording"], mode == .paused {
+        } else if (words == ["resume", "recording"] || commandKinds.contains(.resume)),
+                  mode == .paused {
             resume()
         }
         lastError = nil
@@ -579,6 +584,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
             eventID: nextEventID(),
             elapsedMilliseconds: elapsed
         ) else {
+            droppedEventCount += 1
             return
         }
         append(event)
@@ -654,6 +660,89 @@ final class NeutralGeometryCaptureSession: ObservableObject {
                 elapsedMilliseconds: event.elapsedMilliseconds,
                 placeholder: event.placeholder
             )
+        }
+    }
+}
+
+struct NeutralGeometryEventEcho: Identifiable, Equatable, Sendable {
+    let id: String
+    let elapsed: String
+    let event: String
+    let detail: String
+
+    static func make(
+        _ event: ConversationModuleEvent,
+        ordinal: Int
+    ) -> NeutralGeometryEventEcho {
+        let elapsed = String(
+            format: "+%.3fs",
+            Double(event.elapsedMilliseconds ?? 0) / 1_000
+        )
+        switch event.kind {
+        case .normalizedPointer:
+            return .init(
+                id: event.eventID,
+                elapsed: elapsed,
+                event: "Mouse \(event.pointerPhase?.rawValue ?? "event")",
+                detail: String(
+                    format: "x=%.3f, y=%.3f · button=%d",
+                    event.normalizedX ?? 0,
+                    event.normalizedY ?? 0,
+                    event.buttonNumber ?? 0
+                )
+            )
+        case .scroll:
+            return .init(
+                id: event.eventID,
+                elapsed: elapsed,
+                event: "Scroll",
+                detail: String(
+                    format: "x=%.3f, y=%.3f · Δx=%.1f, Δy=%.1f",
+                    event.normalizedX ?? 0,
+                    event.normalizedY ?? 0,
+                    event.scrollDeltaX ?? 0,
+                    event.scrollDeltaY ?? 0
+                )
+            )
+        case .rawKeyboard:
+            let keyCode = event.keyCode ?? -1
+            return .init(
+                id: event.eventID,
+                elapsed: elapsed,
+                event: "Key \(event.keyPhase?.rawValue ?? "event")",
+                detail:
+                    "\(keyLabel(keyCode)) · code=\(keyCode) · "
+                    + String(format: "modifiers=0x%llx", event.modifierFlags ?? 0)
+            )
+        case .navigationKey:
+            return .init(
+                id: event.eventID,
+                elapsed: elapsed,
+                event: "Navigation key",
+                detail: event.navigationKey?.rawValue ?? "unknown"
+            )
+        case .placeholder:
+            return .init(
+                id: event.eventID,
+                elapsed: elapsed,
+                event: "Excluded",
+                detail: "Placeholder events are not accepted by this recorder."
+            )
+        }
+    }
+
+    private static func keyLabel(_ keyCode: Int) -> String {
+        switch keyCode {
+        case 36: "Return"
+        case 48: "Tab"
+        case 49: "Space"
+        case 51: "Delete"
+        case 53: "Escape"
+        case 123: "Left arrow"
+        case 124: "Right arrow"
+        case 125: "Down arrow"
+        case 126: "Up arrow"
+        default: "Printable/non-navigation key"
         }
     }
 }
@@ -750,6 +839,58 @@ struct NeutralGeometryCapturePanel: View {
             )
             .font(.system(size: 9))
             .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("CAPTURED EVENTS")
+                        .font(.system(size: 8, weight: .bold))
+                    Spacer()
+                    Text(
+                        "\(capture.capturedEvents.count) captured · "
+                            + "\(capture.deliveredEventCount) accepted · "
+                            + "\(capture.droppedEventCount) excluded"
+                    )
+                    .font(.system(size: 8).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+                if capture.capturedEvents.isEmpty {
+                    Text("No input events captured yet.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(
+                        Array(capture.capturedEvents.suffix(10).enumerated()),
+                        id: \.element.eventID
+                    ) { offset, event in
+                        let ordinal =
+                            max(0, capture.capturedEvents.count - 10) + offset + 1
+                        let echo = NeutralGeometryEventEcho.make(
+                            event,
+                            ordinal: ordinal
+                        )
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Text(echo.elapsed)
+                                .frame(width: 48, alignment: .trailing)
+                            Text(echo.event)
+                                .frame(width: 78, alignment: .leading)
+                            Text(echo.detail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(
+                            "Event \(ordinal), \(echo.elapsed), "
+                                + "\(echo.event), \(echo.detail)"
+                        )
+                    }
+                }
+                Text("Replay disabled · printable characters are not reconstructed")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(.orange)
+            }
+            .padding(6)
+            .background(.quinary, in: RoundedRectangle(cornerRadius: 6))
 
             if let error = capture.lastError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")

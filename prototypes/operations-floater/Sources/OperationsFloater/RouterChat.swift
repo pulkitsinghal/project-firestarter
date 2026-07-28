@@ -204,7 +204,7 @@ protocol RouterChatTransport: Sendable {
     func critique(userMessage: String, assistantReply: String) async throws -> RouterChatCritique
 }
 
-struct RouterChatClient: RouterChatTransport {
+struct RouterChatClient: RouterChatTransport, RecorderNarrationNormalizing {
     enum ClientError: LocalizedError, Equatable {
         case invalidResponse
         case emptyResponse
@@ -232,11 +232,13 @@ struct RouterChatClient: RouterChatTransport {
         string: "http://127.0.0.1:11500/v1/chat/completions"
     )!
     static let modelsURL = URL(string: "http://127.0.0.1:11500/v1/models")!
+    static let metricsURL = URL(string: "http://127.0.0.1:11500/metrics")!
     static let maximumResponseBytes = 1_048_576
     static let maximumReplyCharacters = 32_000
     static let maximumModelLabelCharacters = RouterResponder.maximumLabelCharacters
     static let maximumProviderLabelCharacters = RouterResponder.maximumLabelCharacters
     static let maximumCritiqueBytes = 32_768
+    static let recorderNormalizerModel = "qwen2.5:32b"
 
     private final class LoopbackSessionDelegate: NSObject, URLSessionTaskDelegate,
         @unchecked Sendable
@@ -303,6 +305,77 @@ struct RouterChatClient: RouterChatTransport {
         )
         let (data, response) = try await session.data(for: request)
         return try Self.decodeCritique(data: data, response: response)
+    }
+
+    func normalizeRecorderNarration(
+        _ input: RecorderNormalizationInput
+    ) async throws -> RecorderNormalizationResult {
+        guard await hasResidentRecorderNormalizer() else {
+            throw RecorderNormalizationError.nonLocalResponder
+        }
+        let request = try Self.makeRequest(
+            model: Self.recorderNormalizerModel,
+            messages: [
+                CompletionRequest.Message(
+                    role: "system",
+                    content: RecorderNormalizationCodec.systemPrompt()
+                ),
+                CompletionRequest.Message(
+                    role: "user",
+                    content: try RecorderNormalizationCodec.userPayload(input)
+                ),
+            ]
+        )
+        let (data, response) = try await session.data(for: request)
+        let decoded = try Self.decodeRecorderNormalizationReply(
+            data: data,
+            response: response
+        )
+        return RecorderNormalizationResult(
+            batch: try RecorderNormalizationCodec.decodeBatch(decoded.text),
+            model: decoded.model
+        )
+    }
+
+    private func hasResidentRecorderNormalizer() async -> Bool {
+        var request = URLRequest(url: Self.metricsURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 2
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("operations-floater", forHTTPHeaderField: "X-Client-App")
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  data.count <= 1_048_576,
+                  let metrics = try? JSONDecoder().decode(
+                      RecorderRouterMetrics.self,
+                      from: data
+                  ) else {
+                return false
+            }
+            return metrics.ollama.resident.contains {
+                $0.name == Self.recorderNormalizerModel
+            }
+        } catch {
+            return false
+        }
+    }
+
+    private static func decodeRecorderNormalizationReply(
+        data: Data,
+        response: URLResponse
+    ) throws -> (text: String, model: String) {
+        guard let response = response as? HTTPURLResponse,
+              (200..<300).contains(response.statusCode),
+              data.count <= maximumCritiqueBytes,
+              let envelope = try? JSONDecoder().decode(CompletionResponse.self, from: data),
+              envelope.model == recorderNormalizerModel,
+              let text = envelope.choices.first?.message.content
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            throw RecorderNormalizationError.invalidResponse
+        }
+        return (text, recorderNormalizerModel)
     }
 
     static func makeCompletionRequest(messages: [RouterChatMessage]) throws -> URLRequest {
@@ -516,6 +589,18 @@ struct RouterChatClient: RouterChatTransport {
         }
     }
 
+    private struct RecorderRouterMetrics: Decodable {
+        struct Ollama: Decodable {
+            struct Resident: Decodable {
+                let name: String
+            }
+
+            let resident: [Resident]
+        }
+
+        let ollama: Ollama
+    }
+
     private struct CritiquePayload: Decodable {
         let verdict: RouterChatCritique.Verdict
         let problem: String
@@ -557,6 +642,7 @@ final class RouterChatSession: ObservableObject {
     @Published private(set) var modelLabel = "auto"
     @Published private(set) var critiques: [UUID: RouterChatCritique] = [:]
     @Published private(set) var reviewingMessageIDs: Set<UUID> = []
+    @Published private(set) var recorderTrace = RecorderPipelineTrace.idle
 
     let modules: ConversationModuleHostSession
     let geometryCapture: NeutralGeometryCaptureSession
@@ -565,21 +651,25 @@ final class RouterChatSession: ObservableObject {
     var onConversationControlChanged: (() -> Void)?
 
     private let transport: any RouterChatTransport
+    private let recorderNormalizer: any RecorderNarrationNormalizing
     private var sendTask: Task<Void, Never>?
     private var reviewTasks: [UUID: Task<Void, Never>] = [:]
     private var moduleObservation: AnyCancellable?
     private var geometryCaptureObservation: AnyCancellable?
     private var moduleContextFloorToken: String?
     private var moduleContextTurns: [ConversationModuleContextTurn] = []
+    private var allowsRelativeXYTestFixture = false
     private var pendingVoiceMessageID: UUID?
 
     init(
         transport: any RouterChatTransport = RouterChatClient(),
+        recorderNormalizer: any RecorderNarrationNormalizing = RouterChatClient(),
         modules: ConversationModuleHostSession = ConversationModuleHostSession(),
         geometryCapture: NeutralGeometryCaptureSession =
             NeutralGeometryCaptureSession()
     ) {
         self.transport = transport
+        self.recorderNormalizer = recorderNormalizer
         self.modules = modules
         self.geometryCapture = geometryCapture
         moduleObservation = modules.objectWillChange.sink { [weak self] _ in
@@ -621,6 +711,10 @@ final class RouterChatSession: ObservableObject {
         modelLabel = "auto"
     }
 
+    func suspendForCollapsedPanel() {
+        disable()
+    }
+
     func refreshAvailability() async {
         guard isEnabled else {
             availability = .disabled
@@ -635,7 +729,10 @@ final class RouterChatSession: ObservableObject {
         availability = routerIsAvailable ? .online : .offline
     }
 
-    func prepareSyntheticConversationUITest(moduleID: String) async {
+    func prepareSyntheticConversationUITest(
+        moduleID: String,
+        usesNaturalRecorderNormalization: Bool = false
+    ) async {
         guard !isEnabled else { return }
         isEnabled = true
         availability = .offline
@@ -645,12 +742,19 @@ final class RouterChatSession: ObservableObject {
         modules.selectedModuleID = moduleID
         await modules.grantSelectedFloor()
         guard modules.activeFloor != nil else { return }
+        allowsRelativeXYTestFixture = usesNaturalRecorderNormalization
         send(
-            text: moduleID
-                == ConversationModuleAllowlist.geometryRecorderManifest.moduleID
-                ? "Synthetic geometry narration"
-                : "Synthetic conversation fixture",
-            transcriptProvider: .syntheticFixture
+            text: usesNaturalRecorderNormalization
+                ? "The label for this is YEAR and I am right now on the top left."
+                : (
+                    moduleID
+                        == ConversationModuleAllowlist.geometryRecorderManifest.moduleID
+                        ? "Synthetic geometry narration"
+                        : "Synthetic conversation fixture"
+                ),
+            transcriptProvider: usesNaturalRecorderNormalization
+                ? .onDevice
+                : .syntheticFixture
         )
         for _ in 0..<100 where isSending {
             try? await Task.sleep(for: .milliseconds(10))
@@ -735,24 +839,77 @@ final class RouterChatSession: ObservableObject {
         if modules.activeFloor != nil {
             sendTask = Task { [weak self] in
                 guard let self else { return }
+                let isRelativeXY =
+                    modules.activeManifest?.moduleID
+                        == ConversationModuleAllowlist
+                            .relativeXYRecorderManifest.moduleID
                 do {
                     let floorToken = modules.activeFloor?.token
                     if moduleContextFloorToken != floorToken {
                         moduleContextFloorToken = floorToken
                         moduleContextTurns = []
                     }
-                    let isRelativeXY =
-                        modules.activeManifest?.moduleID
-                            == ConversationModuleAllowlist
-                                .relativeXYRecorderManifest.moduleID
                     let captureSnapshot = try isRelativeXY
+                        && !allowsRelativeXYTestFixture
                         ? geometryCapture.snapshot()
                         : nil
                     let fixture = captureSnapshot.map {
                         (events: $0.events, window: Optional($0.window))
-                    } ?? Self.syntheticFixtureInput(for: modules.activeManifest)
+                    } ?? Self.syntheticFixtureInput(
+                        for: modules.activeManifest,
+                        includeRelativeXY: allowsRelativeXYTestFixture
+                    )
+                    var moduleNarration = text
+                    var normalizedCommands: [RecorderNormalizedCommand] = []
+                    if isRelativeXY, transcriptProvider == .onDevice {
+                        recorderTrace = RecorderPipelineTrace(
+                            transcript: text,
+                            transcriptProvider: transcriptProvider.rawValue,
+                            normalizerModel: RouterChatClient.recorderNormalizerModel,
+                            commands: [],
+                            captureStateBefore: geometryCapture.mode.displayName,
+                            recorderStateAfter: "pending",
+                            windowDescription: fixture.window.map {
+                                "\($0.width)×\($0.height)"
+                            } ?? "No selected window",
+                            eventCount: fixture.events.count,
+                            outcome: .normalizing,
+                            detail: "Normalizing untrusted speech into the closed command schema.",
+                            updatedAt: Date()
+                        )
+                        let result = try await recorderNormalizer.normalizeRecorderNarration(
+                            RecorderNormalizationInput(
+                                transcript: text,
+                                captureMode: geometryCapture.mode.displayName,
+                                windowWidth: fixture.window?.width,
+                                windowHeight: fixture.window?.height,
+                                moduleQuestion: moduleContextTurns.last(where: {
+                                    $0.role == .module
+                                })?.text
+                            )
+                        )
+                        try Task.checkCancellation()
+                        availability = .online
+                        normalizedCommands = result.batch.commands
+                        moduleNarration = try result.batch.encodedNarration()
+                        recorderTrace = RecorderPipelineTrace(
+                            transcript: text,
+                            transcriptProvider: transcriptProvider.rawValue,
+                            normalizerModel: result.model,
+                            commands: normalizedCommands.map(\.displayText),
+                            captureStateBefore: geometryCapture.mode.displayName,
+                            recorderStateAfter: "submitting",
+                            windowDescription: fixture.window.map {
+                                "\($0.width)×\($0.height)"
+                            } ?? "No selected window",
+                            eventCount: fixture.events.count,
+                            outcome: .submitting,
+                            detail: "Closed commands validated locally; submitting to the recorder.",
+                            updatedAt: Date()
+                        )
+                    }
                     let reply = try await modules.submit(
-                        narration: text,
+                        narration: moduleNarration,
                         transcriptProvider: transcriptProvider,
                         context: Self.boundedModuleContext(moduleContextTurns),
                         events: fixture.events,
@@ -762,8 +919,26 @@ final class RouterChatSession: ObservableObject {
                     if let captureSnapshot {
                         geometryCapture.accept(
                             captureSnapshot,
-                            narration: text,
+                            narration: moduleNarration,
+                            commands: normalizedCommands,
                             response: reply
+                        )
+                    }
+                    if isRelativeXY {
+                        recorderTrace = RecorderPipelineTrace(
+                            transcript: text,
+                            transcriptProvider: transcriptProvider.rawValue,
+                            normalizerModel: recorderTrace.normalizerModel,
+                            commands: normalizedCommands.map(\.displayText),
+                            captureStateBefore: recorderTrace.captureStateBefore,
+                            recorderStateAfter: reply.state.rawValue,
+                            windowDescription: recorderTrace.windowDescription,
+                            eventCount: fixture.events.count,
+                            outcome: .accepted,
+                            detail: reply.question
+                                ?? reply.reply
+                                ?? "Recorder accepted the closed turn.",
+                            updatedAt: Date()
                         )
                     }
                     let responseText = Self.moduleResponseText(reply)
@@ -800,6 +975,21 @@ final class RouterChatSession: ObservableObject {
                     discardPendingVoiceTranscript()
                     clearModuleContext()
                     lastError = error.localizedDescription
+                    if isRelativeXY {
+                        recorderTrace = RecorderPipelineTrace(
+                            transcript: text,
+                            transcriptProvider: transcriptProvider.rawValue,
+                            normalizerModel: recorderTrace.normalizerModel,
+                            commands: recorderTrace.commands,
+                            captureStateBefore: recorderTrace.captureStateBefore,
+                            recorderStateAfter: "preserved",
+                            windowDescription: recorderTrace.windowDescription,
+                            eventCount: recorderTrace.eventCount,
+                            outcome: .refused,
+                            detail: error.localizedDescription,
+                            updatedAt: Date()
+                        )
+                    }
                     isSending = false
                     onAssistantFailure?()
                 }
@@ -881,6 +1071,8 @@ final class RouterChatSession: ObservableObject {
         clearModuleContext()
         pendingVoiceMessageID = nil
         geometryCapture.revoke()
+        recorderTrace = .idle
+        allowsRelativeXYTestFixture = false
     }
 
     func revokeModuleFloor() async {
@@ -1007,13 +1199,37 @@ final class RouterChatSession: ObservableObject {
     }
 
     static func syntheticFixtureInput(
-        for manifest: ConversationModuleManifest?
+        for manifest: ConversationModuleManifest?,
+        includeRelativeXY: Bool = false
     ) -> (
         events: [ConversationModuleEvent],
         window: ConversationModuleWindowContext?
     ) {
+        if includeRelativeXY,
+           manifest?.moduleID
+            == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID {
+            return (
+                [
+                    ConversationModuleEvent(
+                        eventID: "event_relative-xy-ui-test-1",
+                        sequence: 1,
+                        kind: .normalizedPointer,
+                        pointerPhase: .move,
+                        normalizedX: 0.2,
+                        normalizedY: 0.3,
+                        navigationKey: nil,
+                        placeholder: nil
+                    ),
+                ],
+                ConversationModuleWindowContext(
+                    bindingID: "verbal-orders.neutral.selected-window",
+                    width: 935,
+                    height: 598
+                )
+            )
+        }
         guard manifest?.moduleID
-                == ConversationModuleAllowlist.geometryRecorderManifest.moduleID else {
+            == ConversationModuleAllowlist.geometryRecorderManifest.moduleID else {
             return ([], nil)
         }
         return (
@@ -1042,10 +1258,16 @@ struct RouterChatPanel: View {
     @ObservedObject var session: RouterChatSession
     @StateObject private var voice: VoiceConversationSession
     let metrics: DashboardLayoutMetrics
+    @Binding var isCollapsed: Bool
 
-    init(session: RouterChatSession, metrics: DashboardLayoutMetrics) {
+    init(
+        session: RouterChatSession,
+        metrics: DashboardLayoutMetrics,
+        isCollapsed: Binding<Bool> = .constant(false)
+    ) {
         _session = ObservedObject(wrappedValue: session)
         _voice = StateObject(wrappedValue: VoiceConversationSession())
+        _isCollapsed = isCollapsed
         self.metrics = metrics
     }
 
@@ -1090,15 +1312,30 @@ struct RouterChatPanel: View {
                     .buttonStyle(.plain)
                     .font(.caption2)
                 }
+                Button {
+                    isCollapsed.toggle()
+                } label: {
+                    Image(
+                        systemName: isCollapsed
+                            ? "chevron.right"
+                            : "chevron.down"
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    "\(isCollapsed ? "Expand" : "Collapse") Assistant Chat"
+                )
             }
             .padding(.horizontal, metrics.recordPadding)
             .padding(.vertical, 7)
-            Divider()
+            if !isCollapsed {
+                Divider()
 
-            if session.isEnabled {
-                enabledChat
-            } else {
-                disabledChat
+                if session.isEnabled {
+                    enabledChat
+                } else {
+                    disabledChat
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -1136,6 +1373,11 @@ struct RouterChatPanel: View {
             Task {
                 await session.revokeModuleFloor()
             }
+        }
+        .onChange(of: isCollapsed) { _, collapsed in
+            guard collapsed else { return }
+            voice.stop()
+            session.suspendForCollapsedPanel()
         }
     }
 
@@ -1362,6 +1604,7 @@ struct RouterChatPanel: View {
 
             if session.modules.activeManifest?.moduleID
                 == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID {
+                RecorderPipelineTracePanel(trace: session.recorderTrace)
                 NeutralGeometryCapturePanel(
                     capture: session.geometryCapture,
                     provenance: session.modules.healthByModuleID[
@@ -1381,6 +1624,103 @@ struct RouterChatPanel: View {
         }
         .padding(7)
         .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private struct RecorderPipelineTracePanel: View {
+        let trace: RecorderPipelineTrace
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("RECORDER PIPELINE")
+                        .font(.system(size: 8, weight: .bold))
+                    Spacer()
+                    Text(trace.outcome.rawValue.uppercased())
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(trace.outcome == .refused ? .orange : .secondary)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) {
+                        stage("Voice")
+                        arrow
+                        stage("Transcript")
+                        arrow
+                        stage("Local NLP")
+                        arrow
+                        stage("Commands")
+                        arrow
+                        stage("Validator")
+                        arrow
+                        stage("Recorder")
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Voice → Transcript → Local NLP")
+                        Text("Commands → Validator → Recorder")
+                    }
+                    .font(.system(size: 9, weight: .medium))
+                }
+
+                if trace.outcome == .idle {
+                    Text(trace.detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    traceRow("Heard", trace.transcript)
+                    traceRow(
+                        "Normalized",
+                        trace.commands.isEmpty
+                            ? "Waiting for closed commands"
+                            : trace.commands.joined(separator: " → ")
+                    )
+                    traceRow(
+                        "Transform",
+                        "\(trace.captureStateBefore) → \(trace.recorderStateAfter)"
+                    )
+                    traceRow(
+                        "Input",
+                        "\(trace.eventCount) events · \(trace.windowDescription)"
+                    )
+                    traceRow(
+                        "Model",
+                        trace.normalizerModel.isEmpty
+                            ? "Not invoked"
+                            : trace.normalizerModel
+                    )
+                    traceRow("Result", trace.detail)
+                }
+            }
+            .padding(7)
+            .background(.quinary, in: RoundedRectangle(cornerRadius: 7))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Recorder transformation pipeline")
+        }
+
+        private func stage(_ value: String) -> some View {
+            Text(value)
+                .font(.system(size: 8, weight: .medium))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 3)
+                .background(.background.opacity(0.65), in: Capsule())
+        }
+
+        private var arrow: some View {
+            Image(systemName: "arrow.right")
+                .font(.system(size: 7))
+                .foregroundStyle(.secondary)
+        }
+
+        private func traceRow(_ label: String, _ value: String) -> some View {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(label)
+                    .frame(width: 62, alignment: .leading)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .font(.system(size: 9))
+        }
     }
 
     private func moduleResult(_ response: ConversationModuleResponse) -> some View {
