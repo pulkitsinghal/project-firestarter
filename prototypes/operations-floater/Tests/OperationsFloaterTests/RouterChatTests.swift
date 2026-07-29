@@ -418,6 +418,47 @@ private final class RecorderActivationProbe: @unchecked Sendable {
     var requestPermissionCount = 0
 }
 
+private actor RecorderConversationModule: ConversationModuleTransport {
+    private let provenance = ConversationModuleProvenance(
+        sourceID: ConversationModuleAllowlist.relativeXYRecorderManifest
+            .provenanceSourceID,
+        buildDigest: String(repeating: "a", count: 64)
+    )
+
+    func health(
+        for manifest: ConversationModuleManifest
+    ) async throws -> ConversationModuleHealth {
+        ConversationModuleHealth(
+            contractVersion: manifest.contractVersion,
+            moduleID: manifest.moduleID,
+            state: .ready,
+            privacy: manifest.privacy,
+            provenance: provenance
+        )
+    }
+
+    func perform(
+        _ request: ConversationModuleRequest,
+        manifest: ConversationModuleManifest
+    ) async throws -> ConversationModuleResponse {
+        ConversationModuleResponse(
+            contractVersion: request.contractVersion,
+            moduleID: request.moduleID,
+            requestID: request.requestID,
+            turnID: request.turnID,
+            sequence: request.sequence,
+            floor: request.floor,
+            state: .idle,
+            reply: nil,
+            statuses: [],
+            checkpoints: [],
+            question: nil,
+            proposedActions: [],
+            provenance: provenance
+        )
+    }
+}
+
 private final class RecorderVoiceEngine: ConversationTranscriptionEngine,
     @unchecked Sendable
 {
@@ -841,16 +882,24 @@ struct RouterChatSessionTests {
     private func makeRecorderSession(
         capture: NeutralGeometryCaptureSession
     ) -> RouterChatSession {
+        let manifest = ConversationModuleAllowlist.relativeXYRecorderManifest
+        let modules = ConversationModuleHostSession(
+            registrations: [
+                ConversationModuleRegistration(
+                    manifest: manifest,
+                    transport: RecorderConversationModule()
+                ),
+            ]
+        )
         let session = RouterChatSession(
             transport: StubRouterTransport(
                 available: true,
                 result: .success(localReply(text: "Unused"))
             ),
+            modules: modules,
             geometryCapture: capture
         )
-        session.selectConversationTarget(
-            ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
-        )
+        session.selectConversationTarget(manifest.moduleID)
         return session
     }
 

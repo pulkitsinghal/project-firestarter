@@ -165,6 +165,10 @@ snapshot remains schema version `1.0`.
 
 See [INSTALL_UPDATE_ROLLBACK.md](INSTALL_UPDATE_ROLLBACK.md) for the release
 preflight, local update procedure, acceptance checks, and rollback path.
+See
+[`docs/PERMISSION_AND_INSTALL_LIFECYCLE.md`](docs/PERMISSION_AND_INSTALL_LIFECYCLE.md)
+for the stable Input Monitoring identity, no-helper contract, single-instance
+lifecycle, and owner-gated migration plan.
 See [docs/BACKGROUND_UI_TESTING.md](docs/BACKGROUND_UI_TESTING.md) for the
 low-disruption spare-Desktop test workflow and its measured limitations.
 See
@@ -185,16 +189,12 @@ swift test
 bash Tests/permission-identity-preflight.test.sh
 ```
 
-Run an unsigned bounded application build:
-
-```bash
-xcodebuild \
-  -project OperationsFloater.xcodeproj \
-  -scheme OperationsFloater \
-  -configuration Release \
-  CODE_SIGNING_ALLOWED=NO \
-  build
-```
+Routine validation stops at SwiftPM and synthetic fixture tests on the active
+macOS user profile. Xcode 26.5 runs `lsregister` for both `build` and `archive`,
+including when `REGISTER_WITH_LAUNCH_SERVICES=NO` is supplied. Do not rely on
+that setting to isolate a disposable app bundle. App-bundle compilation belongs
+on a disposable macOS account or CI runner; a signed release archive remains an
+owner-gated operation.
 
 A synthetic still-frame walkthrough and compact composer/provenance state map live in
 [`docs/CHAT_COMPOSER_STATE.md`](docs/CHAT_COMPOSER_STATE.md).

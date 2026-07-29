@@ -2,6 +2,8 @@
 
 Operations Floater has no network updater. Application replacement and snapshot
 updates are explicit local operations with a retained rollback artifact.
+The concise architecture contract is also recorded in
+[`docs/PERMISSION_AND_INSTALL_LIFECYCLE.md`](docs/PERMISSION_AND_INSTALL_LIFECYCLE.md).
 
 ## Permission-bearing identity
 
@@ -40,6 +42,8 @@ Keep these outside Git and set them to operator-controlled locations:
 CANDIDATE_APP=...
 INSTALLED_APP=...
 BACKUP_APP=...
+OPERATIONS_FLOATER_BUNDLE_ID=...
+OPERATIONS_FLOATER_TEAM_ID=...
 ```
 
 The candidate must be produced from the reviewed Firestarter commit with the
@@ -55,6 +59,10 @@ helper, or updater. Do not add one to work around TCC. If a future helper is
 actually needed, it must live inside the signed app bundle, use its own unique
 code-signing identifier, and follow `SMAppService`; that is a separate design
 and owner gate.
+
+An old helper from an unrelated or experimental build is not removed
+automatically. Inspecting or removing one is separate owner-controlled
+maintenance; the current app works with no helper.
 
 ## Preflight
 
@@ -75,7 +83,8 @@ Before replacing an installed copy:
    prototypes/operations-floater/scripts/verify-permission-identity.sh \
      --candidate "$CANDIDATE_APP" \
      --installed "$INSTALLED_APP" \
-     --expected-bundle-id "$OPERATIONS_FLOATER_BUNDLE_ID"
+     --expected-bundle-id "$OPERATIONS_FLOATER_BUNDLE_ID" \
+     --expected-team-id "$OPERATIONS_FLOATER_TEAM_ID"
    ```
 
    For a first install, omit `--installed`. The preflight is read-only: it does
@@ -83,8 +92,11 @@ Before replacing an installed copy:
 4. Confirm the built metadata contains the Dock icon, productivity category,
    expected encryption declaration, regular app activation, and no unexpected
    embedded helper.
-5. Run the native unit/lifecycle tests, synthetic identity-preflight test, and
-   unsigned Release build from the same commit.
+5. Run the native unit/lifecycle tests and synthetic identity-preflight test
+   from the same commit. Compile an app bundle only on a disposable macOS
+   account or CI runner: Xcode 26.5 runs `lsregister` during both `build` and
+   `archive`, and `REGISTER_WITH_LAUNCH_SERVICES=NO` did not suppress it in
+   battle testing.
 6. Export or retain the current local snapshot only in its private local
    storage. Never copy it into Git or a web publication directory.
 

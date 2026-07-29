@@ -8,6 +8,9 @@
   requirements in both directions before replacement.
 - Keep routine unsigned or ad-hoc builds disposable so they cannot silently
   replace the app instance that owns Input Monitoring permission.
+- Keep routine validation bundle-free on the active macOS profile after
+  confirming Xcode 26.5 still invokes `lsregister` when
+  `REGISTER_WITH_LAUNCH_SERVICES=NO` is supplied.
 - Enforce one recorder host with a process-scoped application lease while
   retaining the existing single-Space window policy and Dock launcher.
 - Roll back floor ownership, selected-window recording, the global event

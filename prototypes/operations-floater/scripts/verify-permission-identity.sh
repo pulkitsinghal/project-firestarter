@@ -7,6 +7,7 @@ Usage:
   verify-permission-identity.sh \
     --candidate /absolute/path/Operations\ Floater.app \
     --expected-bundle-id com.example.owner.operationsfloater \
+    --expected-team-id ABCDE12345 \
     [--installed /absolute/path/Operations\ Floater.app]
 
 Read-only preflight for a first install or update. It never signs, copies,
@@ -22,6 +23,7 @@ fail() {
 candidate_app=
 installed_app=
 expected_bundle_id=
+expected_team_id=
 while (($#)); do
   case "$1" in
     --candidate)
@@ -39,6 +41,11 @@ while (($#)); do
       expected_bundle_id=$2
       shift 2
       ;;
+    --expected-team-id)
+      (($# >= 2)) || fail "--expected-team-id requires a value"
+      expected_team_id=$2
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -51,6 +58,7 @@ done
 
 [[ -n "$candidate_app" ]] || fail "--candidate is required"
 [[ -n "$expected_bundle_id" ]] || fail "--expected-bundle-id is required"
+[[ -n "$expected_team_id" ]] || fail "--expected-team-id is required"
 [[ "$candidate_app" == /* ]] || fail "candidate path must be absolute"
 if [[ -n "$installed_app" ]]; then
   [[ "$installed_app" == /* ]] || fail "installed path must be absolute"
@@ -58,6 +66,11 @@ fi
 case "$expected_bundle_id" in
   com.example.*|*.example|*'*'*|'')
     fail "expected bundle identifier must be the owner-controlled release identifier"
+    ;;
+esac
+case "$expected_team_id" in
+  *[!A-Za-z0-9]*|not-set|NOTSET|'')
+    fail "expected Team Identifier must be the owner-controlled release team"
     ;;
 esac
 
@@ -80,7 +93,8 @@ reject_embedded_helpers() {
     Contents/Library/LaunchAgents \
     Contents/Library/LaunchDaemons \
     Contents/Library/LaunchServices \
-    Contents/Library/PrivilegedHelperTools
+    Contents/Library/PrivilegedHelperTools \
+    Contents/XPCServices
   do
     [[ -d "$app/$relative" ]] || continue
     helper=$(/usr/bin/find "$app/$relative" -type f -print -quit)
@@ -93,6 +107,9 @@ verify_bundle_shape() {
   local label=$2
   local bundle_id
   local executable
+  local icon_name
+  local signature_report
+  local actual_team_id
   local ui_element
 
   [[ -d "$app" ]] || fail "$label app does not exist: $app"
@@ -114,11 +131,30 @@ verify_bundle_shape() {
         ;;
     esac
   fi
-  [[ -f "$app/Contents/Resources/Assets.car" ]] \
-    || fail "$label compiled application icon catalog is missing"
+  icon_name=$(plist_value "$app" CFBundleIconName) \
+    || fail "$label application icon declaration is missing"
+  [[ -n "$icon_name" ]] || fail "$label application icon name is empty"
+  [[ -f "$app/Contents/Resources/AppIcon.icns" \
+      || -f "$app/Contents/Resources/Assets.car" ]] \
+    || fail "$label compiled application icon resources are missing"
   reject_embedded_helpers "$app"
   "$codesign_bin" --verify --deep --strict "$app" >/dev/null 2>&1 \
     || fail "$label signature is invalid"
+  signature_report=$(
+    "$codesign_bin" --display --verbose=4 "$app" 2>&1
+  ) || fail "$label signature metadata is unreadable"
+  case "$signature_report" in
+    *"Signature=adhoc"*|*"TeamIdentifier=not set"*)
+      fail "$label uses an ad-hoc identity that changes across rebuilds"
+      ;;
+  esac
+  actual_team_id=$(
+    printf '%s\n' "$signature_report" \
+      | /usr/bin/sed -n 's/^TeamIdentifier=//p' \
+      | /usr/bin/head -n 1
+  )
+  [[ "$actual_team_id" == "$expected_team_id" ]] \
+    || fail "$label Team Identifier does not match the expected release team"
   "$spctl_bin" --assess --type execute "$app" >/dev/null 2>&1 \
     || fail "$label fails Gatekeeper assessment"
 }
@@ -133,6 +169,11 @@ candidate_requirement="$temporary_directory/candidate.requirement"
   || fail "candidate designated requirement is unavailable"
 [[ -s "$candidate_requirement" ]] \
   || fail "candidate designated requirement is empty"
+if /usr/bin/grep -Fq "cdhash H" "$candidate_requirement"; then
+  fail "candidate designated requirement is tied to one executable hash"
+fi
+/usr/bin/grep -Fq "identifier \"$expected_bundle_id\"" "$candidate_requirement" \
+  || fail "candidate designated requirement does not bind the expected identifier"
 
 if [[ -z "$installed_app" ]]; then
   printf '%s\n' \
@@ -147,6 +188,11 @@ installed_requirement="$temporary_directory/installed.requirement"
   || fail "installed designated requirement is unavailable"
 [[ -s "$installed_requirement" ]] \
   || fail "installed designated requirement is empty"
+if /usr/bin/grep -Fq "cdhash H" "$installed_requirement"; then
+  fail "installed designated requirement is tied to one executable hash"
+fi
+/usr/bin/grep -Fq "identifier \"$expected_bundle_id\"" "$installed_requirement" \
+  || fail "installed designated requirement does not bind the expected identifier"
 
 "$codesign_bin" --verify --strict -R "$installed_requirement" "$candidate_app" \
   >/dev/null 2>&1 \
