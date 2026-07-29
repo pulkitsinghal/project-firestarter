@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Decisions Board</title>
 <!--
   Self-contained, dependency-free viewer for decisions.json (same folder).
@@ -177,8 +178,21 @@
     if (item.context) { html += '<p class="context">' + esc(item.context) + "</p>"; }
     if (item.rec) { html += '<p class="rec"><b>Rec:</b> ' + esc(item.rec) + "</p>"; }
     if (item.link) {
-      var href = esc(item.link);
-      html += '<p class="rec"><a href="' + href + '" target="_blank" rel="noopener">' + href + "</a></p>";
+      var safeHref = null;
+      try {
+        var parsed = new URL(String(item.link));
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          safeHref = parsed.href;
+        }
+      } catch (_) {
+        safeHref = null;
+      }
+      var label = esc(item.link);
+      if (safeHref) {
+        html += '<p class="rec"><a href="' + esc(safeHref) + '" target="_blank" rel="noopener noreferrer">' + label + "</a></p>";
+      } else {
+        html += '<p class="rec"><code>' + label + "</code></p>";
+      }
     }
     el.innerHTML = html;
     return el;

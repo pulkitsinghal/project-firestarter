@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/prepare-launch-response-1.0.schema.json",
+  "title": "prepare-launch success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "prepare-launch"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envelope", "prompt", "outbox"],
+      "properties": {
+        "envelope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "envelope_version",
+            "task_id",
+            "source_event_key",
+            "idempotency_key",
+            "outcome_key",
+            "issued_at",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "owner_claim_id",
+            "target",
+            "permissions",
+            "prohibitions",
+            "effective_rules",
+            "excluded_rules",
+            "owner_gate_matrix",
+            "privacy_boundary",
+            "dependencies",
+            "evidence_contract",
+            "cleanup_duty",
+            "heartbeat_protocol",
+            "closure_protocol",
+            "receipt_required"
+          ],
+          "properties": {
+            "envelope_version": {"const": "1.0"},
+            "task_id": {"type": "string"},
+            "source_event_key": {"type": "string"},
+            "idempotency_key": {"type": "string"},
+            "outcome_key": {"type": "string"},
+            "issued_at": {"type": "string"},
+            "policy_snapshot_revision": {"type": "integer"},
+            "lease_epoch": {"type": "integer"},
+            "fencing_token": {"type": "integer"},
+            "owner_claim_id": {"type": "string"},
+            "target": {"type": "object"},
+            "permissions": {"type": "array"},
+            "prohibitions": {"type": "array"},
+            "effective_rules": {"type": "array"},
+            "excluded_rules": {"type": "array"},
+            "owner_gate_matrix": {"type": "object"},
+            "privacy_boundary": {"type": "string"},
+            "dependencies": {"type": "array"},
+            "evidence_contract": {"type": "array"},
+            "cleanup_duty": {"type": "array"},
+            "heartbeat_protocol": {"type": "object"},
+            "closure_protocol": {"type": "object"},
+            "receipt_required": {"type": "object"}
+          }
+        },
+        "prompt": {"type": "string"},
+        "outbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outbox_id", "kind"],
+          "properties": {
+            "outbox_id": {"type": "string"},
+            "kind": {"const": "CREATE_THREAD"}
+          }
+        }
+      }
+    }
+  }
+}

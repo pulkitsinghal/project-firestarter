@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/shared-1.0.schema.json",
+  "$defs": {
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "org", "repo", "path", "environment", "data_class", "action", "task_kind"],
+      "properties": {
+        "owner": {"type": "string"},
+        "org": {"type": "string"},
+        "repo": {"type": "string"},
+        "path": {"type": "string"},
+        "environment": {"type": "string"},
+        "data_class": {"type": "string"},
+        "action": {"type": "string"},
+        "task_kind": {"type": "string"}
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interface_version", "ok", "operation", "result"],
+      "properties": {
+        "interface_version": {"const": "1.0"},
+        "ok": {"const": true},
+        "operation": {"type": "string"},
+        "result": {"type": "object"}
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interface_version", "ok", "error"],
+      "properties": {
+        "interface_version": {"const": "1.0"},
+        "ok": {"const": false},
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message", "details"],
+          "properties": {
+            "code": {"type": "string"},
+            "message": {"type": "string"},
+            "details": {"type": "object"}
+          }
+        }
+      }
+    }
+  }
+}

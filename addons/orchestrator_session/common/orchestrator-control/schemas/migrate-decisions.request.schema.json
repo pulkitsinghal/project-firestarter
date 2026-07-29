@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/migrate-decisions-request-1.0.schema.json",
+  "title": "migrate-decisions request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "request_id", "input_path", "dry_run", "now"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "input_path": {"type": "string"},
+    "dry_run": {"type": "boolean"},
+    "now": {"type": "string"}
+  }
+}

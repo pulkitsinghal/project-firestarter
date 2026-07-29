@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/effective-rules-request-1.0.schema.json",
+  "title": "effective-rules request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "request_id", "context", "now"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "context": {"$ref": "shared.schema.json#/$defs/context"},
+    "now": {"type": "string"}
+  }
+}

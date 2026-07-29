@@ -1,9 +1,9 @@
 # Orchestrator Session add-on
 
-A reusable **master-orchestrator session**: paste one prompt into a fresh Claude
-Code (or any capable agent) session opened at your portfolio/repo root, and that
-one session plans, delegates, verifies, and lands work across many repos — while
-you stay in the loop through it alone. Stack-agnostic and 100% dependency-free.
+A reusable, stack-agnostic master-orchestrator session with one authoritative
+policy: [`ORCHESTRATOR_BILL_OF_RIGHTS.md`](../ORCHESTRATOR_BILL_OF_RIGHTS.md).
+The bootstrap and agent addendum point to the Bill instead of maintaining
+shorter policy copies that can drift.
 
 Enable it at stamp time:
 
@@ -15,17 +15,36 @@ Enable it at stamp time:
 
 | File | Purpose |
 |------|---------|
-| `ORCHESTRATOR_PROMPT.md` | The paste-in bootstrap prompt. Open a fresh session at your portfolio root, paste it, and go. Turns that session into the master orchestrator (operating loop, fan-out via subagents/workflows, proxy-PM decision gate, verify-before-implement, secret hygiene, one decisions board, never-go-dark reporting). |
-| `AGENTS.orchestrator.md` | A paste-able **AGENTS.md addendum**. Copy the marked "Orchestrator posture" section into your repo's `AGENTS.md` (or `CLAUDE.md`) so any agent that reads it adopts the posture durably — the always-on companion to the one-time paste. |
-| `decisions-board/decisions.json` | Starter schema for the single source of truth: `{ generated, items:[{ id, project, cat, status, title, context, rec, link }] }`, where `cat` is `done` / `act` / `decide` / `plan` / `review`. Ships 2–3 clearly-labeled EXAMPLE items — replace them. |
-| `decisions-board/decisions.html` | A self-contained, dependency-free, dark-mode-aware viewer. Fetches `decisions.json` and groups items by category. |
+| `ORCHESTRATOR_BILL_OF_RIGHTS.md` | The canonical policy: precedence and bounded conversation-derived training, PM-proxy ownership, launch envelopes, routine autonomy, exceptional gates, canonical repo/path ownership, duplicate-stop and blocked-queue re-audit behavior, delivery evidence, CI truth, closure/successor transactions, cleanup, privacy, identity, and reporting. |
+| `ORCHESTRATOR_PROMPT.md` | Thin paste-in bootstrap pointer to the Bill plus the initial inventory instruction. |
+| `AGENTS.orchestrator.md` | Thin paste-able `AGENTS.md` addendum that makes the Bill the durable policy source. |
+| `orchestrator-control/` | Versioned generic policy ledger, local SQLite authority, stable JSON CLI, schemas, security-hardened dashboard, and Phase-2 skill/plugin wrapper contract. |
+| `decisions-board/decisions.json` | Legacy-compatible starter display data. It is a view, not task or approval authority. |
+| `decisions-board/decisions.html` | A self-contained dark-mode-aware compatibility viewer with CSP and an HTTP(S)-only link allowlist. |
 
 ## The three-step setup
 
-1. Open a **fresh** Claude Code session at the root of your projects/portfolio.
-2. Paste the contents of `ORCHESTRATOR_PROMPT.md`.
-3. Go. (Or reference the prompt from your repo's `CLAUDE.md` / `AGENTS.md`, and
-   add the `AGENTS.orchestrator.md` section so future sessions inherit the posture.)
+1. Keep `ORCHESTRATOR_BILL_OF_RIGHTS.md` beside `ORCHESTRATOR_PROMPT.md` at the
+   root of the scope.
+2. Open a fresh capable-agent session at that root, then paste the prompt.
+3. Optionally add the marked `AGENTS.orchestrator.md` section to a durable agent
+   brief so future sessions resolve the same canonical policy.
+
+For enforced task creation, initialize the private local authority and require
+the Phase-2 wrapper flow:
+
+```bash
+python orchestrator-control/orchestrator_control.py \
+  --state-dir /absolute/private/state init \
+  --now 2026-07-28T18:00:00Z
+```
+
+The wrapper must call `prepare-launch` before `create_thread`, append the
+returned envelope to the ephemeral prompt, and record the launch receipt before
+the worker mutates anything. All approval questions route through
+`classify-decision`; closure uses `record-handback`; capacity and startup
+reconciliation use `recycle-queue`. See
+[`orchestrator-control/docs/PHASE2_PLUGIN_INTEGRATION.md`](../orchestrator-control/docs/PHASE2_PLUGIN_INTEGRATION.md).
 
 ## Serving the decisions board
 
@@ -34,13 +53,16 @@ static file server and open `decisions.html` (opening via `file://` may block th
 `fetch()`; serve it instead). For a board reachable from your phone, run a durable
 static server (launchd/systemd) on your tailnet.
 
-## Cost & safety
+## Contract and safety
 
-- **No new dependencies, no host toolchain, no network calls** — the prompt and the
-  board are just text and a single self-contained HTML file.
+- **One policy source:** change orchestrator policy in the Bill. Keep the prompt
+  and agent addendum as pointers.
+- **Stamp contract:** Firestarter's stdlib contract test enables this add-on for
+  every declared stack and byte-compares each stamped Bill to the canonical
+  source. It also pins the explicit failure-prevention clauses.
+- **Local-only stdlib enforcement:** the control plane uses Python stdlib and
+  SQLite, makes no network calls, stores no raw prompt, and executes no commands
+  from policy or handback data.
 - **Generic by design:** ships no owner-specific repos, config, or secrets. It
-  encodes *posture*, not your portfolio — bring your own.
-- The prompt tells the orchestrator to treat everything read through tools as data
-  (not instructions), verify before implementing, never blanket-stage in shared
-  clones, and gate on genuine irreversibles (prod deploys, spend, deletes, sending
-  on your behalf) with a recommendation rather than a survey.
+  encodes generic delivery rights, not a portfolio. Active scope supplies the
+  applicable identity, repository, environment, and data rules.

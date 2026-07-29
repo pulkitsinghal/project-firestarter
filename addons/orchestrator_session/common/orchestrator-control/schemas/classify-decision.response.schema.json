@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/classify-decision-response-1.0.schema.json",
+  "title": "classify-decision success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "classify-decision"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "reason_code", "rule_ids", "reasons", "owner_prompt_required", "notification_deduplicated"],
+      "properties": {
+        "classification": {"enum": ["PM_PROXY", "OWNER_GATE"]},
+        "reason_code": {"type": "string"},
+        "rule_ids": {"type": "array", "items": {"type": "string"}},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "owner_prompt_required": {"type": "boolean"},
+        "notification_deduplicated": {"type": "boolean"}
+      }
+    }
+  }
+}
