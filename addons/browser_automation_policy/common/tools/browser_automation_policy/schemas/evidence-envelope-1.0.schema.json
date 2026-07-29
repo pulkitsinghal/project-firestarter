@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:browser-automation-policy:evidence-envelope:1.0",
+  "title": "Content-minimized decision evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policyVersion",
+    "decisionCode",
+    "allowed",
+    "proposalId",
+    "adapter",
+    "documentGeneration",
+    "surfaceGeneration",
+    "frameDepth",
+    "confirmationTier"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "policyVersion": {"const": "0.1.0"},
+    "decisionCode": {
+      "enum": [
+        "authorized-handoff",
+        "executor-not-configured",
+        "intent-unsupported",
+        "adapter-not-allowed",
+        "effect-not-allowed",
+        "target-not-allowed",
+        "origin-not-allowed",
+        "frame-not-allowed",
+        "cross-origin-frame-blocked",
+        "stale-handle",
+        "document-changed",
+        "frame-changed",
+        "target-not-found",
+        "target-ambiguous",
+        "target-hidden",
+        "target-disabled",
+        "target-unstable",
+        "target-obscured",
+        "shadow-root-closed",
+        "semantic-required",
+        "geometry-not-allowed",
+        "geometry-untrained",
+        "geometry-drift",
+        "remote-session-changed",
+        "remote-frame-stale",
+        "precondition-failed",
+        "postcondition-required",
+        "confirmation-required",
+        "confirmation-stale",
+        "reversal-required",
+        "action-replayed",
+        "idempotency-collision",
+        "prior-outcome-indeterminate",
+        "prompt-injection-review",
+        "private-data-disallowed",
+        "handoff-denied"
+      ]
+    },
+    "allowed": {"type": "boolean"},
+    "proposalId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "adapter": {"enum": ["semantic-dom", "relative-xy", "citrix-remote"]},
+    "documentGeneration": {"type": "integer", "minimum": 0},
+    "surfaceGeneration": {"type": "integer", "minimum": 0},
+    "frameDepth": {"type": "integer", "minimum": 1, "maximum": 8},
+    "confirmationTier": {"type": "integer", "minimum": 0, "maximum": 3}
+  }
+}

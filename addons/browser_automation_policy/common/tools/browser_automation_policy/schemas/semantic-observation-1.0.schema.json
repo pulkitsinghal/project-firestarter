@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:browser-automation-policy:semantic-observation:1.0",
+  "title": "Minimized semantic observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "observationId",
+    "binding",
+    "candidates",
+    "focusConfirmed",
+    "promptInjectionSignalIds"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "observationId": {"$ref": "#/$defs/opaqueId"},
+    "binding": {"$ref": "#/$defs/binding"},
+    "candidates": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "contractId",
+          "role",
+          "accessibleNameToken",
+          "containerContractId",
+          "binding",
+          "attached",
+          "visible",
+          "enabled",
+          "inert",
+          "stable",
+          "obscured",
+          "semanticAvailable",
+          "shadowRoot",
+          "geometry"
+        ],
+        "properties": {
+          "nodeId": {"$ref": "#/$defs/opaqueId"},
+          "contractId": {"$ref": "#/$defs/opaqueId"},
+          "role": {"$ref": "#/$defs/opaqueId"},
+          "accessibleNameToken": {"$ref": "#/$defs/opaqueId"},
+          "containerContractId": {"$ref": "#/$defs/opaqueId"},
+          "binding": {"$ref": "#/$defs/binding"},
+          "attached": {"type": "boolean"},
+          "visible": {"type": "boolean"},
+          "enabled": {"type": "boolean"},
+          "inert": {"type": "boolean"},
+          "stable": {"type": "boolean"},
+          "obscured": {"type": "boolean"},
+          "semanticAvailable": {"type": "boolean"},
+          "shadowRoot": {"enum": ["none", "open", "closed"]},
+          "geometry": {
+            "oneOf": [
+              {"type": "null"},
+              {"$ref": "#/$defs/geometry"}
+            ]
+          }
+        }
+      }
+    },
+    "focusConfirmed": {"type": "boolean"},
+    "promptInjectionSignalIds": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/opaqueId"}
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tabId",
+        "documentId",
+        "frameIds",
+        "frameDocumentIds",
+        "frameGenerations",
+        "originIds",
+        "documentGeneration",
+        "surfaceGeneration",
+        "adapterVersion"
+      ],
+      "properties": {
+        "tabId": {"type": "integer", "minimum": 0},
+        "documentId": {"$ref": "#/$defs/opaqueId"},
+        "frameIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "frameDocumentIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/opaqueId"}
+        },
+        "frameGenerations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "originIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/opaqueId"}
+        },
+        "documentGeneration": {"type": "integer", "minimum": 0},
+        "surfaceGeneration": {"type": "integer", "minimum": 0},
+        "adapterVersion": {"$ref": "#/$defs/opaqueId"}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "xRatio",
+        "yRatio",
+        "widthRatio",
+        "heightRatio",
+        "viewportGeneration",
+        "layoutGeneration",
+        "transformGeneration",
+        "trainedRegimeId",
+        "hitContractId"
+      ],
+      "properties": {
+        "xRatio": {"type": "number", "minimum": 0, "maximum": 1},
+        "yRatio": {"type": "number", "minimum": 0, "maximum": 1},
+        "widthRatio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "heightRatio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "viewportGeneration": {"type": "integer", "minimum": 0},
+        "layoutGeneration": {"type": "integer", "minimum": 0},
+        "transformGeneration": {"type": "integer", "minimum": 0},
+        "trainedRegimeId": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+        },
+        "hitContractId": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+        }
+      }
+    }
+  }
+}

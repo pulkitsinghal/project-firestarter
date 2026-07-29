@@ -6,6 +6,20 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- `include_browser_automation_policy` (default `no`), a stack-agnostic,
+  Python-stdlib, source-only policy and semantic-adapter contract. Version 0.1
+  binds typed proposals to task/tab/document/frame/origin generations; treats
+  page instructions as data; enforces pre/postconditions, confirmation tiers,
+  reversible draft plans, atomic in-process ledger state plus a durable
+  exactly-once executor contract, content-minimized
+  evidence, and short-lived future-executor handoffs. Semantic DOM is first,
+  Relative XY is a trained bounded fallback with proposal-bound geometry, and
+  Citrix/remote plus voice intent remain separate adapters. Closed schemas and
+  rich synthetic adversarial
+  fixtures cover stale, hidden, overlaid, duplicate, cross-origin, shadow,
+  dynamic, injection, replay, race, and geometry/session drift cases. It ships
+  no browser extension, profile/session access, input injection, screenshot/OCR,
+  credential, network, observer, executor, or deployment path.
 - Receipt-feed 1.1 operational bootstrap: optional bounded sanitized
   launch/handback `public_metadata`, readable `publicLabel` plus coarse
   `ownerClass`/`laneClass`, lifecycle-derived safe actions, evidence-age

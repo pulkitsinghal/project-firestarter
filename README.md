@@ -87,15 +87,20 @@ gh secret set ANTHROPIC_API_KEY   # turn on the AI reviewer
   - `chrome-extension` — Manifest V3 · TypeScript/esbuild · Vitest · Playwright.
   - `node-notifier` — Express · BullMQ · Redis · Socket.IO · OIDC resource-server starter.
 - **Optional add-ons** (`addons/`) — e.g. `k8s` Kustomize, the stack-agnostic
-  canonical Orchestrator Bill of Rights, or the source-only local service
-  supervisor (opt in with `include_k8s=yes`,
-  `include_orchestrator_session=yes`, or `include_service_supervisor=yes`). The
+  canonical Orchestrator Bill of Rights, the source-only local service
+  supervisor, or the semantic-first browser automation policy (opt in with
+  `include_k8s=yes`, `include_orchestrator_session=yes`,
+  `include_service_supervisor=yes`, or
+  `include_browser_automation_policy=yes`). The
   orchestrator add-on includes a repo-local, source-only
   `pm-proxy-orchestrator` Codex plugin marketplace plus schema-1.2
   receipt-backed capacity and duration-lane contracts. The supervisor add-on
   contributes only an allowlisted synthetic catalog, dependency/lifecycle
   planner, leases, and fail-closed policy—no listener, proxy, Docker socket, OS
-  executor, installation, or live service mutation.
+  executor, installation, or live service mutation. The browser policy ships
+  closed typed contracts, lifecycle/confirmation/ledger gates, semantic DOM,
+  bounded Relative XY, separate Citrix/remote, and voice-intent adapters, plus
+  hermetic adversarial fixtures; it includes no browser observer or executor.
 - **Reference prototypes** (`prototypes/`) — an opt-in unified operations
   dashboard: a native macOS floater, a static sanitized web renderer, a strict
   shared contract, and an offline immutable publication workflow. These are

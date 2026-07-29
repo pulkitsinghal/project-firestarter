@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:browser-automation-policy:action-ledger-record:1.0",
+  "title": "Content-minimized action ledger record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "proposalId",
+    "idempotencyKey",
+    "proposalDigest",
+    "status",
+    "attempt"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "proposalId": {"$ref": "#/$defs/opaqueId"},
+    "idempotencyKey": {"$ref": "#/$defs/opaqueId"},
+    "proposalDigest": {"$ref": "#/$defs/digest"},
+    "status": {
+      "enum": [
+        "planned",
+        "confirmed",
+        "handed-off",
+        "succeeded",
+        "failed",
+        "indeterminate"
+      ]
+    },
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 100}
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

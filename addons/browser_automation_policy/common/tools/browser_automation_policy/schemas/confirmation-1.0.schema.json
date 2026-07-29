@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:browser-automation-policy:confirmation:1.0",
+  "title": "Action-bound confirmation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "confirmationId",
+    "proposalId",
+    "proposalDigest",
+    "payloadDigest",
+    "documentId",
+    "documentGeneration",
+    "surfaceGeneration",
+    "tier",
+    "expiresAtTick"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "confirmationId": {"$ref": "#/$defs/opaqueId"},
+    "proposalId": {"$ref": "#/$defs/opaqueId"},
+    "proposalDigest": {"$ref": "#/$defs/digest"},
+    "payloadDigest": {"$ref": "#/$defs/digest"},
+    "documentId": {"$ref": "#/$defs/opaqueId"},
+    "documentGeneration": {"type": "integer", "minimum": 0},
+    "surfaceGeneration": {"type": "integer", "minimum": 0},
+    "tier": {"type": "integer", "minimum": 0, "maximum": 3},
+    "expiresAtTick": {"type": "integer", "minimum": 0}
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
