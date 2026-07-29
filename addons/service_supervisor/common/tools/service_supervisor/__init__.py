@@ -1,5 +1,23 @@
-"""Synthetic-only local service supervisor contracts."""
+"""Source-only local service supervisor and permit-verification contracts."""
 
+from .permits import (
+    AuthorizationTelemetry,
+    EnvelopeError,
+    HANDOFF_RECEIPT_KEYS,
+    HANDOFF_RECEIPT_VERSION,
+    PermitRefusal,
+    PermitStateError,
+    PermitVerifier,
+    build_plan,
+    canonical_json_bytes,
+    compute_plan_digest,
+    handoff_receipt_signing_bytes,
+    load_contract_pin,
+    permit_signing_bytes,
+    validate_handoff_receipt,
+    validate_plan,
+    validate_result,
+)
 from .supervisor import (
     Lease,
     Manifest,
@@ -12,12 +30,28 @@ from .supervisor import (
 )
 
 __all__ = [
+    "AuthorizationTelemetry",
+    "EnvelopeError",
+    "HANDOFF_RECEIPT_KEYS",
+    "HANDOFF_RECEIPT_VERSION",
     "Lease",
     "Manifest",
     "ManifestError",
+    "PermitRefusal",
+    "PermitStateError",
+    "PermitVerifier",
     "RefusalError",
     "ServiceSupervisor",
     "ServiceState",
     "SyntheticAdapter",
     "WakeError",
+    "build_plan",
+    "canonical_json_bytes",
+    "compute_plan_digest",
+    "handoff_receipt_signing_bytes",
+    "load_contract_pin",
+    "permit_signing_bytes",
+    "validate_handoff_receipt",
+    "validate_plan",
+    "validate_result",
 ]

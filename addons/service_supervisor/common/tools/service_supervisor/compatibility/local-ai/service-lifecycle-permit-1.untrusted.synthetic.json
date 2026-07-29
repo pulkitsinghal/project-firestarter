@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "pm-proxy-execution-permit",
+  "permit_id": "permit_00000001",
+  "plan_digest": "9099a1ad8f5d19a261243a29e13f0719f9663af3d7a28201adef99e76d7d3796",
+  "service_ids": [
+    "synthetic-ollama"
+  ],
+  "intents": [
+    "ensure-ready"
+  ],
+  "issued_at": 100,
+  "expires_at": 200
+}

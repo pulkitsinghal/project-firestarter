@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "execution-handoff-receipt",
+  "receipt_version": "execution-handoff-receipt/1",
+  "decision": "AUTHORIZED_FOR_EXECUTOR_HANDOFF",
+  "policy_version": "pm-execution-permit/1",
+  "receipt_id": "handoff-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "receipt_nonce": "FmHX1TSvHg2P8iSuTE8CuQagDkTqScPxHe5ZxfISMi0",
+  "issued_at": 1700000000,
+  "expires_at": 1700000060,
+  "verifier_instance_id": "firestarter-0.2-synthetic",
+  "receipt_key_id": "synthetic-handoff",
+  "target_service_id": "synthetic-ollama",
+  "intent": "ensure-ready",
+  "authorization_phase": "apply",
+  "plan_digest": "9099a1ad8f5d19a261243a29e13f0719f9663af3d7a28201adef99e76d7d3796",
+  "actions": [
+    "bootstrap",
+    "load",
+    "start"
+  ],
+  "adapter_set": [
+    "docker-compose",
+    "launchd",
+    "ollama"
+  ],
+  "permit_id": "synthetic-permit-apply",
+  "permit_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "producer_schema_digest": "a424f6a5b73641bdc6bdafc3411d49f7a239c663cbb0dd62eea665cfb6d76d97",
+  "catalog_digest": "6d0b7a440c2f6758b0b01482a5a508dba12b8c191938949854ad1189718fa5f1",
+  "executor_generation": 1,
+  "state_generation": 1,
+  "verifier_artifact_digest": "c02b7bb559240a6a9be86db078eb15b8186b2e7a72234f93d40fda147de49fee",
+  "contract_pin_digest": "39c206b35119cf1c1d42ae361735025c366f5c5da01ef0c66f82c39bed89e826",
+  "rollback_authorized": false,
+  "signature": "ad8ffec6e79ff8810549b5ecdae55b01908c8d9a2fe364d88221f599d0754928"
+}

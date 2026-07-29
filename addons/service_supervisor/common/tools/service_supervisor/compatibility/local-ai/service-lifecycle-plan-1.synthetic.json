@@ -1,0 +1,126 @@
+{
+  "dry_run": true,
+  "intent": "ensure-ready",
+  "kind": "local-ai-adapter-plan",
+  "plan_digest": "9099a1ad8f5d19a261243a29e13f0719f9663af3d7a28201adef99e76d7d3796",
+  "schema_version": 1,
+  "steps": [
+    {
+      "adapter": "launchd",
+      "argv": [
+        "/bin/launchctl",
+        "bootstrap",
+        "gui/501",
+                "/opt/local-ai/synthetic/com.local-ai.synthetic-launchd.plist"
+      ],
+      "http_request": null,
+      "operation": "bootstrap",
+      "readiness": {
+        "expect": {
+          "kind": "status-2xx"
+        },
+        "interval_ms": 25,
+        "kind": "http",
+        "method": "GET",
+        "timeout_ms": 1000,
+        "url": "http://127.0.0.1:18881/healthz"
+      },
+      "resource_key": "launchd:gui/501:com.local-ai.synthetic-launchd",
+      "rollback": {
+        "argv": [
+          "/bin/launchctl",
+          "bootout",
+          "gui/501/com.local-ai.synthetic-launchd"
+        ],
+        "http_request": null,
+        "operation": "bootout"
+      },
+      "sequence": 1,
+      "service_id": "synthetic-launchd"
+    },
+    {
+      "adapter": "docker-compose",
+      "argv": [
+        "/usr/local/bin/docker",
+        "compose",
+        "--project-name",
+        "synthetic-stack",
+        "--file",
+        "/opt/local-ai/synthetic-compose.yaml",
+        "start",
+        "api"
+      ],
+      "http_request": null,
+      "operation": "start",
+      "readiness": {
+        "expect": {
+          "kind": "status-2xx"
+        },
+        "interval_ms": 25,
+        "kind": "http",
+        "method": "GET",
+        "timeout_ms": 1500,
+        "url": "http://127.0.0.1:18882/healthz"
+      },
+      "resource_key": "compose:synthetic-stack:api",
+      "rollback": {
+        "argv": [
+          "/usr/local/bin/docker",
+          "compose",
+          "--project-name",
+          "synthetic-stack",
+          "--file",
+          "/opt/local-ai/synthetic-compose.yaml",
+          "stop",
+          "api"
+        ],
+        "http_request": null,
+        "operation": "stop"
+      },
+      "sequence": 2,
+      "service_id": "synthetic-compose"
+    },
+    {
+      "adapter": "ollama",
+      "argv": null,
+      "http_request": {
+        "json": {
+          "keep_alive": "5m",
+          "model": "synthetic-model:1",
+          "stream": false
+        },
+        "method": "POST",
+        "url": "http://127.0.0.1:11434/api/generate"
+      },
+      "operation": "load",
+      "readiness": {
+        "expect": {
+          "kind": "ollama-model-resident",
+          "model": "synthetic-model:1"
+        },
+        "interval_ms": 25,
+        "kind": "http",
+        "method": "GET",
+        "timeout_ms": 2000,
+        "url": "http://127.0.0.1:11434/api/ps"
+      },
+      "resource_key": "ollama:synthetic-model:1",
+      "rollback": {
+        "argv": null,
+        "http_request": {
+          "json": {
+            "keep_alive": 0,
+            "model": "synthetic-model:1"
+          },
+          "method": "POST",
+          "url": "http://127.0.0.1:11434/api/generate"
+        },
+        "operation": "unload"
+      },
+      "sequence": 3,
+      "service_id": "synthetic-ollama"
+    }
+  ],
+  "supervisor_contract_version": "0.1.0",
+  "target_service_id": "synthetic-ollama"
+}

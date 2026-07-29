@@ -1,0 +1,23 @@
+{
+  "synthetic-launchd": {
+    "value": "not-loaded",
+    "available": true,
+    "source": "synthetic-fixture",
+    "observedAt": 1700000000,
+    "reason": null
+  },
+  "synthetic-compose": {
+    "value": "stopped",
+    "available": true,
+    "source": "synthetic-fixture",
+    "observedAt": 1700000000,
+    "reason": null
+  },
+  "synthetic-ollama": {
+    "value": "not-resident",
+    "available": true,
+    "source": "synthetic-fixture",
+    "observedAt": 1700000000,
+    "reason": null
+  }
+}

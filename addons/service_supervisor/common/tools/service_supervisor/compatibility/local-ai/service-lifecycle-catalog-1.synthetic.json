@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "mode": "source-only",
+  "supervisor_contract_version": "0.1.0",
+  "services": [
+    {
+      "id": "synthetic-launchd",
+      "adapter": "launchd",
+      "upstream": "http://127.0.0.1:18881",
+      "dependencies": [],
+      "health": {
+        "path": "/healthz",
+        "interval_ms": 25
+      },
+      "wake_timeout_ms": 1000,
+      "idle_timeout_ms": 30000,
+      "drain_grace_ms": 250,
+      "never_stop": false,
+      "retain": false,
+      "target": {
+        "label": "com.local-ai.synthetic-launchd",
+        "domain_target": "gui/501",
+        "plist_path": "/opt/local-ai/synthetic/com.local-ai.synthetic-launchd.plist"
+      }
+    },
+    {
+      "id": "synthetic-compose",
+      "adapter": "docker-compose",
+      "upstream": "http://127.0.0.1:18882",
+      "dependencies": [
+        "synthetic-launchd"
+      ],
+      "health": {
+        "path": "/healthz",
+        "interval_ms": 25
+      },
+      "wake_timeout_ms": 1500,
+      "idle_timeout_ms": 30000,
+      "drain_grace_ms": 250,
+      "never_stop": false,
+      "retain": false,
+      "target": {
+        "docker_binary": "/usr/local/bin/docker",
+        "project": "synthetic-stack",
+        "compose_file": "/opt/local-ai/synthetic-compose.yaml",
+        "service": "api"
+      }
+    },
+    {
+      "id": "synthetic-ollama",
+      "adapter": "ollama",
+      "upstream": "http://127.0.0.1:11434",
+      "dependencies": [
+        "synthetic-compose"
+      ],
+      "health": {
+        "path": "/api/ps",
+        "interval_ms": 25
+      },
+      "wake_timeout_ms": 2000,
+      "idle_timeout_ms": 30000,
+      "drain_grace_ms": 250,
+      "never_stop": false,
+      "retain": false,
+      "target": {
+        "host": "http://127.0.0.1:11434",
+        "model": "synthetic-model:1",
+        "keep_alive": "5m"
+      }
+    }
+  ]
+}
