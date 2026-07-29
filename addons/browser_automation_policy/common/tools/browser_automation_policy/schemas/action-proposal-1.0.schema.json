@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:browser-automation-policy:action-proposal:1.0",
+  "title": "Typed browser action proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "proposalId",
+    "idempotencyKey",
+    "taskId",
+    "action",
+    "effect",
+    "adapter",
+    "binding",
+    "target",
+    "payloadDigest",
+    "preconditions",
+    "postconditions",
+    "reversibility",
+    "reversalAction",
+    "reversalPayloadDigest",
+    "expiresAtTick",
+    "proposalDigest"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "proposalId": {"$ref": "#/$defs/opaqueId"},
+    "idempotencyKey": {"$ref": "#/$defs/opaqueId"},
+    "taskId": {"$ref": "#/$defs/opaqueId"},
+    "action": {
+      "enum": [
+        "observe",
+        "focus",
+        "activate",
+        "set-value",
+        "clear-value",
+        "select",
+        "navigate",
+        "external-send",
+        "submit",
+        "delete",
+        "grant-permission",
+        "upload"
+      ]
+    },
+    "effect": {
+      "enum": ["observe", "navigate", "edit-draft", "external-submit", "destructive"]
+    },
+    "adapter": {"enum": ["semantic-dom", "relative-xy", "citrix-remote"]},
+    "binding": {"$ref": "#/$defs/binding"},
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "contractId",
+            "role",
+            "accessibleNameToken",
+            "containerContractId",
+            "trainedRegimeId",
+            "xRatio",
+            "yRatio",
+            "widthRatio",
+            "heightRatio",
+            "viewportGeneration",
+            "layoutGeneration",
+            "transformGeneration"
+          ],
+          "properties": {
+            "kind": {"const": "relative-region"},
+            "contractId": {"$ref": "#/$defs/opaqueId"},
+            "role": {"$ref": "#/$defs/opaqueId"},
+            "accessibleNameToken": {"$ref": "#/$defs/opaqueId"},
+            "containerContractId": {"$ref": "#/$defs/opaqueId"},
+            "trainedRegimeId": {"$ref": "#/$defs/opaqueId"},
+            "xRatio": {"type": "number", "minimum": 0, "maximum": 1},
+            "yRatio": {"type": "number", "minimum": 0, "maximum": 1},
+            "widthRatio": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "heightRatio": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "viewportGeneration": {"type": "integer", "minimum": 0},
+            "layoutGeneration": {"type": "integer", "minimum": 0},
+            "transformGeneration": {"type": "integer", "minimum": 0}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "contractId",
+            "role",
+            "accessibleNameToken",
+            "containerContractId"
+          ],
+          "properties": {
+            "kind": {"const": "semantic"},
+            "contractId": {"$ref": "#/$defs/opaqueId"},
+            "role": {"$ref": "#/$defs/opaqueId"},
+            "accessibleNameToken": {"$ref": "#/$defs/opaqueId"},
+            "containerContractId": {"$ref": "#/$defs/opaqueId"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "regionContractId",
+            "localWindowId",
+            "remoteSessionEpoch",
+            "controlEpoch",
+            "trainedRegionId",
+            "geometryGeneration"
+          ],
+          "properties": {
+            "kind": {"const": "remote-region"},
+            "regionContractId": {"$ref": "#/$defs/opaqueId"},
+            "localWindowId": {"$ref": "#/$defs/opaqueId"},
+            "remoteSessionEpoch": {"$ref": "#/$defs/opaqueId"},
+            "controlEpoch": {"$ref": "#/$defs/opaqueId"},
+            "trainedRegionId": {"$ref": "#/$defs/opaqueId"},
+            "geometryGeneration": {"type": "integer", "minimum": 0}
+          }
+        }
+      ]
+    },
+    "payloadDigest": {"$ref": "#/$defs/digest"},
+    "preconditions": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "task-bound",
+          "document-current",
+          "frame-current",
+          "origin-allowed",
+          "target-unique",
+          "target-actionable",
+          "payload-bound",
+          "focus-current",
+          "geometry-current",
+          "remote-session-current",
+          "confirmation-current",
+          "reversal-ready"
+        ]
+      }
+    },
+    "postconditions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "state-observed",
+          "navigation-reconciled",
+          "draft-reconciled",
+          "external-effect-reconciled",
+          "destructive-effect-reconciled"
+        ]
+      }
+    },
+    "reversibility": {
+      "enum": ["read-only", "reversible", "compensating", "irreversible"]
+    },
+    "reversalAction": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "set-value",
+        "clear-value",
+        "select"
+      ]
+    },
+    "reversalPayloadDigest": {
+      "anyOf": [
+        {"$ref": "#/$defs/digest"},
+        {"type": "null"}
+      ]
+    },
+    "expiresAtTick": {"type": "integer", "minimum": 0},
+    "proposalDigest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tabId",
+        "documentId",
+        "frameIds",
+        "frameDocumentIds",
+        "frameGenerations",
+        "originIds",
+        "documentGeneration",
+        "surfaceGeneration",
+        "adapterVersion"
+      ],
+      "properties": {
+        "tabId": {"type": "integer", "minimum": 0},
+        "documentId": {"$ref": "#/$defs/opaqueId"},
+        "frameIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "frameDocumentIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/opaqueId"}
+        },
+        "frameGenerations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "originIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/opaqueId"}
+        },
+        "documentGeneration": {"type": "integer", "minimum": 0},
+        "surfaceGeneration": {"type": "integer", "minimum": 0},
+        "adapterVersion": {"$ref": "#/$defs/opaqueId"}
+      }
+    }
+  }
+}

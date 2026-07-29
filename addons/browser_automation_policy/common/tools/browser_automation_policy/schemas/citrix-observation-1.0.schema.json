@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:browser-automation-policy:citrix-observation:1.0",
+  "title": "Minimized Citrix remote-surface observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "observationId",
+    "localWindowId",
+    "remoteSessionEpoch",
+    "controlEpoch",
+    "trainedRegionId",
+    "frameSequence",
+    "currentFrameSequence",
+    "geometryGeneration",
+    "expectedGeometryGeneration",
+    "focusConfirmed",
+    "frozen"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "observationId": {"$ref": "#/$defs/opaqueId"},
+    "localWindowId": {"$ref": "#/$defs/opaqueId"},
+    "remoteSessionEpoch": {"$ref": "#/$defs/opaqueId"},
+    "controlEpoch": {"$ref": "#/$defs/opaqueId"},
+    "trainedRegionId": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "frameSequence": {"type": "integer", "minimum": 0},
+    "currentFrameSequence": {"type": "integer", "minimum": 0},
+    "geometryGeneration": {"type": "integer", "minimum": 0},
+    "expectedGeometryGeneration": {"type": "integer", "minimum": 0},
+    "focusConfirmed": {"type": "boolean"},
+    "frozen": {"type": "boolean"}
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    }
+  }
+}

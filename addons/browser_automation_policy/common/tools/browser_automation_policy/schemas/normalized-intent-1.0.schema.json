@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:browser-automation-policy:normalized-intent:1.0",
+  "title": "Voice normalized intent without targeting authority",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "intentId",
+    "effect",
+    "entityTokens",
+    "ambiguous",
+    "provenance"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "intentId": {"$ref": "#/$defs/opaqueId"},
+    "effect": {
+      "enum": ["observe", "navigate", "edit-draft", "external-submit", "destructive"]
+    },
+    "entityTokens": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/opaqueId"}
+    },
+    "ambiguous": {"type": "boolean"},
+    "provenance": {"const": "trusted-user-voice"}
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    }
+  }
+}

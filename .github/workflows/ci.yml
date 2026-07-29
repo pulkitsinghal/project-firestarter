@@ -102,6 +102,29 @@ jobs:
           test ! -e "$OUT/off-by-default/tools/service_supervisor"
           echo "✓ service supervisor is removable and off by default"
 
+      - name: Verify the synthetic browser-automation-policy contract
+        env:
+          PYTHONPATH: addons/browser_automation_policy/common
+        run: |
+          python3 -B -m tools.browser_automation_policy.run_validation
+          python3 -B -m unittest -v tests.test_browser_automation_policy_contract
+
+          OUT="$(mktemp -d)"
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" \
+              --set include_browser_automation_policy=yes \
+              --output "$OUT/$ex"
+            test -f "$OUT/$ex/tools/browser_automation_policy/VERSION"
+          done
+          PYTHONPATH="$OUT/fastapi-next" python3 -B \
+            -m tools.browser_automation_policy.run_validation
+
+          python3 bin/generate.py --defaults --output "$OUT/off-by-default"
+          test ! -e "$OUT/off-by-default/tools/browser_automation_policy"
+          echo "✓ browser automation policy is removable and off by default"
+
       - name: Stamp the optional k8s add-on for server-backed stacks
         run: |
           set -euo pipefail

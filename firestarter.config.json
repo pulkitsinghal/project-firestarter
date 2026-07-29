@@ -19,6 +19,7 @@
   "include_secret_vault": ["no", "yes"],
   "include_orchestrator_session": ["no", "yes"],
   "include_service_supervisor": ["no", "yes"],
+  "include_browser_automation_policy": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",

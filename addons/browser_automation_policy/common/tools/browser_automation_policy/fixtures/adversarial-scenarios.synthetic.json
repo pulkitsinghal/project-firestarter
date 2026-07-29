@@ -1,0 +1,233 @@
+{
+  "schemaVersion": "1.0",
+  "syntheticOnly": true,
+  "authorityBoundary": "page-content-is-data",
+  "coverage": {
+    "B01": "test_policy.PolicyContractTests.test_unique_semantic_observation_authorizes_handoff_not_execution",
+    "B02": "test_adversarial.AdversarialPolicyTests.test_duplicate_contract_refuses_without_first_match_or_xy",
+    "B03": "test_adversarial.AdversarialPolicyTests.test_dynamic_replacement_and_document_commit_invalidate_handles",
+    "B04": "test_adversarial.AdversarialPolicyTests.test_hidden_disabled_overlaid_and_unstable_targets_refuse",
+    "B05": "test_adversarial.AdversarialPolicyTests.test_hidden_disabled_overlaid_and_unstable_targets_refuse",
+    "B06": "test_adversarial.AdversarialPolicyTests.test_hidden_disabled_overlaid_and_unstable_targets_refuse",
+    "B07": "test_adversarial.AdversarialPolicyTests.test_dynamic_replacement_and_document_commit_invalidate_handles",
+    "B08": "test_adversarial.AdversarialPolicyTests.test_navigation_race_invalidates_bound_confirmation",
+    "B09": "test_adversarial.AdversarialPolicyTests.test_frame_chain_and_cross_origin_are_exact_allowlists",
+    "B10": "test_adversarial.AdversarialPolicyTests.test_frame_chain_and_cross_origin_are_exact_allowlists",
+    "B11": "test_adversarial.AdversarialPolicyTests.test_open_shadow_resolves_and_closed_shadow_refuses",
+    "B12": "test_adversarial.AdversarialPolicyTests.test_open_shadow_resolves_and_closed_shadow_refuses",
+    "G01": "test_adversarial.AdversarialPolicyTests.test_relative_xy_requires_semantic_identity_training_and_no_drift",
+    "G02": "test_adversarial.AdversarialPolicyTests.test_relative_xy_requires_semantic_identity_training_and_no_drift",
+    "G03": "test_adversarial.AdversarialPolicyTests.test_duplicate_contract_refuses_without_first_match_or_xy",
+    "G04": "test_adversarial.AdversarialPolicyTests.test_relative_xy_never_bypasses_overlay_or_missing_training",
+    "S01": "test_policy.PolicyContractTests.test_prompt_injection_signal_is_data_and_raises_confirmation",
+    "S02": "test_policy.PolicyContractTests.test_prompt_injection_signal_is_data_and_raises_confirmation",
+    "S03": "test_policy.PolicyContractTests.test_prompt_injection_signal_is_data_and_raises_confirmation",
+    "S04": "test_policy.PolicyContractTests.test_capability_grant_cannot_be_expanded_by_proposal",
+    "L01": "test_adversarial.AdversarialPolicyTests.test_action_replay_collision_and_indeterminate_outcome_refuse",
+    "L02": "test_adversarial.AdversarialPolicyTests.test_action_replay_collision_and_indeterminate_outcome_refuse",
+    "L03": "test_adversarial.AdversarialPolicyTests.test_action_replay_collision_and_indeterminate_outcome_refuse",
+    "C01": "test_adversarial.AdversarialPolicyTests.test_citrix_is_separate_and_checks_session_focus_frame_and_geometry",
+    "C02": "test_adversarial.AdversarialPolicyTests.test_citrix_is_separate_and_checks_session_focus_frame_and_geometry",
+    "C03": "test_adversarial.AdversarialPolicyTests.test_citrix_is_separate_and_checks_session_focus_frame_and_geometry",
+    "V01": "test_adversarial.AdversarialPolicyTests.test_voice_normalizes_intent_only_and_preserves_ambiguity",
+    "V02": "test_policy.PolicyContractTests.test_external_submit_is_irreversible_and_tier_three"
+  },
+  "scenarios": [
+    {
+      "id": "B01",
+      "category": "semantic",
+      "transition": "unique-role-name-contract",
+      "expectedCode": "authorized-handoff",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B02",
+      "category": "semantic",
+      "transition": "duplicate-accessible-contract",
+      "expectedCode": "target-ambiguous",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B03",
+      "category": "lifecycle",
+      "transition": "dynamic-node-replacement",
+      "expectedCode": "stale-handle",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B04",
+      "category": "semantic",
+      "transition": "overlay-hit-mismatch",
+      "expectedCode": "target-obscured",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B05",
+      "category": "semantic",
+      "transition": "hidden-or-inert-target",
+      "expectedCode": "target-hidden",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B06",
+      "category": "semantic",
+      "transition": "disabled-target",
+      "expectedCode": "target-disabled",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B07",
+      "category": "lifecycle",
+      "transition": "same-tab-document-commit",
+      "expectedCode": "document-changed",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B08",
+      "category": "lifecycle",
+      "transition": "navigation-confirmation-race",
+      "expectedCode": "confirmation-stale",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B09",
+      "category": "frame",
+      "transition": "allowed-same-origin-frame-chain",
+      "expectedCode": "authorized-handoff",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B10",
+      "category": "frame",
+      "transition": "cross-origin-frame-without-grant",
+      "expectedCode": "cross-origin-frame-blocked",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B11",
+      "category": "shadow",
+      "transition": "open-shadow-semantic-contract",
+      "expectedCode": "authorized-handoff",
+      "expectedEffects": 0
+    },
+    {
+      "id": "B12",
+      "category": "shadow",
+      "transition": "closed-shadow-without-external-contract",
+      "expectedCode": "shadow-root-closed",
+      "expectedEffects": 0
+    },
+    {
+      "id": "G01",
+      "category": "geometry",
+      "transition": "semantic-unavailable-trained-regime",
+      "expectedCode": "authorized-handoff",
+      "expectedEffects": 0
+    },
+    {
+      "id": "G02",
+      "category": "geometry",
+      "transition": "viewport-layout-transform-drift",
+      "expectedCode": "geometry-drift",
+      "expectedEffects": 0
+    },
+    {
+      "id": "G03",
+      "category": "geometry",
+      "transition": "duplicate-target-never-falls-back",
+      "expectedCode": "target-ambiguous",
+      "expectedEffects": 0
+    },
+    {
+      "id": "G04",
+      "category": "geometry",
+      "transition": "untrained-regime",
+      "expectedCode": "geometry-untrained",
+      "expectedEffects": 0
+    },
+    {
+      "id": "S01",
+      "category": "injection",
+      "transition": "visible-page-instruction-signal",
+      "expectedCode": "prompt-injection-review",
+      "expectedEffects": 0
+    },
+    {
+      "id": "S02",
+      "category": "injection",
+      "transition": "hidden-page-instruction-signal",
+      "expectedCode": "prompt-injection-review",
+      "expectedEffects": 0
+    },
+    {
+      "id": "S03",
+      "category": "injection",
+      "transition": "accessibility-only-instruction-signal",
+      "expectedCode": "prompt-injection-review",
+      "expectedEffects": 0
+    },
+    {
+      "id": "S04",
+      "category": "injection",
+      "transition": "page-permission-expansion-attempt",
+      "expectedCode": "effect-not-allowed",
+      "expectedEffects": 0
+    },
+    {
+      "id": "L01",
+      "category": "ledger",
+      "transition": "same-proposal-replay",
+      "expectedCode": "action-replayed",
+      "expectedEffects": 0
+    },
+    {
+      "id": "L02",
+      "category": "ledger",
+      "transition": "same-key-different-digest",
+      "expectedCode": "idempotency-collision",
+      "expectedEffects": 0
+    },
+    {
+      "id": "L03",
+      "category": "ledger",
+      "transition": "indeterminate-prior-outcome",
+      "expectedCode": "prior-outcome-indeterminate",
+      "expectedEffects": 0
+    },
+    {
+      "id": "C01",
+      "category": "citrix",
+      "transition": "remote-session-control-epoch-change",
+      "expectedCode": "remote-session-changed",
+      "expectedEffects": 0
+    },
+    {
+      "id": "C02",
+      "category": "citrix",
+      "transition": "remote-frame-frozen",
+      "expectedCode": "remote-frame-stale",
+      "expectedEffects": 0
+    },
+    {
+      "id": "C03",
+      "category": "citrix",
+      "transition": "remote-resolution-generation-change",
+      "expectedCode": "geometry-drift",
+      "expectedEffects": 0
+    },
+    {
+      "id": "V01",
+      "category": "voice",
+      "transition": "ambiguous-intent-entities",
+      "expectedCode": "intent-unsupported",
+      "expectedEffects": 0
+    },
+    {
+      "id": "V02",
+      "category": "voice",
+      "transition": "draft-and-submit-remain-separate",
+      "expectedCode": "confirmation-required",
+      "expectedEffects": 0
+    }
+  ]
+}

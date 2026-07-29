@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:browser-automation-policy:future-executor-handoff:1.0",
+  "title": "Policy-gated future executor handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "policyVersion",
+    "proposalId",
+    "idempotencyKey",
+    "handoffNonce",
+    "proposalDigest",
+    "payloadDigest",
+    "grantId",
+    "taskId",
+    "adapter",
+    "action",
+    "effect",
+    "targetKind",
+    "targetContractId",
+    "targetContractDigest",
+    "relativeTrainedRegimeId",
+    "relativeXRatio",
+    "relativeYRatio",
+    "relativeWidthRatio",
+    "relativeHeightRatio",
+    "relativeViewportGeneration",
+    "relativeLayoutGeneration",
+    "relativeTransformGeneration",
+    "localWindowId",
+    "remoteSessionEpoch",
+    "controlEpoch",
+    "trainedRegionId",
+    "remoteGeometryGeneration",
+    "tabId",
+    "documentId",
+    "frameIds",
+    "frameDocumentIds",
+    "frameGenerations",
+    "originIds",
+    "documentGeneration",
+    "surfaceGeneration",
+    "adapterVersion",
+    "preconditions",
+    "postconditions",
+    "confirmationTier",
+    "reversibility",
+    "reversalAction",
+    "reversalPayloadDigest",
+    "issuedAtTick",
+    "expiresAtTick",
+    "executorConfigured"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "kind": {"const": "future-executor-handoff"},
+    "policyVersion": {"const": "0.1.0"},
+    "proposalId": {"$ref": "#/$defs/opaqueId"},
+    "idempotencyKey": {"$ref": "#/$defs/opaqueId"},
+    "handoffNonce": {"$ref": "#/$defs/digest"},
+    "proposalDigest": {"$ref": "#/$defs/digest"},
+    "payloadDigest": {"$ref": "#/$defs/digest"},
+    "grantId": {"$ref": "#/$defs/opaqueId"},
+    "taskId": {"$ref": "#/$defs/opaqueId"},
+    "adapter": {"enum": ["semantic-dom", "relative-xy", "citrix-remote"]},
+    "action": {
+      "enum": [
+        "observe",
+        "focus",
+        "activate",
+        "set-value",
+        "clear-value",
+        "select",
+        "navigate",
+        "external-send",
+        "submit",
+        "delete",
+        "grant-permission",
+        "upload"
+      ]
+    },
+    "effect": {
+      "enum": ["observe", "navigate", "edit-draft", "external-submit", "destructive"]
+    },
+    "targetKind": {
+      "enum": ["semantic", "relative-region", "remote-region"]
+    },
+    "targetContractId": {"$ref": "#/$defs/opaqueId"},
+    "targetContractDigest": {"$ref": "#/$defs/digest"},
+    "relativeTrainedRegimeId": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "relativeXRatio": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "relativeYRatio": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "relativeWidthRatio": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "relativeHeightRatio": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "relativeViewportGeneration": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "relativeLayoutGeneration": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "relativeTransformGeneration": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "localWindowId": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "remoteSessionEpoch": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "controlEpoch": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "trainedRegionId": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "remoteGeometryGeneration": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "tabId": {"type": "integer", "minimum": 0},
+    "documentId": {"$ref": "#/$defs/opaqueId"},
+    "frameIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "frameDocumentIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/opaqueId"}
+    },
+    "frameGenerations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "originIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/opaqueId"}
+    },
+    "documentGeneration": {"type": "integer", "minimum": 0},
+    "surfaceGeneration": {"type": "integer", "minimum": 0},
+    "adapterVersion": {"$ref": "#/$defs/opaqueId"},
+    "preconditions": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "task-bound",
+          "document-current",
+          "frame-current",
+          "origin-allowed",
+          "target-unique",
+          "target-actionable",
+          "payload-bound",
+          "focus-current",
+          "geometry-current",
+          "remote-session-current",
+          "confirmation-current",
+          "reversal-ready"
+        ]
+      }
+    },
+    "postconditions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "state-observed",
+          "navigation-reconciled",
+          "draft-reconciled",
+          "external-effect-reconciled",
+          "destructive-effect-reconciled"
+        ]
+      }
+    },
+    "confirmationTier": {"type": "integer", "minimum": 0, "maximum": 3},
+    "reversibility": {
+      "enum": ["read-only", "reversible", "compensating", "irreversible"]
+    },
+    "reversalAction": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "set-value",
+        "clear-value",
+        "select"
+      ]
+    },
+    "reversalPayloadDigest": {
+      "anyOf": [
+        {"$ref": "#/$defs/digest"},
+        {"type": "null"}
+      ]
+    },
+    "issuedAtTick": {"type": "integer", "minimum": 0},
+    "expiresAtTick": {"type": "integer", "minimum": 1},
+    "executorConfigured": {"const": false}
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
