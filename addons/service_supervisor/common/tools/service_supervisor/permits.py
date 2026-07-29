@@ -25,6 +25,7 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
 SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 SUPERVISOR_CONTRACT_VERSION = "0.1.0"
 PERMIT_POLICY_VERSION = "pm-execution-permit/1"
 HANDOFF_RECEIPT_VERSION = "execution-handoff-receipt/1"
@@ -1478,13 +1479,18 @@ class PermitVerifier:
             if check is None or check[0] != "ok":
                 raise PermitStateError("STATE_INTEGRITY_FAILED")
             version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            if version not in {0, 1}:
+            if version not in {0, 1, STATE_SCHEMA_VERSION}:
                 raise PermitStateError("UNSUPPORTED_STATE_VERSION")
             connection.execute("BEGIN IMMEDIATE")
+            if version == 1:
+                connection.execute(
+                    "ALTER TABLE permit_uses RENAME TO permit_uses_v1"
+                )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS permit_uses (
                     nonce_hash TEXT PRIMARY KEY,
+                    permit_id TEXT UNIQUE,
                     permit_digest TEXT NOT NULL,
                     plan_digest TEXT NOT NULL,
                     target_service_id TEXT NOT NULL,
@@ -1496,17 +1502,30 @@ class PermitVerifier:
                     executor_generation INTEGER NOT NULL,
                     state_generation INTEGER NOT NULL,
                     policy_version TEXT NOT NULL,
-                    consumed_at INTEGER NOT NULL,
-                    UNIQUE (
-                        plan_digest,
-                        authorization_phase,
-                        catalog_digest,
-                        executor_generation,
-                        state_generation
-                    )
+                    consumed_at INTEGER NOT NULL
                 ) STRICT
                 """
             )
+            if version == 1:
+                connection.execute(
+                    """
+                    INSERT INTO permit_uses (
+                        nonce_hash, permit_id, permit_digest, plan_digest,
+                        target_service_id, intent, authorization_phase,
+                        adapter_set_json, producer_schema_digest,
+                        catalog_digest, executor_generation, state_generation,
+                        policy_version, consumed_at
+                    )
+                    SELECT
+                        nonce_hash, NULL, permit_digest, plan_digest,
+                        target_service_id, intent, authorization_phase,
+                        adapter_set_json, producer_schema_digest,
+                        catalog_digest, executor_generation, state_generation,
+                        policy_version, consumed_at
+                    FROM permit_uses_v1
+                    """
+                )
+                connection.execute("DROP TABLE permit_uses_v1")
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS revocations (
@@ -1516,7 +1535,7 @@ class PermitVerifier:
                 ) STRICT
                 """
             )
-            connection.execute("PRAGMA user_version = 1")
+            connection.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION}")
             connection.execute("COMMIT")
         except PermitStateError:
             if connection.in_transaction:
@@ -1648,38 +1667,31 @@ class PermitVerifier:
                     if existing["permit_digest"] != permit_digest:
                         raise PermitRefusal("CONFLICTING_PERMIT")
                     raise PermitRefusal("REPLAYED_PERMIT")
-                conflicting = connection.execute(
+                permit_id_binding = connection.execute(
                     """
-                    SELECT 1
+                    SELECT permit_digest
                     FROM permit_uses
-                    WHERE plan_digest = ?
-                      AND authorization_phase = ?
-                      AND catalog_digest = ?
-                      AND executor_generation = ?
-                      AND state_generation = ?
+                    WHERE permit_id = ?
                     """,
-                    (
-                        plan["plan_digest"],
-                        authorization_phase,
-                        self.expected_catalog_digest,
-                        self.expected_executor_generation,
-                        self.expected_state_generation,
-                    ),
+                    (permit["permit_id"],),
                 ).fetchone()
-                if conflicting is not None:
-                    raise PermitRefusal("CONFLICTING_PERMIT")
+                if permit_id_binding is not None:
+                    if permit_id_binding["permit_digest"] != permit_digest:
+                        raise PermitRefusal("CONFLICTING_PERMIT")
+                    raise PermitRefusal("REPLAYED_PERMIT")
                 connection.execute(
                     """
                     INSERT INTO permit_uses (
-                        nonce_hash, permit_digest, plan_digest,
+                        nonce_hash, permit_id, permit_digest, plan_digest,
                         target_service_id, intent, authorization_phase,
                         adapter_set_json, producer_schema_digest,
                         catalog_digest, executor_generation, state_generation,
                         policy_version, consumed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         nonce_hash,
+                        permit["permit_id"],
                         permit_digest,
                         plan["plan_digest"],
                         plan["target_service_id"],
@@ -1762,7 +1774,7 @@ class PermitVerifier:
                 dict(row)
                 for row in connection.execute(
                     """
-                    SELECT nonce_hash, permit_digest, plan_digest,
+                    SELECT nonce_hash, permit_id, permit_digest, plan_digest,
                            target_service_id, intent, authorization_phase,
                            adapter_set_json, producer_schema_digest,
                            catalog_digest, executor_generation,

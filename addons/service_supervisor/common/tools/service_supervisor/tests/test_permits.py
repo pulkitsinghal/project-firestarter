@@ -8,6 +8,7 @@ import hmac
 import json
 import multiprocessing
 import os
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -852,7 +853,7 @@ class PermitVerificationTests(unittest.TestCase):
             with self.assertRaisesRegex(PermitRefusal, "CONFLICTING_PERMIT"):
                 check.verify_and_consume(value, conflict)
 
-    def test_second_nonce_cannot_reauthorize_same_plan_generation(self) -> None:
+    def test_distinct_permits_can_reauthorize_same_plan_generation(self) -> None:
         value = plan()
         first = signed_permit(value)
         second = signed_permit(
@@ -862,9 +863,72 @@ class PermitVerificationTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             check = verifier(Path(directory) / "state.sqlite3")
+            first_receipt = check.verify_and_consume(value, first)
+            second_receipt = check.verify_and_consume(value, second)
+        self.assertEqual(first["permit_id"], first_receipt["permit_id"])
+        self.assertEqual(second["permit_id"], second_receipt["permit_id"])
+        self.assertNotEqual(
+            first_receipt["permit_fingerprint"],
+            second_receipt["permit_fingerprint"],
+        )
+        self.assertNotEqual(
+            first_receipt["receipt_nonce"], second_receipt["receipt_nonce"]
+        )
+        self.assertEqual(first_receipt, validate_receipt(first_receipt, value))
+        self.assertEqual(second_receipt, validate_receipt(second_receipt, value))
+
+    def test_same_permit_id_with_different_payload_is_conflict(self) -> None:
+        value = plan()
+        first = signed_permit(value, permit_id="permit-stable-id")
+        conflict = signed_permit(
+            value,
+            permit_id="permit-stable-id",
+            nonce="abcdefghijklmnopqrstuz",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            check = verifier(Path(directory) / "state.sqlite3")
             check.verify_and_consume(value, first)
             with self.assertRaisesRegex(PermitRefusal, "CONFLICTING_PERMIT"):
-                check.verify_and_consume(value, second)
+                check.verify_and_consume(value, conflict)
+
+    def test_concurrent_distinct_permits_for_same_scope_all_succeed(self) -> None:
+        value = plan()
+        permits = [
+            signed_permit(
+                value,
+                permit_id=f"permit-client-{number}",
+                nonce=f"client_nonce_{number:08d}abcdef",
+            )
+            for number in range(24)
+        ]
+        receipts: list[dict] = []
+        refusals: list[str] = []
+        barrier = threading.Barrier(len(permits) + 1)
+        with tempfile.TemporaryDirectory() as directory:
+            check = verifier(Path(directory) / "state.sqlite3")
+
+            def worker(permit: dict) -> None:
+                barrier.wait(timeout=5)
+                try:
+                    receipts.append(check.verify_and_consume(value, permit))
+                except PermitRefusal as exc:
+                    refusals.append(exc.code)
+
+            threads = [
+                threading.Thread(target=worker, args=(permit,))
+                for permit in permits
+            ]
+            for thread in threads:
+                thread.start()
+            barrier.wait(timeout=5)
+            for thread in threads:
+                thread.join(timeout=10)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual([], refusals)
+        self.assertEqual(len(permits), len(receipts))
+        self.assertEqual(
+            len(permits), len({receipt["receipt_nonce"] for receipt in receipts})
+        )
 
     def test_concurrent_single_use_race_has_exactly_one_winner(self) -> None:
         value = plan()
@@ -937,6 +1001,131 @@ class PermitVerificationTests(unittest.TestCase):
                 check.verify_and_consume(value, permit)
             decision = verifier(state).verify_and_consume(value, permit)
         self.assertEqual("AUTHORIZED_FOR_EXECUTOR_HANDOFF", decision["decision"])
+
+    def test_transaction_failure_rolls_back_permit_id_binding(self) -> None:
+        value = plan()
+        first = signed_permit(value, permit_id="permit-crash-binding")
+        retry = signed_permit(
+            value,
+            permit_id="permit-crash-binding",
+            nonce="abcdefghijklmnopqrstuz",
+        )
+
+        def crash() -> None:
+            raise RuntimeError("synthetic crash")
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state.sqlite3"
+            check = verifier(state)
+            check._after_nonce_recorded = crash
+            with self.assertRaisesRegex(
+                PermitStateError, "NONCE_CONSUMPTION_FAILED"
+            ):
+                check.verify_and_consume(value, first)
+            decision = verifier(state).verify_and_consume(value, retry)
+        self.assertEqual("permit-crash-binding", decision["permit_id"])
+
+    def test_v1_state_migrates_without_losing_nonce_replay_protection(self) -> None:
+        value = plan()
+        legacy = signed_permit(value)
+        legacy_digest = hashlib.sha256(
+            canonical_json_bytes(legacy)
+        ).hexdigest()
+        legacy_nonce_hash = hashlib.sha256(
+            legacy["nonce"].encode("ascii")
+        ).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state.sqlite3"
+            connection = sqlite3.connect(state)
+            connection.execute(
+                """
+                CREATE TABLE permit_uses (
+                    nonce_hash TEXT PRIMARY KEY,
+                    permit_digest TEXT NOT NULL,
+                    plan_digest TEXT NOT NULL,
+                    target_service_id TEXT NOT NULL,
+                    intent TEXT NOT NULL,
+                    authorization_phase TEXT NOT NULL,
+                    adapter_set_json TEXT NOT NULL,
+                    producer_schema_digest TEXT NOT NULL,
+                    catalog_digest TEXT NOT NULL,
+                    executor_generation INTEGER NOT NULL,
+                    state_generation INTEGER NOT NULL,
+                    policy_version TEXT NOT NULL,
+                    consumed_at INTEGER NOT NULL,
+                    UNIQUE (
+                        plan_digest,
+                        authorization_phase,
+                        catalog_digest,
+                        executor_generation,
+                        state_generation
+                    )
+                ) STRICT
+                """
+            )
+            actions, adapters = scope(value, "apply")
+            self.assertTrue(actions)
+            connection.execute(
+                """
+                INSERT INTO permit_uses (
+                    nonce_hash, permit_digest, plan_digest,
+                    target_service_id, intent, authorization_phase,
+                    adapter_set_json, producer_schema_digest,
+                    catalog_digest, executor_generation, state_generation,
+                    policy_version, consumed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    legacy_nonce_hash,
+                    legacy_digest,
+                    value["plan_digest"],
+                    value["target_service_id"],
+                    value["intent"],
+                    "apply",
+                    canonical_json_bytes(adapters).decode("ascii"),
+                    SCHEMA_DIGEST,
+                    CATALOG_DIGEST,
+                    7,
+                    9,
+                    PERMIT_POLICY_VERSION,
+                    NOW,
+                ),
+            )
+            connection.execute(
+                """
+                CREATE TABLE revocations (
+                    nonce_hash TEXT PRIMARY KEY,
+                    revoked_at INTEGER NOT NULL,
+                    reason_code TEXT NOT NULL
+                ) STRICT
+                """
+            )
+            connection.execute("PRAGMA user_version = 1")
+            connection.commit()
+            connection.close()
+            state.chmod(0o600)
+
+            check = verifier(state)
+            with self.assertRaisesRegex(PermitRefusal, "REPLAYED_PERMIT"):
+                check.verify_and_consume(value, legacy)
+            receipt = check.verify_and_consume(
+                value,
+                signed_permit(
+                    value,
+                    permit_id="permit-after-migration",
+                    nonce="migration_nonce_abcdefgh",
+                ),
+            )
+            connection = sqlite3.connect(state)
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(permit_uses)")
+            }
+            connection.close()
+        self.assertEqual(2, version)
+        self.assertIn("permit_id", columns)
+        self.assertEqual("permit-after-migration", receipt["permit_id"])
 
     def test_revocation_is_durable_and_idempotent(self) -> None:
         value = plan()
