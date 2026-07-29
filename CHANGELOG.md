@@ -12,7 +12,8 @@ All notable changes to the firestarter template. See
   synthetic tests that never sign, install, launch, or request TCC access.
   Routine validation is bundle-free on the active macOS profile because Xcode
   26.5 still invokes `lsregister` despite
-  `REGISTER_WITH_LAUNCH_SERVICES=NO`.
+  `REGISTER_WITH_LAUNCH_SERVICES=NO`; XcodeGen source now retains both the
+  `AppIcon` plist and asset-compiler declarations.
 - Unified operations-dashboard reference sources under `prototypes/`: a strict
   privacy-neutral contract, native macOS floater with validated local snapshot
   import/rollback, sanitized static web renderer, and offline content-addressed
