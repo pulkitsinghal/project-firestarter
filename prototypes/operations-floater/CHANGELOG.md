@@ -1,5 +1,22 @@
 # Operations Floater changelog
 
+## 1.2.0 (build 3) — unreleased
+
+- Add a local-only, read-only receipt-feed 1.1 source with strict shape,
+  duplicate-key, provenance, file-type, size, and SHA-256 validation.
+- Read content-addressed `current` first and use LKG only when current fails
+  pointer, digest, JSON, schema, or provenance validation. A valid stale
+  current feed remains visible with degraded freshness.
+- Add native **NOW**, **DECISIONS**, and **RECENTLY DONE** mappings plus
+  current/stale/LKG/offline provenance badges. Missing or invalid feed data
+  degrades only this panel and never disables existing dashboard features.
+- Pin the reviewed dashboard snapshot, LKG, feed schema, manifest schema, and
+  sanitized manifest hashes. No raw prompt, private path, or private content
+  enters the source or tests.
+- Preserve Router chat/review, voice and floor control, Relative XY recording,
+  race/resource/privacy panels, collapse persistence, keyboard behavior,
+  nonactivating background tests, and truthful empty dashboard behavior.
+
 ## 1.1.0 (build 2) — unreleased
 
 - Add a read-only signed-code identity preflight for first install and update.

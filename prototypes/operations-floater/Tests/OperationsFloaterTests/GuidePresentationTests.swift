@@ -224,8 +224,8 @@ struct GuidePresentationTests {
         )
 
         #expect(info["CFBundleIconName"] as? String == "AppIcon")
-        #expect(info["CFBundleShortVersionString"] as? String == "1.1.0")
-        #expect(info["CFBundleVersion"] as? String == "2")
+        #expect(info["CFBundleShortVersionString"] as? String == "1.2.0")
+        #expect(info["CFBundleVersion"] as? String == "3")
         #expect(project.contains("CFBundleIconName: AppIcon"))
         #expect(project.contains("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon"))
     }
