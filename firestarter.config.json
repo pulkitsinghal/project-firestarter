@@ -18,6 +18,7 @@
   "include_kokoro_warm": ["no", "yes"],
   "include_secret_vault": ["no", "yes"],
   "include_orchestrator_session": ["no", "yes"],
+  "include_service_supervisor": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",

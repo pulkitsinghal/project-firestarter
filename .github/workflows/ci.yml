@@ -78,6 +78,29 @@ jobs:
             tests.test_orchestrator_control \
             tests.test_orchestrator_session_contract
 
+      - name: Verify the synthetic service-supervisor contract
+        env:
+          PYTHONPATH: addons/service_supervisor/common
+        run: |
+          python3 -B -m unittest -v \
+            tools.service_supervisor.tests.test_service_supervisor
+
+          OUT="$(mktemp -d)"
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" \
+              --set include_service_supervisor=yes \
+              --output "$OUT/$ex"
+            test -f "$OUT/$ex/tools/service_supervisor/supervisor.py"
+          done
+          PYTHONPATH="$OUT/fastapi-next" python3 -B -m unittest -v \
+            tools.service_supervisor.tests.test_service_supervisor
+
+          python3 bin/generate.py --defaults --output "$OUT/off-by-default"
+          test ! -e "$OUT/off-by-default/tools/service_supervisor"
+          echo "✓ service supervisor is removable and off by default"
+
       - name: Stamp the optional k8s add-on for server-backed stacks
         run: |
           set -euo pipefail
