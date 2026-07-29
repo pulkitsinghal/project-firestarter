@@ -1097,18 +1097,30 @@ final class RouterChatSession: ObservableObject {
         }
 
         await modules.grantSelectedFloor()
-        guard modules.activeFloor != nil else { return }
+        guard modules.activeFloor != nil else {
+            lastError = modules.lastError
+                ?? "The selected recorder could not receive the floor."
+            return
+        }
 
         geometryCapture.start()
         guard geometryCapture.mode == .recording else {
-            await revokeModuleFloor()
+            let reason = geometryCapture.lastError
+                ?? "Input monitoring is required before recording can start."
+            geometryCapture.revoke(reason: reason)
+            await modules.revokeFloor()
+            lastError = reason
+            onConversationControlChanged?()
             return
         }
 
         await voice.start()
         guard voice.state == .listening else {
-            geometryCapture.revoke(reason: voice.lastError ?? "Voice could not start.")
-            await revokeModuleFloor()
+            let reason = voice.lastError ?? "Voice could not start."
+            geometryCapture.revoke(reason: reason)
+            await modules.revokeFloor()
+            lastError = reason
+            onConversationControlChanged?()
             return
         }
     }
