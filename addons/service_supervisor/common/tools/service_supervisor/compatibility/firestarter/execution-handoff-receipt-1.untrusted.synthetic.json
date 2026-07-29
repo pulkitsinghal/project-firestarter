@@ -30,8 +30,8 @@
   "catalog_digest": "6d0b7a440c2f6758b0b01482a5a508dba12b8c191938949854ad1189718fa5f1",
   "executor_generation": 1,
   "state_generation": 1,
-  "verifier_artifact_digest": "c02b7bb559240a6a9be86db078eb15b8186b2e7a72234f93d40fda147de49fee",
+  "verifier_artifact_digest": "c90e0f28545735e03a6ef5805be2ed5a060c3870c42c6c5808940439ab64a838",
   "contract_pin_digest": "39c206b35119cf1c1d42ae361735025c366f5c5da01ef0c66f82c39bed89e826",
   "rollback_authorized": false,
-  "signature": "ad8ffec6e79ff8810549b5ecdae55b01908c8d9a2fe364d88221f599d0754928"
+  "signature": "7020de8dff18ecb866f236aec033d7829b8ccc6c40bdfeb4f5341e808ad81583"
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Fixed repeat acquisition for independently signed permit IDs/nonces targeting
+  the same deterministic plan and authority generation. State schema 2 retains
+  atomic nonce replay protection, durably binds each permit ID to one exact
+  signed payload, and migrates schema 1 ledgers without losing prior
+  consumption or revocations.
+
 ## 0.2.0 - 2026-07-28
 
 - Added strict typed validation for the local-ai adapter plan/result v1 seam,
