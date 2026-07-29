@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.local/schemas/execution-handoff-receipt-1.json",
+  "title": "Firestarter authenticated execution handoff receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "receipt_version",
+    "decision",
+    "policy_version",
+    "receipt_id",
+    "receipt_nonce",
+    "issued_at",
+    "expires_at",
+    "verifier_instance_id",
+    "receipt_key_id",
+    "target_service_id",
+    "intent",
+    "authorization_phase",
+    "plan_digest",
+    "actions",
+    "adapter_set",
+    "permit_id",
+    "permit_fingerprint",
+    "producer_schema_digest",
+    "catalog_digest",
+    "executor_generation",
+    "state_generation",
+    "verifier_artifact_digest",
+    "contract_pin_digest",
+    "rollback_authorized",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "execution-handoff-receipt"},
+    "receipt_version": {"const": "execution-handoff-receipt/1"},
+    "decision": {"const": "AUTHORIZED_FOR_EXECUTOR_HANDOFF"},
+    "policy_version": {"const": "pm-execution-permit/1"},
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^handoff-[0-9a-f]{32}$"
+    },
+    "receipt_nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22,128}$"
+    },
+    "issued_at": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4102444800
+    },
+    "expires_at": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4102444800
+    },
+    "verifier_instance_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$"
+    },
+    "receipt_key_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,62}$"
+    },
+    "target_service_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,62}$"
+    },
+    "intent": {
+      "enum": ["ensure-ready", "complete-stop", "restart"]
+    },
+    "authorization_phase": {
+      "enum": ["apply", "rollback"]
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "actions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "bootstrap",
+          "bootout",
+          "kickstart",
+          "start",
+          "stop",
+          "load",
+          "unload",
+          "check-readiness"
+        ]
+      }
+    },
+    "adapter_set": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["launchd", "docker-compose", "ollama"]
+      }
+    },
+    "permit_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$"
+    },
+    "permit_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "producer_schema_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "catalog_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "executor_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "verifier_artifact_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contract_pin_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rollback_authorized": {"type": "boolean"},
+    "signature": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.local/schemas/local-ai-adapter-result-1.json",
+  "title": "Pinned local-ai adapter result compatibility surface",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "plan_digest",
+    "status",
+    "completed_steps",
+    "failed_step",
+    "readiness_proved",
+    "rollback_status",
+    "error"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "local-ai-adapter-result"
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "status": {
+      "enum": [
+        "dry-run",
+        "succeeded",
+        "failed",
+        "rolled-back"
+      ]
+    },
+    "completed_steps": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 512
+      }
+    },
+    "failed_step": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        }
+      ]
+    },
+    "readiness_proved": {
+      "type": "boolean"
+    },
+    "rollback_status": {
+      "enum": [
+        "not-run",
+        "not-needed",
+        "succeeded",
+        "failed"
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96
+            }
+          }
+        }
+      ]
+    }
+  }
+}
