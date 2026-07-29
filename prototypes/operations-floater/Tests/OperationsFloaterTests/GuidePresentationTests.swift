@@ -208,6 +208,28 @@ struct GuidePresentationTests {
         #expect(transport["NSAllowsArbitraryLoads"] == nil)
     }
 
+    @Test("Application metadata keeps the launcher icon and release version")
+    func applicationMetadataRemainsRegeneratable() throws {
+        let root = packageRoot()
+        let data = try Data(contentsOf: root.appendingPathComponent("Info.plist"))
+        let value = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        )
+        let info = try #require(value as? [String: Any])
+        let project = try String(
+            contentsOf: root.appendingPathComponent("project.yml"),
+            encoding: .utf8
+        )
+
+        #expect(info["CFBundleIconName"] as? String == "AppIcon")
+        #expect(info["CFBundleShortVersionString"] as? String == "1.1.0")
+        #expect(info["CFBundleVersion"] as? String == "2")
+        #expect(project.contains("CFBundleIconName: AppIcon"))
+        #expect(project.contains("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon"))
+    }
+
     private func makeSnapshot(
         queue: [QueueRecord] = [],
         tests: [TestRecord] = [],

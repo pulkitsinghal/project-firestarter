@@ -13,6 +13,8 @@
   `REGISTER_WITH_LAUNCH_SERVICES=NO` is supplied.
 - Enforce one recorder host with a process-scoped application lease while
   retaining the existing single-Space window policy and Dock launcher.
+- Keep the `AppIcon` plist and asset-compiler declarations in the XcodeGen
+  source of truth so regenerating the project cannot drop the Dock icon.
 - Roll back floor ownership, selected-window recording, the global event
   monitor, and voice state when either half of **Give floor** fails to start.
 - Reject unexpected embedded login items, agents, daemons, privileged helpers,
