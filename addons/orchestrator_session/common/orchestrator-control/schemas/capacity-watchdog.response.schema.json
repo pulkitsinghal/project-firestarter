@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/capacity-watchdog-response-1.0.schema.json",
+  "title": "capacity-watchdog success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "capacity-watchdog"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capacity", "successor"],
+      "properties": {
+        "capacity": {"type": "object"},
+        "successor": {"type": ["object", "null"]}
+      }
+    }
+  }
+}

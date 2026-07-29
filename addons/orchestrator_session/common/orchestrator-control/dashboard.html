@@ -4,20 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Local Orchestrator Control Plane</title>
+  <title>Local Orchestrator Receipt Feed</title>
   <style>
-    body { font: 15px/1.45 system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; background: #101318; color: #e8edf2; }
-    section { border: 1px solid #313943; border-radius: 10px; padding: 1rem; margin: 1rem 0; background: #171c22; }
+    body { font: 15px/1.45 system-ui, sans-serif; max-width: 1280px; margin: 2rem auto; padding: 0 1rem; background: #101318; color: #e8edf2; }
+    section { border: 1px solid #313943; border-radius: 10px; padding: 1rem; margin: 1rem 0; background: #171c22; overflow-x: auto; }
     h1, h2 { margin-top: 0; } table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; vertical-align: top; padding: .45rem; border-bottom: 1px solid #313943; }
     code { color: #a9c7ff; } .muted { color: #9ba7b4; }
+    .failure { border-color: #ff6b6b; color: #ffd6d6; }
+    .warning { border-color: #e6b450; color: #ffe5a3; }
+    .current { border-color: #55c27b; }
   </style>
 </head>
 <body>
-  <h1>Local Orchestrator Control Plane</h1>
-  <p class="muted">Load the JSON emitted by the local <code>status</code> command. The browser never reads SQLite, calls a network, or executes stored HTML.</p>
+  <h1>Local Orchestrator Receipt Feed</h1>
+  <p class="muted">Load a sanitized receipt-feed 1.0 export. This review-only browser never reads SQLite, calls a network, executes stored HTML, or performs a control-plane action.</p>
   <input id="file" type="file" accept="application/json,.json">
-  <main id="app"><p>No snapshot loaded.</p></main>
+  <main id="app"><p>No receipt feed loaded.</p></main>
   <script>
     "use strict";
     const app = document.getElementById("app");
@@ -26,32 +29,121 @@
       element.textContent = String(value == null ? "" : value);
       return element;
     };
+    const valueText = value => value === null ? "Unknown" : value;
+    const metricText = metric => {
+      if (!metric || metric.availability === "unavailable" || metric.value === null) return "Unavailable";
+      return `${metric.value} (${metric.availability})`;
+    };
     function table(rows, columns) {
       const result = document.createElement("table");
       const head = result.appendChild(document.createElement("thead")).appendChild(document.createElement("tr"));
-      columns.forEach(column => head.appendChild(node("th", column)));
+      columns.forEach(column => head.appendChild(node("th", column.label)));
       const body = result.appendChild(document.createElement("tbody"));
       rows.forEach(row => {
         const line = body.appendChild(document.createElement("tr"));
-        columns.forEach(column => line.appendChild(node("td", typeof row[column] === "object" ? JSON.stringify(row[column]) : row[column])));
+        columns.forEach(column => line.appendChild(node("td", column.value(row))));
       });
       return result;
     }
+    function section(title, rows, columns, className = "") {
+      const result = document.createElement("section");
+      result.className = className;
+      result.appendChild(node("h2", title));
+      result.appendChild(table(rows, columns));
+      app.appendChild(result);
+    }
+    function validFeed(payload) {
+      return payload && payload.schemaVersion === "1.0" &&
+        payload.source && payload.capacity && payload.counts &&
+        Array.isArray(payload.receipts) && Array.isArray(payload.ownerGates) &&
+        Array.isArray(payload.quarantine) &&
+        payload.capacity.rootExcluded === true;
+    }
     function render(payload) {
       app.replaceChildren();
-      if (!payload || payload.ok !== true || payload.operation !== "status" || !payload.result) {
-        app.appendChild(node("p", "Rejected: expected a successful status response."));
+      if (!validFeed(payload)) {
+        app.appendChild(node("p", "Rejected: expected receipt-feed 1.0 with rootExcluded=true."));
         return;
       }
-      [["Tasks", payload.result.tasks || [], ["task_id", "state", "priority", "repo_alias", "path", "block"]],
-       ["Effective policy ledger", payload.result.rules || [], ["id", "revision", "state", "directive", "provenance"]],
-       ["Durable outbox", payload.result.outbox || [], ["outbox_id", "kind", "task_id", "state", "attempts", "updated_at"]]]
-        .forEach(([title, rows, columns]) => {
-          const section = document.createElement("section");
-          section.appendChild(node("h2", title));
-          section.appendChild(table(rows, columns));
-          app.appendChild(section);
-        });
+      const freshness = payload.source.freshness || {};
+      const sourceClass = payload.source.sourceStatus === "live" && freshness.state === "current"
+        ? "current" : payload.source.sourceStatus === "invalid" ? "failure" : "warning";
+      section("Source and freshness", [{
+        generatedAt: payload.source.generatedAt == null ? "Unavailable" : payload.source.generatedAt,
+        servedAt: payload.source.servedAt,
+        sourceStatus: payload.source.sourceStatus,
+        freshness: freshness.state || "unknown",
+        ageSeconds: freshness.ageSeconds == null ? "Unknown" : freshness.ageSeconds,
+        thresholdSeconds: freshness.thresholdSeconds,
+        revision: payload.source.sourceRevision == null ? "Unavailable" : payload.source.sourceRevision,
+        discrepancies: (payload.source.discrepancies || []).join(", ") || "None"
+      }], [
+        {label: "generatedAt", value: row => row.generatedAt},
+        {label: "servedAt", value: row => row.servedAt},
+        {label: "sourceStatus", value: row => row.sourceStatus},
+        {label: "freshness", value: row => row.freshness},
+        {label: "ageSeconds", value: row => row.ageSeconds},
+        {label: "thresholdSeconds", value: row => row.thresholdSeconds},
+        {label: "revision", value: row => row.revision},
+        {label: "discrepancies", value: row => row.discrepancies}
+      ], sourceClass);
+      section("Receipt-derived capacity", [{
+        configuredWorkers: payload.capacity.configuredWorkers == null ? "Unavailable" : payload.capacity.configuredWorkers,
+        availability: payload.capacity.availability,
+        rootExcluded: payload.capacity.rootExcluded,
+        setupReserved: valueText(payload.counts.setupReserved),
+        active: valueText(payload.counts.active),
+        waiting: valueText(payload.counts.waiting),
+        ownerGated: valueText(payload.counts.ownerGated),
+        failed: valueText(payload.counts.failed),
+        done: valueText(payload.counts.done),
+        acknowledged: valueText(payload.counts.acknowledged),
+        runnable: valueText(payload.counts.runnable),
+        quarantined: valueText(payload.counts.quarantined)
+      }], [
+        {label: "configuredWorkers", value: row => row.configuredWorkers},
+        {label: "availability", value: row => row.availability},
+        {label: "rootExcluded", value: row => row.rootExcluded},
+        {label: "setupReserved", value: row => row.setupReserved},
+        {label: "active", value: row => row.active},
+        {label: "waiting", value: row => row.waiting},
+        {label: "ownerGated", value: row => row.ownerGated},
+        {label: "failed", value: row => row.failed},
+        {label: "done", value: row => row.done},
+        {label: "acknowledged", value: row => row.acknowledged},
+        {label: "runnable", value: row => row.runnable},
+        {label: "quarantined", value: row => row.quarantined}
+      ]);
+      section("Canonical receipt-backed tasks and lifecycle", payload.receipts, [
+        {label: "fingerprint", value: row => row.fingerprint},
+        {label: "revision", value: row => row.revision},
+        {label: "lifecycle", value: row => row.lifecycle},
+        {label: "gateKind", value: row => row.gateKind},
+        {label: "runnable", value: row => row.runnable === null ? "Unknown" : row.runnable},
+        {label: "nextSafeMove", value: row => row.nextSafeMove},
+        {label: "dependsOn", value: row => row.dependsOn.join(", ") || "None"},
+        {label: "acceptanceReceipts", value: row => row.acceptanceReceipts.join(", ") || "None"},
+        {label: "successorReceipts", value: row => row.successorReceipts.join(", ") || "None"},
+        {label: "estimateSeconds", value: row => metricText(row.duration.estimateSeconds)},
+        {label: "elapsedActiveSeconds", value: row => metricText(row.duration.elapsedActiveSeconds)},
+        {label: "externalWaitSeconds", value: row => metricText(row.duration.externalWaitSeconds)},
+        {label: "firstUsefulEvidenceSeconds", value: row => metricText(row.duration.firstUsefulEvidenceSeconds)},
+        {label: "evidence", value: row => row.evidenceRefs.map(item => `${item.kind}:${item.ref}`).join(", ") || "None"}
+      ]);
+      section("Owner actions (review only)", payload.ownerGates, [
+        {label: "fingerprint", value: row => row.fingerprint},
+        {label: "revision", value: row => row.revision},
+        {label: "decisionCode", value: row => row.decisionCode},
+        {label: "recordedAt", value: row => row.recordedAt},
+        {label: "nextSafeMove", value: row => row.nextSafeMove},
+        {label: "evidence", value: row => row.evidenceRefs.map(item => `${item.kind}:${item.ref}`).join(", ")}
+      ], payload.ownerGates.length ? "warning" : "");
+      section("Quarantined mirrors and conflicts", payload.quarantine, [
+        {label: "fingerprint", value: row => row.fingerprint},
+        {label: "reason", value: row => row.reason},
+        {label: "mirrorOf", value: row => row.mirrorOf == null ? "Unavailable" : row.mirrorOf},
+        {label: "excludedFromCounts", value: row => row.excludedFromCounts}
+      ], payload.quarantine.length ? "warning" : "");
     }
     document.getElementById("file").addEventListener("change", event => {
       const file = event.target.files && event.target.files[0];

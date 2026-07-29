@@ -18,6 +18,7 @@
         "audit_required": {"type": "boolean"},
         "archive_outbox_id": {"type": "string"},
         "successor": {"type": ["object", "null"]},
+        "capacity": {"type": "object"},
         "evidence_count": {"type": "integer"},
         "resource_count": {"type": "integer"},
         "reclaimed_bytes": {"type": "integer"}

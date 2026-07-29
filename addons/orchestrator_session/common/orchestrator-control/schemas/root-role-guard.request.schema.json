@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/root-role-guard-request-1.0.schema.json",
+  "title": "root-role-guard request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "request_id", "action_id", "action_type"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "action_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "action_type": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "delegable_worker_available": {"type": "boolean"},
+    "scope_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "now": {"type": "string"},
+    "target_status": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "evidence": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "verified"],
+        "properties": {
+          "kind": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "verified": {"type": "boolean"},
+          "task_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "receipt_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "handback_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "external_thread_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "fencing_token": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "lease_epoch": {"type": "integer", "minimum": 1},
+          "policy_snapshot_revision": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}
+          ,
+          "decision_request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "gate_fingerprint": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+          "route": {"type": "string", "enum": ["OWNER_GATE"]},
+          "owner_prompt_required": {"type": "boolean"}
+        }
+      }
+    },
+    "exception_receipt": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "receipt_type",
+        "receipt_id",
+        "action_id",
+        "action_type",
+        "scope_id",
+        "issued_at",
+        "expires_at",
+        "nondelegable_recovery",
+        "eligible_worker_count",
+        "authority"
+      ],
+      "properties": {
+        "receipt_type": {"const": "ROOT_EXECUTION_EXCEPTION"},
+        "receipt_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "action_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "action_type": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "scope_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "issued_at": {"type": "string"},
+        "expires_at": {"type": "string"},
+        "nondelegable_recovery": {"type": "boolean"},
+        "eligible_worker_count": {"type": "integer", "minimum": 0},
+        "authority": {"const": "SYSTEM_NONDELEGABLE_RECOVERY"}
+      }
+    }
+  }
+}

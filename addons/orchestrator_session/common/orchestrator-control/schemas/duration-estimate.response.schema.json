@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/duration-estimate-response-1.0.schema.json",
+  "title": "duration-estimate response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "duration-estimate"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "automatic", "confidence", "completed_sample_count", "minimum_required", "estimate"],
+      "properties": {
+        "state": {"enum": ["SPARSE_EVIDENCE", "CONFLICTING_EVIDENCE", "LEARNED_PRIOR_AVAILABLE"]},
+        "automatic": {"type": "boolean"},
+        "confidence": {"enum": ["low", "moderate", "high"]},
+        "completed_sample_count": {"type": "integer"},
+        "minimum_required": {"type": "integer"},
+        "estimate": {"type": ["object", "null"]}
+      }
+    }
+  }
+}

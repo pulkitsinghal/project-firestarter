@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/duration-estimate-request-1.0.schema.json",
+  "title": "duration-estimate request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "request_id", "task_family", "tool_family", "environment_class", "minimum_estimate_version", "now"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "task_family": {"type": "string"},
+    "tool_family": {"type": "string"},
+    "environment_class": {"type": "string"},
+    "minimum_estimate_version": {"type": "integer", "minimum": 1},
+    "now": {"type": "string"}
+  }
+}

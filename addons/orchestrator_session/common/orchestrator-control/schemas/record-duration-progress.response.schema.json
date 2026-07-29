@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/record-duration-progress-response-1.0.schema.json",
+  "title": "record-duration-progress response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "record-duration-progress"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "reclassified", "worker_restart_required", "ownership_preserved", "lease_epoch", "fencing_token", "from_bucket", "to_bucket", "estimate_version", "released_lane", "reason_codes", "successor"],
+      "properties": {
+        "task_id": {"type": "string"},
+        "reclassified": {"type": "boolean"},
+        "worker_restart_required": {"const": false},
+        "ownership_preserved": {"const": true},
+        "lease_epoch": {"type": "integer"},
+        "fencing_token": {"type": "integer"},
+        "from_bucket": {"type": "string"},
+        "to_bucket": {"type": "string"},
+        "estimate_version": {"type": "integer"},
+        "released_lane": {"type": ["string", "null"]},
+        "reason_codes": {"type": "array", "items": {"type": "string"}},
+        "successor": {"type": ["object", "null"]}
+      }
+    }
+  }
+}

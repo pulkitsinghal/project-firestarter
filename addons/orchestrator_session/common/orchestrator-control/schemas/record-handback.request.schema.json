@@ -4,7 +4,7 @@
   "title": "record-handback request 1.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["interface_version", "request_id", "handback_id", "task_id", "policy_snapshot_revision", "lease_epoch", "fencing_token", "disposition", "exact_refs", "checks", "review_findings", "hosted_ci", "deployment_state", "privacy_boundary", "artifacts", "resources", "dependencies", "next_action", "successor_request", "block", "now"],
+  "required": ["interface_version", "request_id", "handback_id", "task_id", "policy_snapshot_revision", "lease_epoch", "fencing_token", "external_thread_id", "disposition", "exact_refs", "checks", "review_findings", "hosted_ci", "deployment_state", "privacy_boundary", "artifacts", "resources", "dependencies", "next_action", "successor_request", "block", "now"],
   "properties": {
     "interface_version": {"const": "1.0"},
     "request_id": {"type": "string"},
@@ -13,6 +13,7 @@
     "policy_snapshot_revision": {"type": "integer", "minimum": 1},
     "lease_epoch": {"type": "integer", "minimum": 1},
     "fencing_token": {"type": "integer", "minimum": 1},
+    "external_thread_id": {"type": "string"},
     "disposition": {"enum": ["completed", "blocked", "failed", "superseded", "duplicate"]},
     "exact_refs": {
       "type": "object",
@@ -77,6 +78,34 @@
         {"type": "null"}
       ]
     },
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configured_capacity", "runnable_queue_count", "terminal_status", "clean_handback", "empty_outcome", "evidence_refs", "blocked_audits"],
+      "properties": {
+        "configured_capacity": {"type": "integer", "minimum": 1, "maximum": 64},
+        "runnable_queue_count": {"type": "integer", "minimum": 0},
+        "terminal_status": {"enum": ["completed", "archived", "interrupted/notLoaded"]},
+        "clean_handback": {"const": true},
+        "empty_outcome": {"enum": ["EMPTY", "OWNER_GATED"]},
+        "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "blocked_audits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["task_id", "classification", "outcome", "reason_code", "evidence_refs"],
+            "properties": {
+              "task_id": {"type": "string"},
+              "classification": {"enum": ["owner_gate", "dependency", "resource_budget", "transient_tool", "zero_step_ci", "stale_dashboard", "completed_external", "policy_conflict", "unknown"]},
+              "outcome": {"enum": ["resume", "archive", "remain_blocked", "owner_gate"]},
+              "reason_code": {"type": "string"},
+              "evidence_refs": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        }
+      }
+    },
     "block": {
       "oneOf": [
         {
@@ -93,5 +122,11 @@
       ]
     },
     "now": {"type": "string"}
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"disposition": {"not": {"const": "blocked"}}}},
+      "then": {"required": ["capacity"]}
+    }
+  ]
 }

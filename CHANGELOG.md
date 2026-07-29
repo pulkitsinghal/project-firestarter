@@ -6,6 +6,54 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- `pm-proxy-orchestrator` 0.2.0 as a repo-local source plugin and marketplace:
+  fail-closed Firestarter interface checks, mandatory recycle/preflight,
+  prompt-free launch tickets, exact receipt/fence enforcement, typed decision
+  routing, and a crash-recoverable closure/refill wrapper with synthetic task
+  tools, adversarial/privacy gates, and 100-repeat concurrency coverage.
+- Orchestrator-control schema 1.2 capacity and duration sagas: clean
+  `completed`/`archived`/`interrupted/notLoaded` normalization, durable
+  `CAPACITY_RELEASED`, atomic successor reservation, receipt-fenced archival,
+  visible runnable-capacity deficits, event-driven reconciliation, and periodic
+  watchdog recovery. Interface 1.0 remains compatible and schema 1.0/1.1 state
+  migrates in place.
+- Duration-calibrated delegation lanes with exact `seconds` through `60m+`
+  active-runtime bounds, versioned estimate metadata in every launch
+  envelope/receipt, and separate queue/setup/active/tool-wait/external-wait/
+  total-wall/first-evidence/safe-close observations. Receipt-backed workers
+  reclassify to longer lanes without restart or ownership loss at the next
+  boundary, >2x error, or a two-bucket skip; early finishes improve shorter
+  evidence. Learned priors use only a bounded 20-sample coarse
+  task/tool/environment window, require at least five consistent completions,
+  and fail closed on sparse/conflicting evidence.
+- Duration-aware scheduling ages work fairly, protects available short-lane
+  capacity, caps `45m`/`60m+` concurrency, distinguishes queued-setup
+  reservations from active receipt-backed workers, and excludes rolled-back
+  setup failures before immediate next-candidate selection. The verified
+  privacy-safe seed aggregate (SHA-256
+  `c3739bb1abff972ba6a85ecacfd9b794c6843d972b2ff90320b7eef67030585a`)
+  is below the learned-prior threshold and stores no raw prompt/hash,
+  identifier, title, path, URL/email, PHI/private content, secret, command,
+  diff, or output.
+- Receipt-backed external identity reconciliation: only the canonical external
+  task ID may heartbeat, mutate, hand back, or occupy capacity; platform-created
+  mirrors receive deterministic read-only stop, zero-change handback, and
+  archive instructions, and do not appear as dashboard owners.
+- Mandatory `ROOT_ORCHESTRATOR_ROLE` preflight: an allowlist-only,
+  privacy-bounded guard keeps root on owner-intent, launch/deduplication,
+  decision routing, monitoring, refill, and worker-evidence synthesis. It
+  denies root repository inspection, design, code, tests, estimation,
+  deployment, cleanup, premature completion claims, and receiptless capacity
+  fill with explicit successor/evidence requirements. This is a control-plane
+  invariant rather than prompt etiquette: eligible worker capacity keeps root
+  coordination-only and missed delegation cannot authorize direct work. Its
+  only exception is an exact action/scope-bound `ROOT_EXECUTION_EXCEPTION` for
+  nondelegable recovery with zero eligible workers,
+  `SYSTEM_NONDELEGABLE_RECOVERY` authority, and a ≤300-second lifetime. Runtime
+  enforcement is explicitly deferred to dispatcher interposition before every
+  relevant tool; source
+  validation, repo/team adoption, and a real dispatcher-denial E2E are separate
+  evidence stages.
 - Operations Floater 1.1.0 (build 2) permission/install lifecycle: a read-only
   designated-requirement compatibility preflight, helper-free bundle audit,
   one-instance recorder host, transactional **Give floor** rollback, and
