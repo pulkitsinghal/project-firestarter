@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/reconcile-external-task-response-1.0.schema.json",
+  "title": "reconcile-external-task success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "reconcile-external-task"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "canonical_task_id", "canonical_external_thread_id", "mutation_allowed", "capacity_eligible", "required_actions", "zero_change_handback"],
+      "properties": {
+        "classification": {"enum": ["CANONICAL_RECEIPT_CONFIRMED", "DUPLICATE_STOP"]},
+        "canonical_task_id": {"type": "string"},
+        "canonical_external_thread_id": {"type": ["string", "null"]},
+        "mutation_allowed": {"type": "boolean"},
+        "capacity_eligible": {"type": "boolean"},
+        "required_actions": {"type": "array", "items": {"type": "string"}},
+        "zero_change_handback": {"type": ["object", "null"]}
+      }
+    }
+  }
+}

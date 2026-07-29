@@ -1,0 +1,32 @@
+{
+  "name": "pm-proxy-orchestrator",
+  "version": "0.3.0",
+  "description": "Fail-closed Codex wrapper for the Firestarter cross-task control plane.",
+  "author": {
+    "name": "Firestarter contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "orchestration",
+    "pm-proxy",
+    "task-control",
+    "firestarter"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "PM Proxy Orchestrator",
+    "shortDescription": "Fail-closed cross-task control plane",
+    "longDescription": "Reserves canonical ownership before task creation, carries policy and fence receipts, classifies approvals, records typed handbacks, and recycles blocked work through Firestarter's local authority.",
+    "developerName": "Firestarter contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Prepare and launch this task through the PM proxy.",
+      "Classify this approval through the control plane.",
+      "Record this task handback and recycle the queue."
+    ]
+  }
+}

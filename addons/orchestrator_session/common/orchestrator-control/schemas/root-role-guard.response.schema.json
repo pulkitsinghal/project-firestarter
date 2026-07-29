@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/root-role-guard-response-1.0.schema.json",
+  "title": "root-role-guard success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"enum": ["root-role-guard", "classify-root-action"]},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "classification",
+        "decision",
+        "reason_code",
+        "required_action",
+        "truthful_status",
+        "exception_receipt_accepted",
+        "owner_notification_authorized",
+        "dispatcher_enforcement_required",
+        "runtime_enforcement_proven"
+      ],
+      "properties": {
+        "action_id": {"type": "string"},
+        "classification": {"enum": ["ORCHESTRATION", "TASK_EXECUTION", "TASK_EXECUTION_EXCEPTION", "UNKNOWN"]},
+        "decision": {"enum": ["ALLOW", "DENY"]},
+        "reason_code": {"type": "string"},
+        "required_action": {
+          "enum": [
+            "NONE",
+            "PREPARE_SUCCESSOR_HANDOFF",
+            "PROVIDE_EXACT_RECEIPT",
+            "PROVIDE_WORKER_EVIDENCE",
+            "PROVIDE_OWNER_GATE_EVIDENCE"
+          ]
+        },
+        "truthful_status": {
+          "type": ["string", "null"],
+          "enum": ["assigned", "running", "validated", "merged", "deployed", null]
+        },
+        "exception_receipt_accepted": {"type": "boolean"},
+        "owner_notification_authorized": {"type": "boolean"},
+        "dispatcher_enforcement_required": {"const": true},
+        "runtime_enforcement_proven": {"const": false}
+      }
+    }
+  }
+}

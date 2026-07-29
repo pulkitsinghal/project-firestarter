@@ -18,12 +18,148 @@ python orchestrator-control/orchestrator_control.py \
 Requests are UTF-8 JSON on stdin. Success is one JSON object on stdout. Failure
 is one JSON object on stderr and no success output.
 
+Schema `1.2` is an additive local-state migration from schema `1.0`/`1.1`; the
+machine interface remains `1.0`. A wrapper accepts compatible schema `1.x` only
+after verifying every schema and command it uses. Unknown major/interface
+versions, missing schemas, unsafe state, or partial migrations fail closed.
+
 | Exit | Meaning | Wrapper behavior |
 |------|---------|------------------|
 | `0` | Operation committed or valid classification returned | Continue exactly as the result instructs |
 | `2` | Input, privacy, receipt, fence, or policy denial | Do not create/mutate; return to the orchestrator |
 | `3` | Duplicate, ownership, priority, idempotency, or policy conflict | Stop read-only; reconcile the canonical task |
 | `4` | Local authority unavailable/corrupt | Fail closed; no external task action |
+
+## Mandatory root-role preflight
+
+Before every root tool, API, or orchestration action, call
+`root_role_guard.py evaluate`. The request and response schemas are
+`root-role-guard.request.schema.json` and
+`root-role-guard.response.schema.json`. A missing guard, invalid request,
+corrupt audit, unknown action, or non-`ALLOW` decision prohibits the proposed
+root action.
+
+The root allowlist is deliberately narrow: receive owner intent; reserve,
+prepare, and launch visible tasks; deduplicate ownership; route PM-proxy
+decisions; monitor receipts and handbacks; refill capacity; and synthesize
+worker-returned evidence. Task-domain/repository inspection, design, coding,
+testing, duration estimation, deployment, and cleanup are worker actions. When
+delegable, the guard returns `PREPARE_SUCCESSOR_HANDOFF`; the wrapper must
+launch or hand off the work instead of performing it locally.
+
+This is a control-plane defect boundary, not prompt etiquette. Whenever an
+eligible worker slot exists, root is coordination-only and cannot report
+`blocked` while a PM-proxy-safe refill or handoff is available. Missed
+delegation does not authorize root direct work. The sole exception is a typed
+`ROOT_EXECUTION_EXCEPTION` receipt that exactly matches the action and scope,
+asserts nondelegable recovery with zero eligible workers, carries
+`SYSTEM_NONDELEGABLE_RECOVERY` authority, and has a positive lifetime of no more
+than 300 seconds. A missing, stale, mismatched, broader, or worker-eligible
+receipt is denied.
+
+The root reports `assigned` only from an exact launch receipt and `running` only
+from that receipt plus a current heartbeat. It reports `validated`, `merged`,
+or `deployed` only from matching worker handback evidence. `send_message`,
+reservation, or assignment alone never proves implemented, tested, complete,
+or capacity-filled. The guard's bounded audit persists classification metadata
+and evidence kinds only—never prompts, private content, evidence values, secrets,
+or paths.
+
+Creation/setup failure rollback and immediate refill are wrapper integration
+requirements: a failed create/setup must release or reconcile its reservation
+and refill safely. A queued setup is reserved, not active; it becomes active
+only after the canonical external task's exact launch receipt. These transitions
+are not implemented by `root_role_guard.py`.
+
+### Enforcement proof boundary
+
+The standalone guard is source-only and cannot intercept tools. Runtime
+enforcement remains unproven until the actual dispatcher evaluates it before
+every filesystem, execution, browser, Sites, and task-management call, then
+denies the underlying call on any non-`ALLOW` result or guard failure. A
+source-only Codex skill may require an application/platform wrapper for this
+interposition.
+
+Acceptance records three separate facts: merged exact-master source tests;
+repo/team marketplace adoption or installation; and a real dispatcher-denial
+E2E demonstrating that a forbidden underlying tool was not invoked. None may be
+substituted for another. Active worker counts exclude root and queued setup;
+queued setup may appear only in the separately visible reserved component.
+Status claims cite their exact receipt/heartbeat/handback evidence, and owner
+notification is reachable only after a current typed `OWNER_GATE`. Dashboard
+projections expose evaluation time plus fresh/stale state; stale projections are
+not authority.
+
+## Mandatory duration-lane contract
+
+The wrapper must obtain or carry a worker/control-plane duration estimate before
+visible creation. Root may coordinate this flow but may not inspect the task or
+invent the estimate. Every `prepare-launch` envelope and launch receipt carries:
+
+- a monotonic estimate version and one active-runtime bucket;
+- confidence plus coarse task, tool, and environment families;
+- a bounded, redacted evidence basis;
+- expected setup, test, and remote-wait seconds, using `null` when unknown; and
+- the configured heavyweight concurrency cap.
+
+The fixed bucket order and bounds are:
+
+| Bucket | Active-runtime interval |
+|--------|-------------------------|
+| `seconds` | 0–<60 seconds |
+| `5m` | 60–<450 seconds |
+| `10m` | 450–<750 seconds |
+| `15m` | 750–<1,050 seconds |
+| `20m` | 1,050–<1,500 seconds |
+| `30m` | 1,500–<2,250 seconds |
+| `45m` | 2,250–<3,150 seconds |
+| `60m+` | ≥3,150 seconds |
+
+`blocked` and `waiting` are separate non-runtime states. Progress and completed
+observations keep active work, queue delay, setup, tool wait, external wait,
+total wall time, time to first useful evidence, and time to safe close as
+separate nonnegative fields. Unknown optional measurements remain `null`;
+queue/wait time never inflates active-runtime calibration.
+
+Call `record-duration-progress` with the exact current receipt and fence. When
+active time crosses the next boundary, exceeds the expected active time by more
+than 2x, or skips at least two buckets, the control plane increments the
+estimate version and reclassifies the same worker to the longer lane in one
+transaction. The worker continues without restart, keeps its ownership/fence,
+and releases the shorter scheduling lane. If short-lane work is available, the
+same transaction may reserve one exact successor prepare request; the wrapper
+must still create it and record its exact launch receipt before treating it as
+active. Crash replay uses the duration request ID and launch idempotency key.
+
+At safe close, call `record-duration-observation` once with bounded evidence
+references. Early completion is a valid shorter-lane sample. Query
+`duration-estimate` by exact coarse task/tool/environment tuple. Automatic
+priors require at least five completed samples from the newest bounded
+20-observation window and a dominant bucket; sparse or conflicting evidence
+returns low-confidence `automatic=false`.
+
+Before refill, call `duration-schedule`. It combines priority with bounded age,
+prefers an eligible `seconds`/`5m`/`10m` candidate when short-lane capacity is
+available, and excludes `45m`/`60m+` candidates at the configured heavyweight
+cap. A queued worktree/setup counts as reserved and is explicitly not active.
+On create/setup failure, the integration must roll back or reconcile that
+reservation, mark the failed candidate ineligible, rerun selection immediately,
+and prepare/create/receipt the next eligible candidate. The source-only CLI
+returns the selection contract; only an adopted wrapper/dispatcher can perform
+those external task transitions. `EMPTY` is valid only after the full current
+candidate set yields no eligible work; owner-gated, blocked/waiting,
+heavyweight-capped, failed-setup, and unreconciled candidates remain explicit
+deferred evidence.
+
+The initial privacy-safe calibration aggregate was verified at SHA-256
+`c3739bb1abff972ba6a85ecacfd9b794c6843d972b2ff90320b7eef67030585a`.
+It has four completed observations across three coarse families and four
+censored snapshots, below the learned-prior threshold. It therefore provides
+only explicit low-confidence evidence, not automatic precision. Calibration
+requests, events, samples, and status must never contain raw prompts or prompt
+hashes, task/thread identifiers from source evidence, titles, filesystem paths,
+URLs, email addresses, PHI/private content, secrets, commands, diffs, or command
+output.
 
 ## Mandatory lifecycle
 
@@ -47,22 +183,48 @@ is one JSON object on stderr and no success output.
 5. Call `record-launch-receipt` with the external thread ID and the exact echoed
    policy revision, rule IDs, lease epoch, and fence. Until that receipt commits,
    the task remains `LAUNCH_PENDING` and mutation is forbidden.
-6. Route every approval question through `classify-decision`. Only
+   The receipt also returns the launch envelope's versioned duration estimate
+   and progress/observation protocol.
+6. Reconcile every externally surfaced copy with `reconcile-external-task`.
+   Only the `external_thread_id` stored in the current launch receipt may
+   heartbeat, mutate, hand back, or count toward capacity. A platform mirror
+   with the same source/outcome/envelope but no receipt receives immediate
+   `STOP_READ_ONLY`, a zero-change handback, and archive instructions.
+7. Route every approval question through `classify-decision`. Only
    `OWNER_GATE` with `owner_prompt_required=true` may notify the owner.
    `PM_PROXY` is absorbed. Validation/unknown-action failures are DENY-to-
    orchestrator, not owner prompts.
-7. Use `record-heartbeat` for the current fenced worker. Use `takeover-lease`
+8. Use `record-heartbeat` for the current fenced, receipt-backed external worker.
+   Use `takeover-lease`
    only after the recorded lease expires. Old fences immediately lose
    heartbeat, mutation, and handback authority.
-8. Call `record-handback` with exact refs, typed checks, literal hosted-CI truth,
-   privacy/deployment state, and resource disposition. A successor request is
-   reserved with its create outbox in the same SQLite transaction that records
-   predecessor closure and its archive outbox.
-9. Reconcile pending outbox actions idempotently. Commit
-   `record-archive-receipt` only after the external archive succeeds.
-10. On capacity, startup, or dependency/policy/evidence change, reconcile live
-    external state and call `recycle-queue` for every blocked task before any
-    lower-value launch.
+9. Treat closure and refill as one saga. Normalize `completed`, `archived`, and
+   observed `interrupted/notLoaded` with a valid clean handback as terminal.
+   Before `record-handback`, reconcile live external state and call
+   `recycle-queue`. Select the highest-value eligible successor, if any, and
+   include its exact `prepare-launch` request plus the configured capacity,
+   runnable queue count, terminal observation, and bounded evidence refs.
+10. `record-handback` releases the predecessor claim, emits durable
+   `CAPACITY_RELEASED`, reserves the successor and create outbox, records
+   `EMPTY`/`OWNER_GATED` with evidence when appropriate, and starts the archive
+   outbox in one SQLite transaction. If runnable work exists but
+   active-or-reserved slots do not equal configured capacity, status exposes
+   `CAPACITY_INVARIANT_FAILED` and archival remains fenced.
+11. Create the successor from the returned verbatim prompt and record its exact
+    launch receipt. Only then may `record-archive-receipt` complete predecessor
+    archival. Repeated events and receipts are idempotent; stale or fabricated
+    fences fail closed.
+12. Drive refill from the durable capacity-release event. On process startup,
+    heartbeat, or a periodic timer, invoke `capacity-watchdog` for any
+    unsatisfied saga. It may reserve only the exact supplied successor and may
+    not change configured capacity. The dashboard derives slot truth from
+    reservations, launch receipts, and handbacks, never a manually maintained
+    task status.
+13. Run `duration-schedule` whenever capacity opens or a setup/create attempt
+    fails. Queued setup remains reserved-not-active; a receipt-backed canonical
+    worker is active. When `record-duration-progress` releases a shorter lane
+    during rollover, refill that lane through the same prepare/create/receipt
+    protocol without restarting or duplicating the reclassified worker.
 
 The wrapper owns Codex API calls; the repository control plane owns policy,
 reservation, fencing, idempotency, evidence acceptance, queue ordering, and the
@@ -85,4 +247,61 @@ The wrapper is ready to become mandatory only after its integration suite proves
   owner prompt;
 - legacy dashboard import never creates a typed owner gate or active task; and
 - owner notifications are deduplicated by gate fingerprint plus policy/state
-  revision.
+  revision;
+- a valid clean handback followed by observed `interrupted/notLoaded`, with no
+  closeout message delivered to the orchestrator, still emits
+  `CAPACITY_RELEASED` and reserves/receipts one successor without prompting;
+- archive fails before a fresh exact successor receipt, fabricated/stale
+  receipts fail closed, and watchdog replay converges after every closure,
+  reservation, receipt, and archive crash boundary;
+- 100 repeated concurrent closure/refill races create one logical successor,
+  while `runnable_queue_count > 0` implies
+  `active_or_reserved_count == configured_capacity`; and
+- durable state contains no raw prompt, prompt hash, secret, private transcript,
+  command, diff, or command output; and
+- the observed external mirror race produces one canonical receipt-backed FAQ
+  owner: the unreceipted mirror cannot heartbeat or mutate, returns a
+  zero-change handback, archives read-only, never enters capacity, and never
+  appears as a second dashboard owner;
+- root attempts to invent duration estimates or design after delegation are
+  denied with a successor prepare/handoff requirement;
+- missed delegation never authorizes root direct task work, and root cannot
+  report blocked while a PM-proxy-safe refill or handoff exists;
+- root repository or task-domain inspection is denied as worker execution;
+- a root `implemented`, `tested`, or `complete` claim after only
+  `send_message` is denied until the matching worker handback exists; and
+- root capacity fill without the fresh exact launch receipt is denied and does
+  not change slot truth;
+- source validation, repo/team adoption, and real dispatcher denial are reported
+  separately, with only the last proving runtime interposition; and
+- dashboard/root status marks freshness and evidence source, excludes root from
+  worker capacity, and cannot reach notification without a typed `OWNER_GATE`.
+- exact boundary values assign the fixed eight buckets deterministically, and
+  blocked/waiting plus queue/setup/tool/external wait never advance active time;
+- every prepare/receipt exposes the same monotonic estimate version, coarse
+  families, confidence/evidence, and expected setup/test/remote-wait fields;
+- next-boundary, >2x, and two-bucket underestimate cases reclassify without
+  restart or ownership loss, replay idempotently after a crash, and refill the
+  released short lane without duplicate launch;
+- early completion contributes one fenced shorter observation; fewer than five
+  completed samples or a conflicting bucket distribution never creates an
+  automatic prior;
+- queue aging prevents starvation, short-lane preference remains deterministic,
+  and the heavyweight cap defers `45m`/`60m+` work without misreporting it as
+  `EMPTY`;
+- queued setup is reserved but never active, while setup/create failure rolls
+  back and immediately selects the next eligible candidate; and
+- durable duration state and status pass privacy scans for prompts/hashes,
+  task/thread source identifiers, titles, paths, URLs, email, PHI/private
+  content, secrets, commands, diffs, and command output.
+
+## Packaged plugin
+
+The repo-local marketplace at `../../.agents/plugins/marketplace.json` exposes
+`pm-proxy-orchestrator` from `../../plugins/pm-proxy-orchestrator/`. The plugin is a
+source artifact only: generation and validation do not install it into a
+personal marketplace or mutate live Codex configuration. Its bridge uses a
+fixed command allowlist, validates the Firestarter executable/version/schema,
+runs `recycle-queue` before launch and closure, persists prompt-free tickets,
+and fails closed on missing/corrupt state, quarantined policy, stale receipts,
+or interface mismatch.
