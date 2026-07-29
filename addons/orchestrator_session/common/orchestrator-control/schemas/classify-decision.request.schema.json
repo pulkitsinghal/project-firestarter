@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/classify-decision-request-1.0.schema.json",
+  "title": "classify-decision request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "request_id", "context", "action_type", "target_alias", "authorization_scope", "policy_snapshot_revision", "state_revision", "authorized", "reversible", "destructive", "external_effect", "auto_publish", "identity_change", "credential_needed", "cost_change", "force_or_admin", "gate_type", "now"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "context": {"$ref": "shared.schema.json#/$defs/context"},
+    "action_type": {
+      "enum": [
+        "READ_INSPECT",
+        "SAFE_RECONCILE",
+        "ISOLATED_EDIT_TEST",
+        "FOCUSED_BRANCH_COMMIT_PUSH_PR",
+        "REVIEW_FIX",
+        "NORMAL_MERGE",
+        "EXACT_DEFAULT_RETEST",
+        "TASK_OWNED_CLEANUP",
+        "HOSTED_CI_BILLING_BLOCK",
+        "BILLING_CHANGE_OR_SPEND",
+        "ACCOUNT_OR_CREDENTIAL_CHANGE",
+        "PRODUCTION_CHANGE",
+        "EXTERNAL_COMMUNICATION",
+        "DESTRUCTIVE_OR_FORCEFUL_CHANGE",
+        "PRIVACY_OR_GOVERNED_DATA",
+        "HARDWARE_MUTATION",
+        "MATERIAL_SCOPE_CHANGE"
+      ]
+    },
+    "target_alias": {"type": "string"},
+    "authorization_scope": {"type": "string"},
+    "policy_snapshot_revision": {"type": "integer", "minimum": 1},
+    "state_revision": {"type": "integer", "minimum": 0},
+    "authorized": {"type": "boolean"},
+    "reversible": {"type": "boolean"},
+    "destructive": {"type": "boolean"},
+    "external_effect": {"type": "boolean"},
+    "auto_publish": {"type": "boolean"},
+    "identity_change": {"type": "boolean"},
+    "credential_needed": {"type": "boolean"},
+    "cost_change": {"type": "boolean"},
+    "force_or_admin": {"type": "boolean"},
+    "gate_type": {
+      "enum": [
+        "NONE",
+        "ACCOUNT_ACCESS",
+        "AUTH_CHALLENGE",
+        "BILLING_CHANGE_OR_SPEND",
+        "DESTRUCTIVE_UNIQUE_DATA",
+        "EXTERNAL_COMMUNICATION",
+        "FORCE_HISTORY",
+        "HARDWARE_MUTATION",
+        "MATERIAL_SCOPE_CHANGE",
+        "PRIVACY_CLINICAL_LEGAL_GOVERNED",
+        "PRODUCTION_CHANGE",
+        "PRODUCTION_DATA_MIGRATION",
+        "PRODUCTION_DEPLOY",
+        "PRODUCTION_RELEASE",
+        "PROTECTION_BYPASS"
+      ]
+    },
+    "now": {"type": "string"}
+  }
+}

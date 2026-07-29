@@ -2,7 +2,7 @@
 
 Bootstrap a master-orchestrator session governed by one canonical
 [`ORCHESTRATOR_BILL_OF_RIGHTS.md`](common/ORCHESTRATOR_BILL_OF_RIGHTS.md).
-The add-on is stack-agnostic, dependency-free, and generic.
+The add-on is stack-agnostic, Python-stdlib-only, local-first, and generic.
 
 The Bill consolidates the reusable policy for a PM proxy, scoped
 conversation-derived learning, routine delivery, bounded owner gates, visible
@@ -20,6 +20,7 @@ orchestrator_session/
     ├── ORCHESTRATOR_PROMPT.md         # thin paste-in pointer to the Bill
     ├── AGENTS.orchestrator.md         # thin paste-able pointer to the Bill
     ├── docs/ORCHESTRATOR_SESSION.md   # the house-style add-on doc that lands in a stamped project
+    ├── orchestrator-control/          # SQLite authority, CLI, policy, schemas, tests/docs
     └── decisions-board/
         ├── decisions.json             # starter schema + 2–3 EXAMPLE items to replace
         └── decisions.html             # self-contained dark-mode-aware viewer (no deps)
@@ -52,18 +53,21 @@ To vendor these files into a generated project instead, stamp with the add-on on
 - A stdlib contract test stamps every declared stack with
   `include_orchestrator_session=yes`, requires every add-on file, and proves the
   stamped Bill is byte-for-byte identical to the canonical source. It also pins
-  the failure-prevention clauses so they cannot disappear in a prose refactor.
-- The decisions board remains the visible queue/status view; it is not a second
-  policy source.
+  the failure-prevention clauses and executable control-plane files.
+- The local SQLite authority transactionally enforces launch deduplication,
+  canonical ownership, policy envelopes, fences and receipts, typed decision
+  routing, closure/successor outboxes, blocked-queue recycling, and evidence/
+  cleanup handback. The decisions board remains a compatibility view, not a
+  second policy or task authority.
 
 ## What it deliberately does NOT include
 
 - **No owner-specific configuration** — no private repos, hostnames, ports,
   schedules, secrets, or personal decision history. The Bill is usable by anyone;
   active scope supplies portfolio policy.
-- **No dependencies and no host toolchain** — the policy and pointers are text,
-  and the board is a single self-contained HTML file plus JSON. Nothing to
-  install or run on the host.
+- **No third-party dependencies** — the executable boundary uses only Python's
+  standard library and local SQLite. The board remains self-contained HTML plus
+  JSON.
 - **No credentials or network calls** baked in. The board's example items are
   clearly labeled placeholders meant to be replaced.
 

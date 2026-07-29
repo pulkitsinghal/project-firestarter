@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/recycle-queue-response-1.0.schema.json",
+  "title": "recycle-queue success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "recycle-queue"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ranked_resumable", "selected_task_id", "archived_task_ids", "owner_gated_task_ids"],
+      "properties": {
+        "ranked_resumable": {"type": "array"},
+        "selected_task_id": {"type": ["string", "null"]},
+        "archived_task_ids": {"type": "array", "items": {"type": "string"}},
+        "owner_gated_task_ids": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

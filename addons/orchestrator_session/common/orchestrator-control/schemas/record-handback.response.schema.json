@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/record-handback-response-1.0.schema.json",
+  "title": "record-handback success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "record-handback"},
+    "result": {
+      "type": "object",
+      "required": ["task_id", "state"],
+      "properties": {
+        "task_id": {"type": "string"},
+        "state": {"enum": ["BLOCKED", "ARCHIVE_PENDING"]},
+        "audit_required": {"type": "boolean"},
+        "archive_outbox_id": {"type": "string"},
+        "successor": {"type": ["object", "null"]},
+        "evidence_count": {"type": "integer"},
+        "resource_count": {"type": "integer"},
+        "reclaimed_bytes": {"type": "integer"}
+      }
+    }
+  }
+}

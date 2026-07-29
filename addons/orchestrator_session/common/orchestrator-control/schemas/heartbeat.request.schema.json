@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/heartbeat-request-1.0.schema.json",
+  "title": "record-heartbeat request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interface_version",
+    "request_id",
+    "task_id",
+    "policy_snapshot_revision",
+    "lease_epoch",
+    "fencing_token",
+    "lease_expires_at",
+    "now"
+  ],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "policy_snapshot_revision": {"type": "integer", "minimum": 1},
+    "lease_epoch": {"type": "integer", "minimum": 1},
+    "fencing_token": {"type": "integer", "minimum": 1},
+    "lease_expires_at": {"type": "string"},
+    "now": {"type": "string"}
+  }
+}

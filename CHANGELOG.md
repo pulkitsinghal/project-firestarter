@@ -31,10 +31,20 @@ All notable changes to the firestarter template. See
   cleanup/resource return, privacy/identity/least privilege, and never-go-dark
   reporting. The bootstrap prompt and agent addendum are thin pointers; a stdlib
   CI contract stamps every declared stack, byte-compares the generated Bill to
-  its source, and pins the failure-prevention clauses.
-  Also ships the dependency-free `decisions-board/` queue/status view and
-  `docs/ORCHESTRATOR_SESSION.md`. No owner-specific config, dependencies, host
-  toolchain, or network calls.
+  its source, pins the failure-prevention clauses, and exercises the generated
+  machine interface. Also ships a Python-stdlib local control plane: versioned
+  policy rules and JSON schemas, SQLite `BEGIN IMMEDIATE` authority, unique
+  source/outcome/idempotency keys, transactional canonical owner claims and
+  create/archive outbox, monotonic fencing and launch receipts, typed PM-proxy/
+  owner-gate classification, atomic handback/successor intent, blocked-queue
+  recycling, privacy-safe legacy migration, effective-rule/status visibility,
+  and a Phase-2 Codex skill/plugin integration contract. Process tests repeat
+  the duplicate reservation race 100 times and cover crash rollback/recovery,
+  stale-worker rejection, scoped precedence/conflict quarantine, literal
+  zero-step CI, non-owner legacy import, local-state privacy, and unsafe-link
+  rejection. The compatibility decisions board now has CSP and HTTP(S)-only
+  links. No owner-specific config, third-party dependencies, network calls, or
+  external deployment.
 - `include_secret_vault` add-on (stack-agnostic): cross-platform redundant secret
   storage (`secret-store`/`secret-get`/`git-crypt-key` in `.sh` for macOS Keychain
   + Linux secret-service and `.ps1` for Windows Credential Manager + DPAPI). Every

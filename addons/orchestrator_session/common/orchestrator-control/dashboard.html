@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Local Orchestrator Control Plane</title>
+  <style>
+    body { font: 15px/1.45 system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; background: #101318; color: #e8edf2; }
+    section { border: 1px solid #313943; border-radius: 10px; padding: 1rem; margin: 1rem 0; background: #171c22; }
+    h1, h2 { margin-top: 0; } table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; vertical-align: top; padding: .45rem; border-bottom: 1px solid #313943; }
+    code { color: #a9c7ff; } .muted { color: #9ba7b4; }
+  </style>
+</head>
+<body>
+  <h1>Local Orchestrator Control Plane</h1>
+  <p class="muted">Load the JSON emitted by the local <code>status</code> command. The browser never reads SQLite, calls a network, or executes stored HTML.</p>
+  <input id="file" type="file" accept="application/json,.json">
+  <main id="app"><p>No snapshot loaded.</p></main>
+  <script>
+    "use strict";
+    const app = document.getElementById("app");
+    const node = (tag, value) => {
+      const element = document.createElement(tag);
+      element.textContent = String(value == null ? "" : value);
+      return element;
+    };
+    function table(rows, columns) {
+      const result = document.createElement("table");
+      const head = result.appendChild(document.createElement("thead")).appendChild(document.createElement("tr"));
+      columns.forEach(column => head.appendChild(node("th", column)));
+      const body = result.appendChild(document.createElement("tbody"));
+      rows.forEach(row => {
+        const line = body.appendChild(document.createElement("tr"));
+        columns.forEach(column => line.appendChild(node("td", typeof row[column] === "object" ? JSON.stringify(row[column]) : row[column])));
+      });
+      return result;
+    }
+    function render(payload) {
+      app.replaceChildren();
+      if (!payload || payload.ok !== true || payload.operation !== "status" || !payload.result) {
+        app.appendChild(node("p", "Rejected: expected a successful status response."));
+        return;
+      }
+      [["Tasks", payload.result.tasks || [], ["task_id", "state", "priority", "repo_alias", "path", "block"]],
+       ["Effective policy ledger", payload.result.rules || [], ["id", "revision", "state", "directive", "provenance"]],
+       ["Durable outbox", payload.result.outbox || [], ["outbox_id", "kind", "task_id", "state", "attempts", "updated_at"]]]
+        .forEach(([title, rows, columns]) => {
+          const section = document.createElement("section");
+          section.appendChild(node("h2", title));
+          section.appendChild(table(rows, columns));
+          app.appendChild(section);
+        });
+    }
+    document.getElementById("file").addEventListener("change", event => {
+      const file = event.target.files && event.target.files[0];
+      if (!file || file.size > 1048576) { render(null); return; }
+      const reader = new FileReader();
+      reader.onload = () => { try { render(JSON.parse(String(reader.result))); } catch (_) { render(null); } };
+      reader.readAsText(file);
+    });
+  </script>
+</body>
+</html>

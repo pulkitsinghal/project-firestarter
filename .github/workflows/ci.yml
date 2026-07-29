@@ -73,9 +73,10 @@ jobs:
           PY
 
       - name: Verify the orchestrator-session add-on contract
-        run: >-
-          python3 -m unittest discover -s tests
-          -p 'test_orchestrator_session_contract.py'
+        run: |
+          python3 -B -m unittest -v \
+            tests.test_orchestrator_control \
+            tests.test_orchestrator_session_contract
 
       - name: Stamp the optional k8s add-on for server-backed stacks
         run: |

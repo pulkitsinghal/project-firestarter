@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/machine-response-1.0.schema.json",
+  "title": "Orchestrator control-plane machine response 1.0",
+  "oneOf": [
+    {"$ref": "shared.schema.json#/$defs/response"},
+    {"$ref": "shared.schema.json#/$defs/error"}
+  ]
+}

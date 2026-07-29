@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/takeover-lease-request-1.0.schema.json",
+  "title": "takeover-lease request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interface_version",
+    "request_id",
+    "task_id",
+    "expected_lease_epoch",
+    "expected_fencing_token",
+    "lease_expires_at",
+    "now"
+  ],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "expected_lease_epoch": {"type": "integer", "minimum": 1},
+    "expected_fencing_token": {"type": "integer", "minimum": 1},
+    "lease_expires_at": {"type": "string"},
+    "now": {"type": "string"}
+  }
+}

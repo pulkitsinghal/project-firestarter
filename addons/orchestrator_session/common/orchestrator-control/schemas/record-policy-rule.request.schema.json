@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/record-policy-rule-request-1.0.schema.json",
+  "title": "record-policy-rule request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "request_id", "expected_policy_revision", "rule", "now"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "expected_policy_revision": {"type": "integer", "minimum": 1},
+    "rule": {"$ref": "policy-ledger.schema.json#/properties/rules/items"},
+    "now": {"type": "string"}
+  }
+}

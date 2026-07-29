@@ -22,6 +22,29 @@ REQUIRED_FILES = {
     "decisions-board/decisions.html",
     "decisions-board/decisions.json",
     "docs/ORCHESTRATOR_SESSION.md",
+    "orchestrator-control/README.md",
+    "orchestrator-control/VERSION",
+    "orchestrator-control/dashboard.html",
+    "orchestrator-control/docs/PHASE2_PLUGIN_INTEGRATION.md",
+    "orchestrator-control/orchestrator_control.py",
+    "orchestrator-control/policy-ledger.json",
+    "orchestrator-control/schemas/classify-decision.request.schema.json",
+    "orchestrator-control/schemas/classify-decision.response.schema.json",
+    "orchestrator-control/schemas/effective-rules.request.schema.json",
+    "orchestrator-control/schemas/heartbeat.request.schema.json",
+    "orchestrator-control/schemas/machine-response.schema.json",
+    "orchestrator-control/schemas/migrate-decisions.request.schema.json",
+    "orchestrator-control/schemas/policy-ledger.schema.json",
+    "orchestrator-control/schemas/prepare-launch.request.schema.json",
+    "orchestrator-control/schemas/prepare-launch.response.schema.json",
+    "orchestrator-control/schemas/receipt.request.schema.json",
+    "orchestrator-control/schemas/record-handback.request.schema.json",
+    "orchestrator-control/schemas/record-handback.response.schema.json",
+    "orchestrator-control/schemas/record-policy-rule.request.schema.json",
+    "orchestrator-control/schemas/recycle-queue.request.schema.json",
+    "orchestrator-control/schemas/recycle-queue.response.schema.json",
+    "orchestrator-control/schemas/shared.schema.json",
+    "orchestrator-control/schemas/takeover-lease.request.schema.json",
 }
 REQUIRED_FAILURE_PREVENTION_CLAUSES = {
     "blocked_queue": "Blocked work is a reviewable queue, not permanent parking.",
@@ -49,6 +72,17 @@ REQUIRED_FAILURE_PREVENTION_CLAUSES = {
         "every completed lane releases its task-owned resources and returns its\n"
         "evidence to the orchestrator."
     ),
+    "transactional_reservation": (
+        "Reserve the task, all ownership claims, and\n"
+        "  its create outbox in one transaction before external task creation"
+    ),
+    "fencing": (
+        "monotonically increasing fence so the prior worker cannot heartbeat, mutate,"
+    ),
+    "privacy_safe_policy": (
+        "Never\n"
+        "persist a raw conversation, prompt, secret, private value, stdout, diff, or"
+    ),
 }
 
 
@@ -61,6 +95,12 @@ class OrchestratorSessionContractTests(unittest.TestCase):
 
         canonical_bytes = CANONICAL_BILL.read_bytes()
         canonical_text = canonical_bytes.decode("utf-8")
+        canonical_files = {
+            path.relative_to(ADDON).as_posix(): path.read_bytes()
+            for path in ADDON.rglob("*")
+            if path.is_file()
+        }
+        self.assertTrue(REQUIRED_FILES <= canonical_files.keys())
         for clause, required_text in REQUIRED_FAILURE_PREVENTION_CLAUSES.items():
             with self.subTest(clause=clause):
                 self.assertIn(required_text, canonical_text)
@@ -102,6 +142,13 @@ class OrchestratorSessionContractTests(unittest.TestCase):
                         (output / "ORCHESTRATOR_BILL_OF_RIGHTS.md").read_bytes(),
                         f"{stack} changed the canonical Bill while stamping",
                     )
+                    for relative, expected_bytes in canonical_files.items():
+                        with self.subTest(stack=stack, file=relative):
+                            self.assertEqual(
+                                expected_bytes,
+                                (output / relative).read_bytes(),
+                                f"{stack} changed {relative} while stamping",
+                            )
 
                     prompt = (output / "ORCHESTRATOR_PROMPT.md").read_text(
                         encoding="utf-8"
@@ -119,6 +166,41 @@ class OrchestratorSessionContractTests(unittest.TestCase):
                     )
                     self.assertLess(len(prompt), 1_000)
                     self.assertLess(len(agents), 1_500)
+
+                    state = output_root / f"{stack}-control-state"
+                    control = output / "orchestrator-control" / "orchestrator_control.py"
+                    initialized = subprocess.run(
+                        [
+                            sys.executable,
+                            "-B",
+                            str(control),
+                            "--state-dir",
+                            str(state),
+                            "init",
+                            "--now",
+                            "2026-07-28T18:00:00Z",
+                        ],
+                        cwd=output,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertTrue(json.loads(initialized.stdout)["ok"])
+                    status = subprocess.run(
+                        [
+                            sys.executable,
+                            "-B",
+                            str(control),
+                            "--state-dir",
+                            str(state),
+                            "status",
+                        ],
+                        cwd=output,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual("1.0", json.loads(status.stdout)["result"]["schema_version"])
 
 
 if __name__ == "__main__":

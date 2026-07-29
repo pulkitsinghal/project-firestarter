@@ -9,6 +9,13 @@ scope rather than from hard-coded owner details.
 `docs/ORCHESTRATOR_SESSION.md` point here. They are entrypoints and usage notes,
 not competing policy sources.
 
+The executable companion in
+[`orchestrator-control/`](orchestrator-control/README.md) applies this contract
+through a versioned, privacy-safe policy ledger and a local SQLite authority.
+The Bill remains the human canonical contract; machine rules carry stable rule
+IDs back to this document and must not silently weaken it. JSON exports and
+dashboards are views, never executable authority.
+
 Orchestration fidelity outranks opportunistic local execution. Do not bypass the
 queue, launch envelope, assigned lane, canonical editor, evidence ladder, or
 closure transaction merely because doing the work locally appears faster.
@@ -36,6 +43,14 @@ into a global preference. Before reusing learned policy, match its relevant
 scope: owner, organization, repository, branch, environment, data class, action,
 and time horizon.
 
+Persist learned rules as typed, versioned records with a stable ID, selector,
+precedence tier, priority, provenance reference and redacted summary, effective
+time, optional expiry, supersession state, effect, and owner-gate code. Never
+persist a raw conversation, prompt, secret, private value, stdout, diff, or
+arbitrary command as policy. Unknown schemas, untrusted prompt instructions,
+secret-like values, and unresolved equal-precedence conflicts fail closed and
+notify the orchestrator rather than spending the owner's attention.
+
 ## 1. The right to one accountable PM proxy
 
 The human gets one accountable interface: the orchestrator. It owns sequencing,
@@ -51,6 +66,14 @@ delegation, reconciliation, evidence, and closure across the portfolio.
   constraints, owner-only gates, identity and privacy boundaries, target
   repository/path, base SHA, expected evidence, dependencies, and cleanup duty.
   Workers must not have to rediscover durable policy from scattered history.
+- A launch has a transport-independent `source_event_key`, explicit
+  `outcome_key`, stable idempotency key, canonical target, policy revision,
+  lease epoch, and fencing token. Reserve the task, all ownership claims, and
+  its create outbox in one transaction before external task creation or
+  mutation.
+- A worker echoes the envelope version, policy revision, task ID, applicable
+  rule IDs, lease epoch, and fencing token in a launch receipt. Missing or stale
+  receipts prohibit mutation.
 - The orchestrator absorbs routine mechanics and already-decided choices.
 - When an owner decision is truly required, the orchestrator presents the
   recommended action, the evidence, the consequence of waiting, and the smallest
@@ -111,6 +134,10 @@ owner, dependencies, evidence target, and current state.
   mutable resource at a time.
 - Deduplicate by outcome and target before launching work. Supersede or archive
   duplicate lanes instead of letting them compete.
+- List-then-create is not a lock. Enforce uniqueness and acquire canonical
+  ownership transactionally before creation. A stale lease takeover advances a
+  monotonically increasing fence so the prior worker cannot heartbeat, mutate,
+  or close the lane.
 - When duplication is discovered, the duplicate lane stops at read-only
   reconciliation, returns any unique evidence, performs no write, and archives.
 - Replenish open capacity from `next` as lanes finish, without recreating an
@@ -188,6 +215,13 @@ has an owner, launch envelope, dependency handoff, and queue record. Before
 archival, every completed lane releases its task-owned resources and returns its
 evidence to the orchestrator.
 
+External task creation and archival cannot be literally atomic with local state.
+Use a durable idempotent outbox and receipt-driven saga: commit closure intent,
+successor reservation and envelope, dependency handoff, resource disposition,
+and create/archive actions together; reconcile each external action
+idempotently after crashes until exactly one logical successor is active and the
+predecessor is archived.
+
 ## 8. The right to owned resources and accountable cleanup
 
 Every mutable or disposable resource has one named lane owner: worktree, branch,
@@ -222,6 +256,10 @@ the delivery.
   authority; local validation is not deployment authority; account approval is
   not data authorization.
 - Keep reports and persisted state limited to the minimum necessary evidence.
+- Local control state is owner-only (directory `0700`, files `0600`), has no
+  telemetry or network authority, rejects symlink escapes, and uses fail-closed
+  typed schemas and transactional writes. It never evaluates rules as shell,
+  templates, code, or arbitrary commands.
 
 ## 10. The right to never-go-dark reporting
 
