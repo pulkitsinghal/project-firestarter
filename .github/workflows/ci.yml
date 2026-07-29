@@ -76,7 +76,8 @@ jobs:
         run: |
           python3 -B -m unittest -v \
             tests.test_orchestrator_control \
-            tests.test_orchestrator_session_contract
+            tests.test_orchestrator_session_contract \
+            tests.test_receipt_feed
 
       - name: Verify the synthetic service-supervisor contract
         env:

@@ -32,6 +32,17 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 RULE_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
+PUBLIC_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .,&()'’+-]{0,79}$")
+PUBLIC_LABEL_SENSITIVE = re.compile(
+    r"(?i)\b(?:password|passwd|secret|api[- ]?key|access[- ]?token|bearer)\b"
+)
+PUBLIC_LABEL_UUID = re.compile(
+    r"(?:^|[^a-f0-9])[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-"
+    r"[89ab][a-f0-9]{3}-[a-f0-9]{12}(?:$|[^a-f0-9])",
+    re.IGNORECASE,
+)
+PUBLIC_OWNER_CLASSES = {"pm-proxy", "worker", "owner", "external"}
+PUBLIC_LANE_CLASSES = {"running", "next", "waiting", "owner-gated", "complete"}
 SELECTORS = {
     "owner",
     "org",
@@ -299,6 +310,36 @@ def coarse_label(value: Any, label: str) -> str:
             f"{label} must be a coarse non-path, non-identity label",
         )
     return result
+
+
+def validate_public_metadata(value: Any) -> dict[str, str]:
+    metadata = strict(
+        value,
+        {"publicLabel", "ownerClass", "laneClass"},
+        label="public_metadata",
+    )
+    public_label = text(
+        metadata["publicLabel"], "public_metadata.publicLabel", 80, single_line=True
+    )
+    if (
+        not PUBLIC_LABEL_RE.fullmatch(public_label)
+        or ".." in public_label
+        or PUBLIC_LABEL_SENSITIVE.search(public_label)
+        or PUBLIC_LABEL_UUID.search(public_label)
+    ):
+        fail(
+            "PRIVACY_REJECTED",
+            "public_metadata.publicLabel must be a bounded sanitized label",
+        )
+    if metadata["ownerClass"] not in PUBLIC_OWNER_CLASSES:
+        fail("PRIVACY_REJECTED", "public_metadata.ownerClass is not allowlisted")
+    if metadata["laneClass"] not in PUBLIC_LANE_CLASSES:
+        fail("PRIVACY_REJECTED", "public_metadata.laneClass is not allowlisted")
+    return {
+        "publicLabel": public_label,
+        "ownerClass": metadata["ownerClass"],
+        "laneClass": metadata["laneClass"],
+    }
 
 
 def optional_seconds(value: Any, label: str) -> int | None:
@@ -1487,6 +1528,11 @@ class Plane:
             "evidence_contract": request["evidence_contract"],
             "cleanup_duty": request["cleanup_duty"],
             "duration_estimate": duration,
+            **(
+                {"public_metadata": request["public_metadata"]}
+                if "public_metadata" in request
+                else {}
+            ),
             "duration_protocol": {
                 "progress_command": "record-duration-progress",
                 "observation_command": "record-duration-observation",
@@ -2836,6 +2882,7 @@ class Plane:
                     "fencing_token": request["fencing_token"],
                     "external_thread_id": request["external_thread_id"],
                     "disposition": request["disposition"],
+                    "public_metadata": request.get("public_metadata"),
                     "successor_task_id": (
                         request["successor_request"]["task_id"]
                         if request["successor_request"]
@@ -2897,6 +2944,7 @@ class Plane:
                 )
                 stored = {
                     "disposition": "blocked",
+                    "public_metadata": request.get("public_metadata"),
                     "check_results": [item["result"] for item in request["checks"]],
                     "hosted_ci": request["hosted_ci"],
                     "resource_dispositions": [item["disposition"] for item in request["resources"]],
@@ -3127,6 +3175,7 @@ class Plane:
                     canonical(
                         {
                             "disposition": request["disposition"],
+                            "public_metadata": request.get("public_metadata"),
                             "check_results": [item["result"] for item in request["checks"]],
                             "hosted_ci": request["hosted_ci"],
                             "deployment_state": request["deployment_state"],
@@ -4298,7 +4347,7 @@ def validate_prepare(value: Any) -> dict[str, Any]:
             "lease_expires_at",
             "now",
         },
-        {"duration_estimate"},
+        {"duration_estimate", "public_metadata"},
         label="prepare-launch request",
     )
     if request["interface_version"] != INTERFACE_VERSION:
@@ -4329,6 +4378,10 @@ def validate_prepare(value: Any) -> dict[str, Any]:
         task_family_fallback=output["context"]["task_kind"],
         environment_fallback=output["context"]["environment"],
     )
+    if request.get("public_metadata") is not None:
+        output["public_metadata"] = validate_public_metadata(
+            request["public_metadata"]
+        )
     if output["context"]["repo"] != output["target"]["remote"]:
         fail("SCHEMA_INVALID", "context.repo must equal normalized target.remote")
     if output["context"]["path"] != output["target"]["path"]:
@@ -4521,7 +4574,7 @@ def validate_handback(value: Any) -> dict[str, Any]:
             "block",
             "now",
         },
-        {"capacity"},
+        {"capacity", "public_metadata"},
         label="record-handback request",
     )
     base = validate_receipt(
@@ -4735,6 +4788,10 @@ def validate_handback(value: Any) -> dict[str, Any]:
             request["external_thread_id"], "external_thread_id"
         ),
     }
+    if request.get("public_metadata") is not None:
+        output["public_metadata"] = validate_public_metadata(
+            request["public_metadata"]
+        )
     if output["deployment_state"] not in {
         "not_performed",
         "local_only",

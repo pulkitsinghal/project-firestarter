@@ -34,6 +34,21 @@
     "privacy_boundary": {"type": "string"},
     "evidence_contract": {"type": "array", "items": {"type": "string"}},
     "cleanup_duty": {"type": "array", "items": {"type": "string"}},
+    "public_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publicLabel", "ownerClass", "laneClass"],
+      "properties": {
+        "publicLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 .,&()'’+-]{0,79}$"
+        },
+        "ownerClass": {"enum": ["pm-proxy", "worker", "owner", "external"]},
+        "laneClass": {"enum": ["running", "next", "waiting", "owner-gated", "complete"]}
+      }
+    },
     "duration_estimate": {
       "type": "object",
       "additionalProperties": false,

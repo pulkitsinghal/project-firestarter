@@ -48,6 +48,90 @@ contract in
 [`docs/PHASE2_PLUGIN_INTEGRATION.md`](docs/PHASE2_PLUGIN_INTEGRATION.md) define
 the stable `1.0` wrapper boundary.
 
+## Receipt-feed 1.1 operational bootstrap
+
+Receipt-feed 1.1 is a one-way, review-only dashboard projection. Each canonical
+receipt adds a caller-sanitized `publicLabel`, coarse `ownerClass` and
+`laneClass`, a lifecycle-derived `nextSafeMove`, and explicit evidence age.
+Labels are 1–80 characters from a narrow printable allowlist; paths, URLs,
+emails, UUID-like identities, secret terms, and non-allowlisted classes fail
+closed. Metadata may enter the live ledger only through optional
+`prepare-launch.public_metadata` or `record-handback.public_metadata`.
+Handback metadata supersedes launch metadata. Raw prompts, titles, target
+paths, URLs, emails, thread/task IDs, and payloads are never projected.
+
+When no authoritative orchestrator database exists, `reconcile-manifest`
+imports one complete caller-supplied, allowlisted current-task manifest into a
+canonical mode-`0700` local directory. The persisted state contains only typed
+launch/handback receipts, sanitized public metadata, bounded typed evidence,
+coarse keys, and explicit provenance. It neither calls a Codex API nor stores a
+raw task response. A monotonic manifest revision makes replay idempotent and
+rejects stale or changed same-revision input. Canonical and mirror receipts are
+retained for provenance, while mirrors and unresolved duplicate revisions are
+excluded from dashboard counts.
+
+From the repository root, the synthetic current-state acceptance path is:
+
+```bash
+FEED_STATE_DIR="$(mktemp -d)"
+FEED_PUBLISH_DIR="$(mktemp -d)"
+
+docker run --rm \
+  -v "$PWD:/repo:ro" -v "$FEED_STATE_DIR:/state" \
+  -w /repo python:3.12-slim \
+  python -B addons/orchestrator_session/common/orchestrator-control/receipt_feed_exporter.py \
+  reconcile-manifest \
+  --request addons/orchestrator_session/common/orchestrator-control/receipt-feed/synthetic-current-task-manifest.json \
+  --state-dir /state
+
+docker run --rm \
+  -v "$PWD:/repo:ro" -v "$FEED_STATE_DIR:/state" \
+  -v "$FEED_PUBLISH_DIR:/published" \
+  -w /repo python:3.12-slim \
+  python -B addons/orchestrator_session/common/orchestrator-control/receipt_feed_exporter.py \
+  publish-state --state-dir /state --output-dir /published \
+  --served-at 2026-07-28T22:00:05Z --stale-threshold-seconds 60
+```
+
+The publish step takes a locked read of canonical local state and atomically
+writes deterministic content-addressed `receipt-feed-1.1.<sha256>.json` bytes,
+`receipt-feed-current.json`, and `receipt-feed-lkg.json`. On the next distinct
+publish it also preserves `receipt-feed-previous.json`. A valid stale/degraded
+projection may become current with that state explicit in its bytes while the
+prior current remains the LKG; validation or privacy failure moves no pointer.
+A Sites build may copy the snapshot plus pointer into its source archive as
+static input. There is no hosted-to-Mac callback, polling, control endpoint, or
+command channel.
+
+Validate, migrate an old 1.0 snapshot, or swap current and LKG:
+
+```bash
+docker run --rm \
+  -v "$PWD:/repo:ro" -v "$FEED_PUBLISH_DIR:/published" \
+  -w /repo python:3.12-slim \
+  python -B addons/orchestrator_session/common/orchestrator-control/receipt_feed_exporter.py \
+  validate-snapshot --snapshot /published/receipt-feed-1.1.<sha256>.json
+
+LEGACY_SNAPSHOT_DIR="/absolute/directory-containing-legacy-snapshot"
+docker run --rm \
+  -v "$PWD:/repo:ro" -v "$LEGACY_SNAPSHOT_DIR:/legacy:ro" \
+  -v "$FEED_PUBLISH_DIR:/published" \
+  -w /repo python:3.12-slim \
+  python -B addons/orchestrator_session/common/orchestrator-control/receipt_feed_exporter.py \
+  migrate-snapshot --snapshot /legacy/receipt-feed-1.0.json \
+  --output-dir /published
+
+docker run --rm \
+  -v "$PWD:/repo:ro" -v "$FEED_PUBLISH_DIR:/published" \
+  -w /repo python:3.12-slim \
+  python -B addons/orchestrator_session/common/orchestrator-control/receipt_feed_exporter.py \
+  rollback --output-dir /published
+```
+
+Migration creates explicit unavailable placeholders for the labels/classes that
+1.0 never carried and derives only the coarse lane/action from lifecycle. It
+does not infer a task title or owner identity.
+
 ## Duration-calibrated worker lanes
 
 Each `prepare-launch` result carries a duration estimate and protocol. The

@@ -1835,6 +1835,69 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertNotIn("javascript:", dashboard.lower())
         self.assertNotIn("data:", dashboard.lower())
 
+    def test_sanitized_public_metadata_persists_only_in_launch_and_handback(self) -> None:
+        request = self.prepare("public-metadata")
+        request["public_metadata"] = {
+            "publicLabel": "Receipt feed bootstrap",
+            "ownerClass": "worker",
+            "laneClass": "running",
+        }
+        prepared = self.run_cli("prepare-launch", request)
+        self.assertEqual(
+            request["public_metadata"],
+            prepared["result"]["envelope"]["public_metadata"],
+        )
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(prepared, "public-metadata"),
+        )
+        handback = self.handback(prepared, "public-metadata")
+        handback["public_metadata"] = {
+            "publicLabel": "Receipt feed delivered",
+            "ownerClass": "pm-proxy",
+            "laneClass": "complete",
+        }
+        self.run_cli("record-handback", handback)
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        stored_launch = json.loads(
+            connection.execute(
+                "SELECT envelope_json FROM launches WHERE task_id=?",
+                ("task-public-metadata",),
+            ).fetchone()[0]
+        )
+        stored_handback = json.loads(
+            connection.execute(
+                "SELECT body_json FROM handbacks WHERE task_id=?",
+                ("task-public-metadata",),
+            ).fetchone()[0]
+        )
+        connection.close()
+        self.assertEqual(request["public_metadata"], stored_launch["public_metadata"])
+        self.assertEqual(handback["public_metadata"], stored_handback["public_metadata"])
+        serialized = json.dumps(
+            {"launch": stored_launch["public_metadata"], "handback": stored_handback}
+        )
+        self.assertNotIn(request["prompt"], serialized)
+        self.assertNotIn(str(self.repo), serialized)
+
+        for label in (
+            "/Users/example/work",
+            "person@example.com",
+            "Bearer token",
+            "api key sample",
+            "Task 019fac21-aa4b-7be3-b2c8-dfff477405d1",
+        ):
+            with self.subTest(label=label):
+                with self.assertRaises(control.ControlError) as raised:
+                    control.validate_public_metadata(
+                        {
+                            "publicLabel": label,
+                            "ownerClass": "worker",
+                            "laneClass": "running",
+                        }
+                    )
+                self.assertEqual("PRIVACY_REJECTED", raised.exception.code)
+
 
 if __name__ == "__main__":
     unittest.main()
