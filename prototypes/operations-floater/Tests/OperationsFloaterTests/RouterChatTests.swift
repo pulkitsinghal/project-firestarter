@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import OperationsFloater
@@ -411,6 +412,89 @@ private actor StubRouterTransport: RouterChatTransport {
     }
 }
 
+private final class RecorderActivationProbe: @unchecked Sendable {
+    var addMonitorCount = 0
+    var removeMonitorCount = 0
+    var requestPermissionCount = 0
+}
+
+private actor RecorderConversationModule: ConversationModuleTransport {
+    private let provenance = ConversationModuleProvenance(
+        sourceID: ConversationModuleAllowlist.relativeXYRecorderManifest
+            .provenanceSourceID,
+        buildDigest: String(repeating: "a", count: 64)
+    )
+
+    func health(
+        for manifest: ConversationModuleManifest
+    ) async throws -> ConversationModuleHealth {
+        ConversationModuleHealth(
+            contractVersion: manifest.contractVersion,
+            moduleID: manifest.moduleID,
+            state: .ready,
+            privacy: manifest.privacy,
+            provenance: provenance
+        )
+    }
+
+    func perform(
+        _ request: ConversationModuleRequest,
+        manifest: ConversationModuleManifest
+    ) async throws -> ConversationModuleResponse {
+        ConversationModuleResponse(
+            contractVersion: request.contractVersion,
+            moduleID: request.moduleID,
+            requestID: request.requestID,
+            turnID: request.turnID,
+            sequence: request.sequence,
+            floor: request.floor,
+            state: .idle,
+            reply: nil,
+            statuses: [],
+            checkpoints: [],
+            question: nil,
+            proposedActions: [],
+            provenance: provenance
+        )
+    }
+}
+
+private final class RecorderVoiceEngine: ConversationTranscriptionEngine,
+    @unchecked Sendable
+{
+    let provider: ConversationTranscriptProvider? = .syntheticFixture
+    let supportsOnDeviceRecognition = true
+    private(set) var isRunning = false
+    var resultHandler: (@Sendable (
+        Result<ConversationTranscriptResult, ConversationVoiceError>
+    ) -> Void)?
+
+    private let startError: ConversationVoiceError?
+
+    init(startError: ConversationVoiceError? = nil) {
+        self.startError = startError
+    }
+
+    func currentAuthorization() -> ConversationVoiceAuthorization {
+        .authorized
+    }
+
+    func requestAuthorization() async -> ConversationVoiceAuthorization {
+        .authorized
+    }
+
+    func start() throws {
+        if let startError {
+            throw startError
+        }
+        isRunning = true
+    }
+
+    func stop() {
+        isRunning = false
+    }
+}
+
 @Suite("Router chat session")
 @MainActor
 struct RouterChatSessionTests {
@@ -664,6 +748,90 @@ struct RouterChatSessionTests {
         )
     }
 
+    @Test("Input Monitoring refusal rolls the floor back without requesting TCC")
+    func recorderPermissionFailureRollsBack() async {
+        let probe = RecorderActivationProbe()
+        let capture = makeRecorderCapture(
+            inputMonitoringAvailable: false,
+            monitorStarts: false,
+            probe: probe
+        )
+        let session = makeRecorderSession(capture: capture)
+        await session.enable()
+        let voice = VoiceConversationSession(
+            engine: RecorderVoiceEngine(),
+            speechOutput: SilentSpeechOutput()
+        )
+
+        await session.activateSelectedRecorder(with: voice)
+
+        #expect(session.modules.activeFloor == nil)
+        #expect(capture.mode == .disarmed)
+        #expect(voice.state == .off)
+        #expect(probe.requestPermissionCount == 0)
+        #expect(probe.addMonitorCount == 0)
+        #expect(
+            session.lastError
+                == NeutralGeometryCaptureError.inputMonitoringRequired.localizedDescription
+        )
+    }
+
+    @Test("Voice startup failure removes the event monitor and revokes the floor")
+    func recorderVoiceFailureRollsBack() async {
+        let probe = RecorderActivationProbe()
+        let capture = makeRecorderCapture(
+            inputMonitoringAvailable: true,
+            monitorStarts: true,
+            probe: probe
+        )
+        let session = makeRecorderSession(capture: capture)
+        await session.enable()
+        let voice = VoiceConversationSession(
+            engine: RecorderVoiceEngine(startError: .audioUnavailable),
+            speechOutput: SilentSpeechOutput()
+        )
+
+        await session.activateSelectedRecorder(with: voice)
+
+        #expect(session.modules.activeFloor == nil)
+        #expect(capture.mode == .disarmed)
+        #expect(voice.state == .off)
+        #expect(probe.addMonitorCount == 1)
+        #expect(probe.removeMonitorCount == 1)
+        #expect(
+            session.lastError == ConversationVoiceError.audioUnavailable.localizedDescription
+        )
+    }
+
+    @Test("Give floor commits only after recording and voice are both active")
+    func recorderAndVoiceStartTogether() async {
+        let probe = RecorderActivationProbe()
+        let capture = makeRecorderCapture(
+            inputMonitoringAvailable: true,
+            monitorStarts: true,
+            probe: probe
+        )
+        let session = makeRecorderSession(capture: capture)
+        await session.enable()
+        let voice = VoiceConversationSession(
+            engine: RecorderVoiceEngine(),
+            speechOutput: SilentSpeechOutput()
+        )
+
+        await session.activateSelectedRecorder(with: voice)
+
+        #expect(session.modules.activeFloor != nil)
+        #expect(capture.mode == .recording)
+        #expect(voice.state == .listening)
+        #expect(probe.addMonitorCount == 1)
+        #expect(probe.removeMonitorCount == 0)
+
+        voice.stop()
+        await session.revokeModuleFloor()
+        #expect(capture.mode == .disarmed)
+        #expect(probe.removeMonitorCount == 1)
+    }
+
     @Test("Collapsing chat suspends and clears its ephemeral lifecycle")
     func collapsedChatIsInactive() async {
         let session = RouterChatSession(
@@ -709,5 +877,80 @@ struct RouterChatSessionTests {
         for _ in 0..<100 where !session.reviewingMessageIDs.isEmpty {
             try? await Task.sleep(for: .milliseconds(10))
         }
+    }
+
+    private func makeRecorderSession(
+        capture: NeutralGeometryCaptureSession
+    ) -> RouterChatSession {
+        let manifest = ConversationModuleAllowlist.relativeXYRecorderManifest
+        let modules = ConversationModuleHostSession(
+            registrations: [
+                ConversationModuleRegistration(
+                    manifest: manifest,
+                    transport: RecorderConversationModule()
+                ),
+            ]
+        )
+        let session = RouterChatSession(
+            transport: StubRouterTransport(
+                available: true,
+                result: .success(localReply(text: "Unused"))
+            ),
+            modules: modules,
+            geometryCapture: capture
+        )
+        session.selectConversationTarget(manifest.moduleID)
+        return session
+    }
+
+    private func makeRecorderCapture(
+        inputMonitoringAvailable: Bool,
+        monitorStarts: Bool,
+        probe: RecorderActivationProbe
+    ) -> NeutralGeometryCaptureSession {
+        let window = NeutralGeometryWindow(
+            id: 42,
+            ownerPID: 4242,
+            ownerName: "Synthetic Fixture",
+            bounds: CGRect(x: 20, y: 20, width: 800, height: 600)
+        )
+        let system = NeutralGeometryCaptureSession.SystemInterface(
+            preflightListenAccess: { inputMonitoringAvailable },
+            requestListenAccess: {
+                probe.requestPermissionCount += 1
+                return inputMonitoringAvailable
+            },
+            visibleWindows: { [window] },
+            currentWindow: { selected in
+                selected.id == window.id ? window : nil
+            },
+            isActive: { _ in true },
+            isTopmostAtPoint: { _, _ in true },
+            addGlobalMonitor: { _, _ in
+                probe.addMonitorCount += 1
+                return monitorStarts ? NSObject() : nil
+            },
+            removeMonitor: { _ in
+                probe.removeMonitorCount += 1
+            }
+        )
+        let capture = NeutralGeometryCaptureSession(system: system)
+        capture.select(windowID: window.id)
+        return capture
+    }
+}
+
+private final class SilentSpeechOutput: ConversationSpeechOutput,
+    @unchecked Sendable
+{
+    private(set) var isSpeaking = false
+    var completionHandler: (@Sendable () -> Void)?
+
+    func speak(_ text: String) {
+        isSpeaking = true
+    }
+
+    func stop() {
+        isSpeaking = false
     }
 }

@@ -13,7 +13,7 @@ Mission Control step remains user-controlled.
    mode:
 
    ```bash
-   open -g -n "/path/to/Operations Floater.app" \
+   open -g "/path/to/Operations Floater.app" \
      --args --background-ui-test
    ```
 
@@ -38,8 +38,8 @@ candidate with a different bundle identifier needs its own one-time assignment.
 - snapshots, validation, privacy boundaries, chat defaults, and schema `1.0`
   remain unchanged.
 
-Normal launches intentionally retain the existing foreground, pinned, and
-all-Spaces behavior.
+Normal launches intentionally retain foreground activation. Every launch is
+unpinned by default and uses one Space.
 
 ```text
 User creates spare Desktop once
@@ -70,6 +70,8 @@ open -g ... --args --background-ui-test
 - This mode reduces interruption; it does not claim that every macOS release,
   window manager, or third-party utility will preserve focus identically.
 
-Before each run, verify that no old Operations Floater process remains. Start
-one instance, record its exact executable path and PID, and terminate that exact
-test instance during cleanup.
+Before each run, verify that no old Operations Floater process remains. Launch
+without `open -n`; a repeated LaunchServices open should route to the existing
+process, and the app also rejects a duplicate same-bundle process before
+creating a second dashboard window. Record the exact test executable path and
+PID, and terminate only that exact test instance during cleanup.

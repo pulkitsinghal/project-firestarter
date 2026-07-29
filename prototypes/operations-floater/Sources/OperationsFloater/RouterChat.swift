@@ -1117,6 +1117,7 @@ final class RouterChatSession: ObservableObject {
         await voice.start()
         guard voice.state == .listening else {
             let reason = voice.lastError ?? "Voice could not start."
+            voice.stop()
             geometryCapture.revoke(reason: reason)
             await modules.revokeFloor()
             lastError = reason
