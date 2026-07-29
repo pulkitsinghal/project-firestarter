@@ -2,13 +2,16 @@
 """Build a privacy-safe dashboard receipt feed from Firestarter status.
 
 The adapter is deliberately separate from ``orchestrator_control.py``. It reads
-an authoritative status response plus an allowlist-only local join map, creates
-fresh projection objects, validates semantic invariants, and writes no state.
+an authoritative status response or a caller-sanitized manifest, creates fresh
+projection objects, validates semantic invariants, and writes only canonical
+sanitized local state and one-way content-addressed publication artifacts.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -24,11 +27,16 @@ from typing import Any
 
 MAX_JSON_BYTES = 1_048_576
 INTERFACE_VERSION = "1.0"
-FEED_VERSION = "1.0"
+FEED_VERSION = "1.1"
+LEGACY_FEED_VERSION = "1.0"
 FIRESTARTER_SCHEMA = "1.2"
-SNAPSHOT_PREFIX = "receipt-feed-1.0."
+SNAPSHOT_PREFIX = "receipt-feed-1.1."
 CURRENT_POINTER = "receipt-feed-current.json"
 PREVIOUS_POINTER = "receipt-feed-previous.json"
+LKG_POINTER = "receipt-feed-lkg.json"
+STATE_FILE = "receipt-feed-state.json"
+PREVIOUS_STATE_FILE = "receipt-feed-state.previous.json"
+STATE_LOCK = ".receipt-feed-state.lock"
 LIFECYCLES = {
     "setup-reserved",
     "active",
@@ -48,8 +56,22 @@ EVIDENCE_KINDS = {
     "decision",
     "artifact",
 }
+OWNER_CLASSES = {"pm-proxy", "worker", "owner", "external", "unknown"}
+LANE_CLASSES = {
+    "running",
+    "next",
+    "waiting",
+    "owner-gated",
+    "complete",
+    "unknown",
+}
+METADATA_SOURCES = {"launch", "handback", "migration", "unavailable"}
 SAFE_ID = re.compile(r"^[A-Za-z][A-Za-z0-9._:-]{0,127}$")
 SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#@+-]{0,159}$")
+PUBLIC_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .,&()'’+-]{0,79}$")
+PUBLIC_LABEL_SENSITIVE = re.compile(
+    r"(?i)\b(?:password|passwd|secret|api[- ]?key|access[- ]?token|bearer)\b"
+)
 FINGERPRINT = re.compile(r"^rcpt_[a-f0-9]{64}$")
 PRIVATE_UUID = re.compile(
     r"(?:^|[^a-f0-9])[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-"
@@ -80,6 +102,15 @@ NEXT_SAFE_MOVE = {
     "failed": "retry-or-reconcile-failure",
     "done": "verify-and-archive",
     "acknowledged": "none-terminal",
+}
+MIGRATED_LANE = {
+    "setup-reserved": "next",
+    "active": "running",
+    "waiting": "waiting",
+    "owner-gated": "owner-gated",
+    "failed": "waiting",
+    "done": "complete",
+    "acknowledged": "complete",
 }
 
 
@@ -164,6 +195,72 @@ def unsafe_text(value: str) -> bool:
         or "://" in value
         or "-----BEGIN" in value
     )
+
+
+def sanitize_public_metadata(
+    value: Any,
+    *,
+    source: str,
+    recorded_at: Any,
+) -> dict[str, Any]:
+    if source not in {"launch", "handback"}:
+        fail("INPUT_INVALID", "public metadata source is invalid")
+    metadata = strict_object(
+        value,
+        {"publicLabel", "ownerClass", "laneClass"},
+        label="public metadata",
+    )
+    label = metadata["publicLabel"]
+    if (
+        not isinstance(label, str)
+        or not PUBLIC_LABEL.fullmatch(label)
+        or ".." in label
+        or PUBLIC_LABEL_SENSITIVE.search(label)
+        or unsafe_text(label)
+    ):
+        fail("PRIVACY_REJECTED", "publicLabel is not a bounded sanitized label")
+    if metadata["ownerClass"] not in OWNER_CLASSES - {"unknown"}:
+        fail("PRIVACY_REJECTED", "ownerClass is not allowlisted")
+    if metadata["laneClass"] not in LANE_CLASSES - {"unknown"}:
+        fail("PRIVACY_REJECTED", "laneClass is not allowlisted")
+    if parse_time(recorded_at) is None:
+        fail("INPUT_INVALID", "public metadata recordedAt is invalid")
+    return {
+        "publicLabel": label,
+        "ownerClass": metadata["ownerClass"],
+        "laneClass": metadata["laneClass"],
+        "metadataSource": source,
+        "recordedAt": recorded_at,
+    }
+
+
+def unavailable_public_metadata(lifecycle: str, *, migration: bool = False) -> dict[str, Any]:
+    return {
+        "publicLabel": "Task label unavailable",
+        "ownerClass": "unknown",
+        "laneClass": MIGRATED_LANE[lifecycle] if migration else "unknown",
+        "metadataSource": "migration" if migration else "unavailable",
+        "recordedAt": None,
+    }
+
+
+def evidence_age(
+    metadata: dict[str, Any],
+    *,
+    served: datetime,
+) -> dict[str, Any]:
+    recorded = parse_time(metadata.get("recordedAt"))
+    if recorded is None or recorded > served:
+        return {
+            "latestEvidenceAt": None,
+            "ageSeconds": None,
+            "availability": "unavailable",
+        }
+    return {
+        "latestEvidenceAt": metadata["recordedAt"],
+        "ageSeconds": int((served - recorded).total_seconds()),
+        "availability": "derived",
+    }
 
 
 def sanitize_evidence(value: Any) -> list[dict[str, str]]:
@@ -307,6 +404,7 @@ def normalize_fact(raw: Any) -> dict[str, Any]:
             "evidence",
             "acceptanceEvidence",
             "role",
+            "publicMetadata",
         },
         label="taskFacts item",
     )
@@ -327,7 +425,30 @@ def normalize_fact(raw: Any) -> dict[str, Any]:
         "mirrorOfTaskKey": fact.get("mirrorOfTaskKey"),
         "evidence": sanitize_evidence(fact.get("evidence", [])),
         "acceptanceEvidence": sanitize_evidence(fact.get("acceptanceEvidence", [])),
+        "publicMetadata": None,
     }
+    public_metadata = fact.get("publicMetadata")
+    if public_metadata is not None:
+        public_metadata = strict_object(
+            public_metadata,
+            {
+                "publicLabel",
+                "ownerClass",
+                "laneClass",
+                "metadataSource",
+                "recordedAt",
+            },
+            label="taskFacts.publicMetadata",
+        )
+        output["publicMetadata"] = sanitize_public_metadata(
+            {
+                "publicLabel": public_metadata["publicLabel"],
+                "ownerClass": public_metadata["ownerClass"],
+                "laneClass": public_metadata["laneClass"],
+            },
+            source=public_metadata["metadataSource"],
+            recorded_at=public_metadata["recordedAt"],
+        )
     for key in ("dependsOnTaskKeys", "successorTaskKeys"):
         values = output[key]
         if (
@@ -485,9 +606,18 @@ def export_feed(raw: Any) -> dict[str, Any]:
             fail("CLOSE_WITHOUT_SUCCESSOR", "non-leaf terminal task requires a successor")
         if unresolved_successors and lifecycle in {"done", "acknowledged"}:
             fail("CLOSE_WITHOUT_SUCCESSOR", "terminal successor identity is unavailable")
+        metadata = fact["publicMetadata"] or unavailable_public_metadata(lifecycle)
+        age = evidence_age(metadata, served=served)
+        metadata_availability = (
+            "supplied" if fact["publicMetadata"] is not None else "unavailable"
+        )
         item = {
             "fingerprint": fingerprints[key],
             "revision": fact["revision"],
+            "publicLabel": metadata["publicLabel"],
+            "ownerClass": metadata["ownerClass"],
+            "laneClass": metadata["laneClass"],
+            "metadataSource": metadata["metadataSource"],
             "lifecycle": lifecycle,
             "gateKind": gate,
             "dependsOn": depends_on,
@@ -495,8 +625,13 @@ def export_feed(raw: Any) -> dict[str, Any]:
             "successorReceipts": successors,
             "runnable": None,
             "nextSafeMove": NEXT_SAFE_MOVE[lifecycle],
+            "evidenceAge": age,
             "duration": duration_projection(task),
             "fieldAvailability": {
+                "publicLabel": metadata_availability,
+                "ownerClass": metadata_availability,
+                "laneClass": metadata_availability,
+                "evidenceAgeSeconds": age["availability"],
                 "lifecycle": "derived",
                 "gateKind": "supplied" if fact["gateKind"] is not None else "derived",
                 "dependsOn": (
@@ -699,6 +834,11 @@ def export_feed(raw: Any) -> dict[str, Any]:
             },
             "sourceRevision": source_revision,
             "discrepancies": sorted(discrepancies),
+            "provenance": {
+                "sourceClass": "orchestrator-status",
+                "sanitization": "projection-enforced",
+                "rootExcluded": True,
+            },
         },
         "capacity": {
             "configuredWorkers": configured,
@@ -717,6 +857,84 @@ def export_feed(raw: Any) -> dict[str, Any]:
     return feed
 
 
+def migrate_legacy_feed(feed: Any) -> dict[str, Any]:
+    if not isinstance(feed, dict) or set(feed) != {
+        "schemaVersion",
+        "source",
+        "capacity",
+        "counts",
+        "receipts",
+        "ownerGates",
+        "quarantine",
+    }:
+        fail("MIGRATION_INVALID", "legacy feed has invalid top-level fields")
+    if feed.get("schemaVersion") != LEGACY_FEED_VERSION:
+        fail("VERSION_UNSUPPORTED", "only receipt-feed 1.0 can migrate to 1.1")
+    if not isinstance(feed.get("receipts"), list):
+        fail("MIGRATION_INVALID", "legacy receipts must be an array")
+    migrated = json.loads(canonical(feed))
+    migrated["schemaVersion"] = FEED_VERSION
+    migrated["source"]["provenance"] = {
+        "sourceClass": "legacy-receipt-feed",
+        "sanitization": "migration-placeholder",
+        "rootExcluded": True,
+    }
+    for receipt in migrated["receipts"]:
+        if not isinstance(receipt, dict):
+            fail("MIGRATION_INVALID", "legacy receipt must be an object")
+        lifecycle = receipt.get("lifecycle")
+        if lifecycle not in LIFECYCLES:
+            fail("MIGRATION_INVALID", "legacy receipt lifecycle is invalid")
+        allowed = {
+            "fingerprint",
+            "revision",
+            "lifecycle",
+            "gateKind",
+            "dependsOn",
+            "acceptanceReceipts",
+            "successorReceipts",
+            "mirrorOf",
+            "runnable",
+            "nextSafeMove",
+            "duration",
+            "fieldAvailability",
+            "evidenceRefs",
+        }
+        if set(receipt) - allowed:
+            fail("MIGRATION_INVALID", "legacy receipt has unknown fields")
+        metadata = unavailable_public_metadata(lifecycle, migration=True)
+        receipt.update(
+            {
+                "publicLabel": metadata["publicLabel"],
+                "ownerClass": metadata["ownerClass"],
+                "laneClass": metadata["laneClass"],
+                "metadataSource": metadata["metadataSource"],
+                "nextSafeMove": receipt.get(
+                    "nextSafeMove", NEXT_SAFE_MOVE[lifecycle]
+                ),
+                "evidenceAge": {
+                    "latestEvidenceAt": None,
+                    "ageSeconds": None,
+                    "availability": "unavailable",
+                },
+            }
+        )
+        availability = receipt.get("fieldAvailability")
+        if not isinstance(availability, dict):
+            availability = {}
+            receipt["fieldAvailability"] = availability
+        availability.update(
+            {
+                "publicLabel": "unavailable",
+                "ownerClass": "unavailable",
+                "laneClass": "derived",
+                "evidenceAgeSeconds": "unavailable",
+            }
+        )
+    validate_feed(migrated)
+    return migrated
+
+
 def validate_feed(feed: Any) -> None:
     if not isinstance(feed, dict) or set(feed) != {
         "schemaVersion",
@@ -730,16 +948,77 @@ def validate_feed(feed: Any) -> None:
         fail("FEED_INVALID", "feed has invalid top-level fields")
     if feed["schemaVersion"] != FEED_VERSION:
         fail("FEED_INVALID", "feed schemaVersion is invalid")
+    if (
+        not isinstance(feed["receipts"], list)
+        or len(feed["receipts"]) > 2_000
+        or not isinstance(feed["ownerGates"], list)
+        or len(feed["ownerGates"]) > 2_000
+        or not isinstance(feed["quarantine"], list)
+        or len(feed["quarantine"]) > 2_000
+    ):
+        fail("FEED_INVALID", "feed collections are invalid or unbounded")
     source = feed["source"]
+    if not isinstance(source, dict):
+        fail("FEED_INVALID", "feed source is invalid")
     if source.get("sourceStatus") not in {"live", "degraded", "unavailable", "invalid"}:
         fail("FEED_INVALID", "feed sourceStatus is invalid")
     if source.get("freshness", {}).get("state") not in {"current", "stale", "unknown"}:
         fail("FEED_INVALID", "feed freshness is invalid")
-    if feed["capacity"].get("rootExcluded") is not True:
+    provenance = source.get("provenance")
+    if (
+        not isinstance(provenance, dict)
+        or set(provenance) != {"sourceClass", "sanitization", "rootExcluded"}
+        or provenance["sourceClass"]
+        not in {
+            "orchestrator-status",
+            "orchestrator-ledger",
+            "pm-proxy-manifest",
+            "legacy-receipt-feed",
+        }
+        or provenance["sanitization"]
+        not in {
+            "projection-enforced",
+            "caller-allowlisted+projection-validated",
+            "migration-placeholder",
+        }
+        or provenance["rootExcluded"] is not True
+    ):
+        fail("FEED_INVALID", "feed provenance is invalid")
+    if (
+        not isinstance(feed["capacity"], dict)
+        or feed["capacity"].get("rootExcluded") is not True
+    ):
         fail("FEED_INVALID", "feed capacity includes root")
+    if not isinstance(feed["counts"], dict):
+        fail("FEED_INVALID", "feed counts are invalid")
     seen: set[tuple[str, int]] = set()
     by_fingerprint: dict[str, dict[str, Any]] = {}
     for receipt in feed["receipts"]:
+        required_receipt_fields = {
+            "fingerprint",
+            "revision",
+            "publicLabel",
+            "ownerClass",
+            "laneClass",
+            "metadataSource",
+            "lifecycle",
+            "gateKind",
+            "dependsOn",
+            "acceptanceReceipts",
+            "successorReceipts",
+            "runnable",
+            "nextSafeMove",
+            "evidenceAge",
+            "duration",
+            "fieldAvailability",
+            "evidenceRefs",
+        }
+        receipt_fields = set(receipt) if isinstance(receipt, dict) else set()
+        if not isinstance(receipt, dict) or receipt_fields not in (
+            required_receipt_fields,
+            required_receipt_fields | {"mirrorOf"},
+        ):
+            fail("FEED_INVALID", "receipt has invalid fields")
         key = (receipt.get("fingerprint"), receipt.get("revision"))
         if (
             not isinstance(key[0], str)
@@ -755,12 +1034,57 @@ def validate_feed(feed: Any) -> None:
             fail("FEED_INVALID", "receipt lifecycle is invalid")
         if receipt.get("gateKind") not in GATE_KINDS:
             fail("FEED_INVALID", "receipt gateKind is invalid")
+        label = receipt.get("publicLabel")
+        if (
+            not isinstance(label, str)
+            or not PUBLIC_LABEL.fullmatch(label)
+            or ".." in label
+            or PUBLIC_LABEL_SENSITIVE.search(label)
+            or unsafe_text(label)
+            or receipt.get("ownerClass") not in OWNER_CLASSES
+            or receipt.get("laneClass") not in LANE_CLASSES
+            or receipt.get("metadataSource") not in METADATA_SOURCES
+        ):
+            fail("FEED_INVALID", "receipt public metadata is invalid")
         if receipt.get("nextSafeMove") != NEXT_SAFE_MOVE[receipt["lifecycle"]]:
             fail("FEED_INVALID", "receipt nextSafeMove is invalid")
         if receipt["lifecycle"] == "owner-gated" and receipt["gateKind"] != "owner":
             fail("FEED_INVALID", "owner action is not explicitly owner-gated")
         if receipt["gateKind"] == "owner" and receipt["lifecycle"] != "owner-gated":
             fail("FEED_INVALID", "owner gate escaped owner-gated lifecycle")
+        age = receipt.get("evidenceAge")
+        if (
+            not isinstance(age, dict)
+            or set(age) != {"latestEvidenceAt", "ageSeconds", "availability"}
+            or age["availability"] not in {"derived", "unavailable"}
+            or (
+                age["availability"] == "unavailable"
+                and (age["latestEvidenceAt"] is not None or age["ageSeconds"] is not None)
+            )
+            or (
+                age["availability"] == "derived"
+                and (
+                    parse_time(age["latestEvidenceAt"]) is None
+                    or not isinstance(age["ageSeconds"], int)
+                    or isinstance(age["ageSeconds"], bool)
+                    or age["ageSeconds"] < 0
+                )
+            )
+        ):
+            fail("FEED_INVALID", "receipt evidence age is invalid")
+        availability = receipt.get("fieldAvailability")
+        if (
+            not isinstance(availability, dict)
+            or availability.get("publicLabel")
+            not in {"supplied", "derived", "unavailable"}
+            or availability.get("ownerClass")
+            not in {"supplied", "derived", "unavailable"}
+            or availability.get("laneClass")
+            not in {"supplied", "derived", "unavailable"}
+            or availability.get("evidenceAgeSeconds")
+            not in {"supplied", "derived", "unavailable"}
+        ):
+            fail("FEED_INVALID", "receipt field availability is invalid")
         sanitize_evidence(receipt.get("evidenceRefs"))
         for value in receipt.get("duration", {}).values():
             if (
@@ -1018,6 +1342,9 @@ def feed_from_ledger(
                 if launch is not None and launch["receipt_json"]
                 else None
             )
+            launch_envelope = (
+                json.loads(launch["envelope_json"]) if launch is not None else None
+            )
             if row["state"] == "RUNNING" and receipt is None:
                 fail("RECEIPT_REQUIRED", "RUNNING ledger task lacks launch receipt")
             if row["state"] == "RUNNING":
@@ -1085,6 +1412,27 @@ def feed_from_ledger(
             }
             if gate_kind is not None:
                 fact["gateKind"] = gate_kind
+            public_metadata = None
+            metadata_source = None
+            metadata_recorded_at = None
+            if isinstance(launch_envelope, dict) and isinstance(
+                launch_envelope.get("public_metadata"), dict
+            ):
+                public_metadata = launch_envelope["public_metadata"]
+                metadata_source = "launch"
+                metadata_recorded_at = launch["issued_at"]
+            if isinstance(handback, dict) and isinstance(
+                handback.get("public_metadata"), dict
+            ):
+                public_metadata = handback["public_metadata"]
+                metadata_source = "handback"
+                metadata_recorded_at = handback_row["recorded_at"]
+            if public_metadata is not None:
+                fact["publicMetadata"] = {
+                    **public_metadata,
+                    "metadataSource": metadata_source,
+                    "recordedAt": metadata_recorded_at,
+                }
             task_facts.append(fact)
         capacity_rows = [
             {
@@ -1129,6 +1477,7 @@ def feed_from_ledger(
                 "taskFacts": task_facts,
             }
         )
+        feed["source"]["provenance"]["sourceClass"] = "orchestrator-ledger"
         if mirrored:
             feed["quarantine"].extend(mirrored)
             feed["counts"]["quarantined"] = len(feed["quarantine"])
@@ -1147,14 +1496,468 @@ def feed_from_ledger(
             connection.close()
 
 
+def safe_manifest_key(value: Any, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not SAFE_ID.fullmatch(value)
+        or ".." in value
+        or unsafe_text(value)
+    ):
+        fail("PRIVACY_REJECTED", f"{label} is not a coarse safe key")
+    return value
+
+
+def safe_source_revision(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or not re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", value)
+        or ".." in value
+        or unsafe_text(value)
+    ):
+        fail("PRIVACY_REJECTED", "provenance.sourceRevision is unsafe")
+    return value
+
+
+def normalize_manifest(raw: Any) -> dict[str, Any]:
+    manifest = strict_object(
+        raw,
+        {
+            "manifestVersion",
+            "manifestRevision",
+            "generatedAt",
+            "configuredWorkers",
+            "provenance",
+            "receipts",
+        },
+        label="current-task manifest",
+    )
+    if manifest["manifestVersion"] != "1.0":
+        fail("VERSION_UNSUPPORTED", "current-task manifest version is unsupported")
+    revision = manifest["manifestRevision"]
+    if (
+        not isinstance(revision, int)
+        or isinstance(revision, bool)
+        or revision < 1
+        or revision > 2_147_483_647
+    ):
+        fail("INPUT_INVALID", "manifestRevision is invalid")
+    if parse_time(manifest["generatedAt"]) is None:
+        fail("INPUT_INVALID", "manifest generatedAt is invalid")
+    configured = manifest["configuredWorkers"]
+    if (
+        not isinstance(configured, int)
+        or isinstance(configured, bool)
+        or not 1 <= configured <= 64
+    ):
+        fail("INPUT_INVALID", "configuredWorkers is invalid")
+    provenance = strict_object(
+        manifest["provenance"],
+        {"sourceClass", "sourceRevision", "sanitization", "rootExcluded"},
+        label="manifest provenance",
+    )
+    if (
+        provenance["sourceClass"] != "pm-proxy"
+        or provenance["sanitization"] != "caller-allowlisted"
+        or provenance["rootExcluded"] is not True
+    ):
+        fail("PRIVACY_REJECTED", "manifest provenance is not allowlisted")
+    source_revision = safe_source_revision(provenance["sourceRevision"])
+    rows = manifest["receipts"]
+    if not isinstance(rows, list) or len(rows) > 2_000:
+        fail("INPUT_INVALID", "manifest receipts must be a bounded list")
+    normalized: list[dict[str, Any]] = []
+    for raw_receipt in rows:
+        receipt = strict_object(
+            raw_receipt,
+            {
+                "receiptKey",
+                "canonicalKey",
+                "receiptType",
+                "revision",
+                "publicLabel",
+                "ownerClass",
+                "laneClass",
+                "lifecycle",
+                "gateKind",
+                "recordedAt",
+                "dependsOnReceiptKeys",
+                "successorReceiptKeys",
+                "terminalLeaf",
+                "evidenceRefs",
+                "acceptanceEvidenceRefs",
+            },
+            {"mirrorOfReceiptKey"},
+            label="manifest receipt",
+        )
+        receipt_key = safe_manifest_key(receipt["receiptKey"], "receiptKey")
+        canonical_key = safe_manifest_key(receipt["canonicalKey"], "canonicalKey")
+        receipt_type = receipt["receiptType"]
+        if receipt_type not in {"launch", "handback"}:
+            fail("INPUT_INVALID", "receiptType is invalid")
+        lifecycle = receipt["lifecycle"]
+        if lifecycle not in LIFECYCLES:
+            fail("INPUT_INVALID", "manifest lifecycle is invalid")
+        if receipt_type == "launch" and lifecycle in {"done", "acknowledged"}:
+            fail("INPUT_INVALID", "launch receipt cannot claim a terminal lifecycle")
+        if receipt_type == "handback" and lifecycle in {"setup-reserved", "active"}:
+            fail("INPUT_INVALID", "handback receipt cannot claim an active lifecycle")
+        row_revision = receipt["revision"]
+        if (
+            not isinstance(row_revision, int)
+            or isinstance(row_revision, bool)
+            or row_revision < 1
+        ):
+            fail("INPUT_INVALID", "manifest receipt revision is invalid")
+        metadata = sanitize_public_metadata(
+            {
+                "publicLabel": receipt["publicLabel"],
+                "ownerClass": receipt["ownerClass"],
+                "laneClass": receipt["laneClass"],
+            },
+            source=receipt_type,
+            recorded_at=receipt["recordedAt"],
+        )
+        dependencies = receipt["dependsOnReceiptKeys"]
+        successors = receipt["successorReceiptKeys"]
+        for value, label in (
+            (dependencies, "dependsOnReceiptKeys"),
+            (successors, "successorReceiptKeys"),
+        ):
+            if (
+                not isinstance(value, list)
+                or len(value) > 64
+                or len(value) != len(set(value))
+            ):
+                fail("INPUT_INVALID", f"{label} is invalid")
+            for key in value:
+                safe_manifest_key(key, f"{label}[]")
+        if not isinstance(receipt["terminalLeaf"], bool):
+            fail("INPUT_INVALID", "terminalLeaf must be boolean")
+        evidence = sanitize_evidence(receipt["evidenceRefs"])
+        acceptance = sanitize_evidence(receipt["acceptanceEvidenceRefs"])
+        if len(evidence) + len(acceptance) > 24:
+            fail("INPUT_INVALID", "combined evidence exceeds the bounded limit")
+        mirror = receipt.get("mirrorOfReceiptKey")
+        if mirror is not None:
+            mirror = safe_manifest_key(mirror, "mirrorOfReceiptKey")
+            if mirror == receipt_key:
+                fail("INPUT_INVALID", "a receipt cannot mirror itself")
+        normalized.append(
+            {
+                "receiptKey": receipt_key,
+                "canonicalKey": canonical_key,
+                "receiptType": receipt_type,
+                "revision": row_revision,
+                "publicLabel": metadata["publicLabel"],
+                "ownerClass": metadata["ownerClass"],
+                "laneClass": metadata["laneClass"],
+                "recordedAt": metadata["recordedAt"],
+                "lifecycle": lifecycle,
+                "gateKind": receipt["gateKind"],
+                "dependsOnReceiptKeys": sorted(dependencies),
+                "successorReceiptKeys": sorted(successors),
+                "terminalLeaf": receipt["terminalLeaf"],
+                "evidenceRefs": evidence,
+                "acceptanceEvidenceRefs": acceptance,
+                **({"mirrorOfReceiptKey": mirror} if mirror is not None else {}),
+            }
+        )
+    keys = [row["receiptKey"] for row in normalized]
+    if len(keys) != len(set(keys)):
+        fail("INPUT_INVALID", "receiptKey must be unique")
+    by_key = {row["receiptKey"]: row for row in normalized}
+    for row in normalized:
+        mirror = row.get("mirrorOfReceiptKey")
+        if mirror is not None:
+            canonical = by_key.get(mirror)
+            if (
+                canonical is None
+                or canonical.get("mirrorOfReceiptKey") is not None
+                or canonical["canonicalKey"] != row["canonicalKey"]
+            ):
+                fail(
+                    "MIRROR_UNMARKED",
+                    "mirrorOfReceiptKey must identify its canonical receipt",
+                )
+    return {
+        "stateVersion": FEED_VERSION,
+        "manifestRevision": revision,
+        "generatedAt": manifest["generatedAt"],
+        "configuredWorkers": configured,
+        "provenance": {
+            "sourceClass": "pm-proxy",
+            "sourceRevision": source_revision,
+            "sanitization": "caller-allowlisted",
+            "rootExcluded": True,
+        },
+        "receipts": sorted(
+            normalized,
+            key=lambda item: (
+                item["canonicalKey"],
+                item["revision"],
+                item["receiptKey"],
+            ),
+        ),
+    }
+
+
+def safe_local_state_dir(raw: str) -> Path:
+    state = Path(raw).absolute()
+    current = Path(state.anchor)
+    for part in state.parts[1:]:
+        current = current / part
+        if current.exists() and current.is_symlink():
+            fail("STATE_UNSAFE", "state directory path cannot contain a symlink")
+    if state.exists() and (state.is_symlink() or not state.is_dir()):
+        fail("STATE_UNSAFE", "state directory must be a non-symlink directory")
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if state.is_symlink() or not state.is_dir():
+        fail("STATE_UNSAFE", "state directory must be a non-symlink directory")
+    os.chmod(state, 0o700)
+    return state
+
+
+@contextlib.contextmanager
+def state_lock(state: Path) -> Any:
+    lock_path = state / STATE_LOCK
+    if lock_path.exists() and lock_path.is_symlink():
+        fail("STATE_UNSAFE", "state lock cannot be a symlink")
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def validated_state_file(path: Path) -> tuple[dict[str, Any], bytes] | None:
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_JSON_BYTES:
+        fail("STATE_UNSAFE", "canonical receipt-feed state is unsafe")
+    payload = path.read_bytes()
+    try:
+        value = json.loads(payload, object_pairs_hook=duplicate_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ExportError("STATE_CORRUPT", "canonical receipt-feed state is invalid") from error
+    normalized = normalize_manifest(
+        {
+            "manifestVersion": "1.0",
+            "manifestRevision": value.get("manifestRevision"),
+            "generatedAt": value.get("generatedAt"),
+            "configuredWorkers": value.get("configuredWorkers"),
+            "provenance": value.get("provenance"),
+            "receipts": value.get("receipts"),
+        }
+    )
+    if value != normalized or payload != (canonical(normalized) + "\n").encode("utf-8"):
+        fail("STATE_CORRUPT", "canonical receipt-feed state is not normalized")
+    return value, payload
+
+
+def reconcile_manifest(raw: Any, state_dir: str) -> dict[str, Any]:
+    normalized = normalize_manifest(raw)
+    payload = (canonical(normalized) + "\n").encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
+    state = safe_local_state_dir(state_dir)
+    current_path = state / STATE_FILE
+    previous_path = state / PREVIOUS_STATE_FILE
+    with state_lock(state):
+        current = validated_state_file(current_path)
+        if current is not None:
+            current_value, current_payload = current
+            if normalized["manifestRevision"] < current_value["manifestRevision"]:
+                fail("STALE_MANIFEST", "manifest revision cannot move backward")
+            if normalized["manifestRevision"] == current_value["manifestRevision"]:
+                if payload != current_payload:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "manifest revision was reused with different sanitized bytes",
+                    )
+                return {
+                    "stateVersion": FEED_VERSION,
+                    "manifestRevision": normalized["manifestRevision"],
+                    "sha256": digest,
+                    "stateFile": STATE_FILE,
+                    "previousStateFile": (
+                        PREVIOUS_STATE_FILE if previous_path.exists() else None
+                    ),
+                    "idempotent": True,
+                    "canonicalReceiptCount": sum(
+                        "mirrorOfReceiptKey" not in row
+                        for row in normalized["receipts"]
+                    ),
+                    "excludedMirrorCount": sum(
+                        "mirrorOfReceiptKey" in row for row in normalized["receipts"]
+                    ),
+                }
+            atomic_write(previous_path, current_payload)
+        atomic_write(current_path, payload)
+    return {
+        "stateVersion": FEED_VERSION,
+        "manifestRevision": normalized["manifestRevision"],
+        "sha256": digest,
+        "stateFile": STATE_FILE,
+        "previousStateFile": (
+            PREVIOUS_STATE_FILE if previous_path.exists() else None
+        ),
+        "idempotent": False,
+        "canonicalReceiptCount": sum(
+            "mirrorOfReceiptKey" not in row for row in normalized["receipts"]
+        ),
+        "excludedMirrorCount": sum(
+            "mirrorOfReceiptKey" in row for row in normalized["receipts"]
+        ),
+    }
+
+
+def feed_from_manifest_state(
+    state_dir: str,
+    *,
+    served_at: str,
+    freshness_threshold_seconds: int,
+) -> dict[str, Any]:
+    served = parse_time(served_at)
+    if served is None:
+        fail("INPUT_INVALID", "servedAt must be an RFC3339 timestamp")
+    if not 1 <= freshness_threshold_seconds <= 86_400:
+        fail("INPUT_INVALID", "freshness threshold is invalid")
+    state = safe_local_state_dir(state_dir)
+    with state_lock(state):
+        current = validated_state_file(state / STATE_FILE)
+    if current is None:
+        fail("STATE_UNAVAILABLE", "canonical receipt-feed state is unavailable")
+    manifest = current[0]
+    state_by_lifecycle = {
+        "setup-reserved": "LAUNCH_PENDING",
+        "active": "RUNNING",
+        "waiting": "BLOCKED",
+        "owner-gated": "BLOCKED",
+        "failed": "FAILED",
+        "done": "ARCHIVE_PENDING",
+        "acknowledged": "ARCHIVED",
+    }
+    tasks = []
+    facts = []
+    for row in manifest["receipts"]:
+        state_name = state_by_lifecycle[row["lifecycle"]]
+        block = None
+        if row["lifecycle"] in {"waiting", "owner-gated"}:
+            classification = {
+                "owner": "owner_gate",
+                "external": "external_dependency",
+            }.get(row["gateKind"], "dependency")
+            block = {"classification": classification}
+        tasks.append(
+            {
+                "task_id": row["receiptKey"],
+                "state": state_name,
+                "canonical_external_thread_id": (
+                    "sanitized-launch-receipt" if state_name == "RUNNING" else None
+                ),
+                "block": block,
+                "duration": None,
+                "freshness": {"stale": False},
+            }
+        )
+        identity_key = row["canonicalKey"]
+        fact: dict[str, Any] = {
+            "taskKey": row["receiptKey"],
+            "identity": {
+                "sourceEventKey": identity_key,
+                "outcomeKey": "manifest-outcome",
+                "receiptKind": "task",
+                "canonicalOwnerKey": "manifest-owner",
+            },
+            "revision": row["revision"],
+            "gateKind": row["gateKind"],
+            "dependsOnTaskKeys": row["dependsOnReceiptKeys"],
+            "successorTaskKeys": row["successorReceiptKeys"],
+            "terminalLeaf": row["terminalLeaf"],
+            "evidence": row["evidenceRefs"],
+            "acceptanceEvidence": row["acceptanceEvidenceRefs"],
+            "publicMetadata": {
+                "publicLabel": row["publicLabel"],
+                "ownerClass": row["ownerClass"],
+                "laneClass": row["laneClass"],
+                "metadataSource": row["receiptType"],
+                "recordedAt": row["recordedAt"],
+            },
+        }
+        if "mirrorOfReceiptKey" in row:
+            fact["mirrorOfTaskKey"] = row["mirrorOfReceiptKey"]
+        facts.append(fact)
+    feed = export_feed(
+        {
+            "interfaceVersion": INTERFACE_VERSION,
+            "servedAt": served_at,
+            "freshnessThresholdSeconds": freshness_threshold_seconds,
+            "status": {
+                "interface_version": INTERFACE_VERSION,
+                "ok": True,
+                "operation": "status",
+                "result": {
+                    "schema_version": FIRESTARTER_SCHEMA,
+                    "revision": manifest["manifestRevision"],
+                    "tasks": tasks,
+                    "capacity": [
+                        {
+                            "configured_capacity": manifest["configuredWorkers"],
+                            "active_count": None,
+                            "reserved_setup_count": None,
+                        }
+                    ],
+                    "capacity_failure": False,
+                    "duration": {
+                        "root_excluded_from_worker_capacity": True,
+                        "freshness": {"evaluated_at": manifest["generatedAt"]},
+                    },
+                },
+            },
+            "taskFacts": facts,
+        }
+    )
+    feed["source"]["sourceRevision"] = manifest["provenance"]["sourceRevision"]
+    feed["source"]["provenance"] = {
+        "sourceClass": "pm-proxy-manifest",
+        "sanitization": "caller-allowlisted+projection-validated",
+        "rootExcluded": True,
+    }
+    validate_feed(feed)
+    return feed
+
+
 def safe_output_dir(raw: str) -> Path:
     output = Path(raw).absolute()
-    if output.exists():
-        if output.is_symlink() or not output.is_dir():
-            fail("OUTPUT_UNSAFE", "output must be a non-symlink directory")
-    else:
-        output.mkdir(parents=True, mode=0o700)
+    current = Path(output.anchor)
+    for part in output.parts[1:]:
+        current = current / part
+        if current.exists() and current.is_symlink():
+            fail("OUTPUT_UNSAFE", "output directory path cannot contain a symlink")
+    if output.exists() and (output.is_symlink() or not output.is_dir()):
+        fail("OUTPUT_UNSAFE", "output must be a non-symlink directory")
+    output.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if output.is_symlink() or not output.is_dir():
+        fail("OUTPUT_UNSAFE", "output must be a non-symlink directory")
+    os.chmod(output, 0o700)
     return output
+
+
+@contextlib.contextmanager
+def publish_lock(output: Path) -> Any:
+    lock_path = output / ".receipt-feed-publish.lock"
+    if lock_path.exists() and lock_path.is_symlink():
+        fail("OUTPUT_UNSAFE", "publish lock cannot be a symlink")
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def atomic_write(path: Path, payload: bytes) -> None:
@@ -1190,12 +1993,16 @@ def validated_pointer(output: Path, name: str) -> tuple[dict[str, Any], bytes] |
     pointer = output / name
     if not pointer.exists():
         return None
-    if pointer.is_symlink() or not pointer.is_file():
+    if (
+        pointer.is_symlink()
+        or not pointer.is_file()
+        or pointer.stat().st_size > MAX_JSON_BYTES
+    ):
         fail("LKG_INVALID", f"{name} is unsafe")
     payload = pointer.read_bytes()
     try:
-        value = json.loads(payload)
-    except json.JSONDecodeError as error:
+        value = json.loads(payload, object_pairs_hook=duplicate_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ExportError("LKG_INVALID", f"{name} is invalid") from error
     if set(value) != {"schemaVersion", "sha256", "snapshot", "generatedAt"}:
         fail("LKG_INVALID", f"{name} has invalid fields")
@@ -1211,8 +2018,53 @@ def validated_pointer(output: Path, name: str) -> tuple[dict[str, Any], bytes] |
         or hashlib.sha256(snapshot.read_bytes()).hexdigest() != value["sha256"]
     ):
         fail("LKG_INVALID", f"{name} snapshot failed content verification")
-    validate_feed(json.loads(snapshot.read_text(encoding="utf-8")))
+    if snapshot.stat().st_size > MAX_JSON_BYTES:
+        fail("LKG_INVALID", f"{name} snapshot exceeds one megabyte")
+    try:
+        snapshot_value = json.loads(
+            snapshot.read_bytes(), object_pairs_hook=duplicate_pairs
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ExportError("LKG_INVALID", f"{name} snapshot is invalid") from error
+    validate_feed(snapshot_value)
     return value, payload
+
+
+def publish_feed(feed: dict[str, Any], output_dir: str) -> dict[str, Any]:
+    validate_feed(feed)
+    output = safe_output_dir(output_dir)
+    snapshot_bytes = (canonical(feed) + "\n").encode("utf-8")
+    if len(snapshot_bytes) > MAX_JSON_BYTES:
+        fail("OUTPUT_TOO_LARGE", "receipt-feed snapshot exceeds one megabyte")
+    digest = hashlib.sha256(snapshot_bytes).hexdigest()
+    snapshot_name = f"{SNAPSHOT_PREFIX}{digest}.json"
+    snapshot = output / snapshot_name
+    new_pointer = pointer_payload(feed, digest, snapshot_name)
+    with publish_lock(output):
+        if snapshot.exists():
+            if snapshot.is_symlink() or snapshot.read_bytes() != snapshot_bytes:
+                fail("SNAPSHOT_CONFLICT", "content-addressed snapshot conflicts")
+        else:
+            atomic_write(snapshot, snapshot_bytes)
+        current = validated_pointer(output, CURRENT_POINTER)
+        if current is None:
+            atomic_write(output / LKG_POINTER, new_pointer)
+        elif current[1] != new_pointer:
+            atomic_write(output / PREVIOUS_POINTER, current[1])
+            atomic_write(output / LKG_POINTER, current[1])
+        atomic_write(output / CURRENT_POINTER, new_pointer)
+    return {
+        "schemaVersion": FEED_VERSION,
+        "sha256": digest,
+        "snapshot": snapshot_name,
+        "currentPointer": CURRENT_POINTER,
+        "lkgPointer": LKG_POINTER,
+        "previousPointer": (
+            PREVIOUS_POINTER if (output / PREVIOUS_POINTER).exists() else None
+        ),
+        "sourceStatus": feed["source"]["sourceStatus"],
+        "freshness": feed["source"]["freshness"],
+    }
 
 
 def publish_ledger(
@@ -1229,32 +2081,46 @@ def publish_ledger(
         served_at=served_at,
         freshness_threshold_seconds=freshness_threshold_seconds,
     )
-    validate_feed(feed)
-    output = safe_output_dir(output_dir)
-    snapshot_bytes = (canonical(feed) + "\n").encode("utf-8")
-    digest = hashlib.sha256(snapshot_bytes).hexdigest()
-    snapshot_name = f"{SNAPSHOT_PREFIX}{digest}.json"
-    snapshot = output / snapshot_name
-    if snapshot.exists():
-        if snapshot.is_symlink() or snapshot.read_bytes() != snapshot_bytes:
-            fail("SNAPSHOT_CONFLICT", "content-addressed snapshot conflicts")
-    else:
-        atomic_write(snapshot, snapshot_bytes)
-    current = validated_pointer(output, CURRENT_POINTER)
-    new_pointer = pointer_payload(feed, digest, snapshot_name)
-    if current is not None and current[1] != new_pointer:
-        atomic_write(output / PREVIOUS_POINTER, current[1])
-    atomic_write(output / CURRENT_POINTER, new_pointer)
+    return publish_feed(feed, output_dir)
+
+
+def publish_manifest_state(
+    state_dir: str,
+    output_dir: str,
+    *,
+    served_at: str,
+    freshness_threshold_seconds: int,
+) -> dict[str, Any]:
+    return publish_feed(
+        feed_from_manifest_state(
+            state_dir,
+            served_at=served_at,
+            freshness_threshold_seconds=freshness_threshold_seconds,
+        ),
+        output_dir,
+    )
+
+
+def migrate_snapshot(path: str, output_dir: str | None = None) -> dict[str, Any]:
+    snapshot = Path(path).absolute()
+    if (
+        snapshot.is_symlink()
+        or not snapshot.is_file()
+        or snapshot.stat().st_size > MAX_JSON_BYTES
+    ):
+        fail("INPUT_UNSAFE", "legacy snapshot must be a bounded regular file")
+    try:
+        legacy = json.loads(snapshot.read_bytes(), object_pairs_hook=duplicate_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ExportError("JSON_INVALID", "legacy snapshot is invalid JSON") from error
+    migrated = migrate_legacy_feed(legacy)
+    if output_dir is not None:
+        return publish_feed(migrated, output_dir)
+    payload = (canonical(migrated) + "\n").encode("utf-8")
     return {
         "schemaVersion": FEED_VERSION,
-        "sha256": digest,
-        "snapshot": snapshot_name,
-        "currentPointer": CURRENT_POINTER,
-        "previousPointer": (
-            PREVIOUS_POINTER if (output / PREVIOUS_POINTER).exists() else None
-        ),
-        "sourceStatus": feed["source"]["sourceStatus"],
-        "freshness": feed["source"]["freshness"],
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "snapshot": migrated,
     }
 
 
@@ -1266,8 +2132,8 @@ def validate_snapshot(path: str) -> dict[str, Any]:
     if len(payload) > MAX_JSON_BYTES:
         fail("INPUT_TOO_LARGE", "snapshot exceeds one megabyte")
     try:
-        feed = json.loads(payload)
-    except json.JSONDecodeError as error:
+        feed = json.loads(payload, object_pairs_hook=duplicate_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ExportError("JSON_INVALID", "snapshot is invalid JSON") from error
     validate_feed(feed)
     digest = hashlib.sha256(payload).hexdigest()
@@ -1281,18 +2147,21 @@ def validate_snapshot(path: str) -> dict[str, Any]:
 
 def rollback_pointer(output_dir: str) -> dict[str, Any]:
     output = safe_output_dir(output_dir)
-    current = validated_pointer(output, CURRENT_POINTER)
-    previous = validated_pointer(output, PREVIOUS_POINTER)
-    if previous is None:
-        fail("LKG_UNAVAILABLE", "no previous last-known-good snapshot exists")
-    atomic_write(output / CURRENT_POINTER, previous[1])
-    if current is not None:
-        atomic_write(output / PREVIOUS_POINTER, current[1])
+    with publish_lock(output):
+        current = validated_pointer(output, CURRENT_POINTER)
+        lkg = validated_pointer(output, LKG_POINTER)
+        if lkg is None or (current is not None and lkg[1] == current[1]):
+            fail("LKG_UNAVAILABLE", "no distinct last-known-good snapshot exists")
+        atomic_write(output / CURRENT_POINTER, lkg[1])
+        if current is not None:
+            atomic_write(output / PREVIOUS_POINTER, current[1])
+            atomic_write(output / LKG_POINTER, current[1])
     return {
         "schemaVersion": FEED_VERSION,
-        "sha256": previous[0]["sha256"],
-        "snapshot": previous[0]["snapshot"],
+        "sha256": lkg[0]["sha256"],
+        "snapshot": lkg[0]["snapshot"],
         "currentPointer": CURRENT_POINTER,
+        "lkgPointer": LKG_POINTER,
         "rollbackApplied": True,
     }
 
@@ -1334,7 +2203,10 @@ def main() -> int:
         default="adapt-status",
         choices=[
             "adapt-status",
+            "reconcile-manifest",
+            "publish-state",
             "publish-ledger",
+            "migrate-snapshot",
             "validate-snapshot",
             "rollback",
         ],
@@ -1350,6 +2222,30 @@ def main() -> int:
     try:
         if arguments.command == "adapt-status":
             result = export_feed(read_request(arguments.request))
+        elif arguments.command == "reconcile-manifest":
+            if not arguments.state_dir:
+                fail("INPUT_INVALID", "reconcile-manifest requires --state-dir")
+            result = reconcile_manifest(
+                read_request(arguments.request), arguments.state_dir
+            )
+        elif arguments.command == "publish-state":
+            if not all(
+                (
+                    arguments.state_dir,
+                    arguments.output_dir,
+                    arguments.served_at,
+                )
+            ):
+                fail(
+                    "INPUT_INVALID",
+                    "publish-state requires state/output directories and servedAt",
+                )
+            result = publish_manifest_state(
+                arguments.state_dir,
+                arguments.output_dir,
+                served_at=arguments.served_at,
+                freshness_threshold_seconds=arguments.stale_threshold_seconds,
+            )
         elif arguments.command == "publish-ledger":
             if not all(
                 (
@@ -1372,6 +2268,10 @@ def main() -> int:
                 served_at=arguments.served_at,
                 freshness_threshold_seconds=arguments.stale_threshold_seconds,
             )
+        elif arguments.command == "migrate-snapshot":
+            if not arguments.snapshot:
+                fail("INPUT_INVALID", "migrate-snapshot requires --snapshot")
+            result = migrate_snapshot(arguments.snapshot, arguments.output_dir)
         elif arguments.command == "validate-snapshot":
             if not arguments.snapshot:
                 fail("INPUT_INVALID", "validate-snapshot requires --snapshot")

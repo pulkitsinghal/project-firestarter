@@ -1,4 +1,4 @@
-"""Receipt-feed 1.0 adapter and dashboard consumer contract tests."""
+"""Receipt-feed 1.1 adapter, bootstrap, publication, and migration tests."""
 
 from __future__ import annotations
 
@@ -19,11 +19,16 @@ CONTROL = (
     ROOT / "addons" / "orchestrator_session" / "common" / "orchestrator-control"
 )
 EXPORTER_PATH = CONTROL / "receipt_feed_exporter.py"
-SCHEMA_PATH = CONTROL / "schemas" / "receipt-feed-1.0.schema.json"
+SCHEMA_PATH = CONTROL / "schemas" / "receipt-feed-1.1.schema.json"
+LEGACY_SCHEMA_PATH = CONTROL / "schemas" / "receipt-feed-1.0.schema.json"
+MANIFEST_SCHEMA_PATH = CONTROL / "schemas" / "current-task-manifest-1.0.schema.json"
 DASHBOARD_PATH = CONTROL / "dashboard.html"
 CONTROL_CLI = CONTROL / "orchestrator_control.py"
 POLICY_LEDGER = CONTROL / "policy-ledger.json"
 SYNTHETIC_STATE = CONTROL / "receipt-feed" / "synthetic-current-state.json"
+SYNTHETIC_MANIFEST = (
+    CONTROL / "receipt-feed" / "synthetic-current-task-manifest.json"
+)
 SPEC = importlib.util.spec_from_file_location("receipt_feed_exporter", EXPORTER_PATH)
 assert SPEC and SPEC.loader
 EXPORTER = importlib.util.module_from_spec(SPEC)
@@ -86,6 +91,10 @@ def fact(
     mirror_of: str | None = None,
     evidence: list[dict[str, str]] | None = None,
     acceptance: list[dict[str, str]] | None = None,
+    public_label: str | None = None,
+    owner_class: str = "worker",
+    lane_class: str = "running",
+    metadata_source: str = "launch",
 ) -> dict[str, object]:
     result: dict[str, object] = {
         "taskKey": key,
@@ -101,6 +110,14 @@ def fact(
         result["gateKind"] = gate
     if mirror_of is not None:
         result["mirrorOfTaskKey"] = mirror_of
+    if public_label is not None:
+        result["publicMetadata"] = {
+            "publicLabel": public_label,
+            "ownerClass": owner_class,
+            "laneClass": lane_class,
+            "metadataSource": metadata_source,
+            "recordedAt": GENERATED,
+        }
     return result
 
 
@@ -206,8 +223,19 @@ def baseline() -> dict[str, object]:
                 1,
                 successors=[waiting_key],
                 acceptance=[{"kind": "test", "ref": "test:acceptance-1"}],
+                public_label="Prior receipt contract",
+                owner_class="pm-proxy",
+                lane_class="complete",
+                metadata_source="handback",
             ),
-            fact(waiting_key, 2, gate="dependency", depends=[done_key]),
+            fact(
+                waiting_key,
+                2,
+                gate="dependency",
+                depends=[done_key],
+                public_label="Dashboard adapter",
+                lane_class="next",
+            ),
         ],
     )
 
@@ -333,7 +361,24 @@ class ReceiptFeedTests(unittest.TestCase):
                         f"fixture-launch-{index}",
                         "a" * 64,
                         worker["taskKey"],
-                        '{"delegation":"fixture-envelope"}',
+                        json.dumps(
+                            {
+                                "delegation": "fixture-envelope",
+                                "public_metadata": {
+                                    "publicLabel": (
+                                        "Active fixture"
+                                        if worker["state"] == "RUNNING"
+                                        else "Reserved fixture"
+                                    ),
+                                    "ownerClass": "worker",
+                                    "laneClass": (
+                                        "running"
+                                        if worker["state"] == "RUNNING"
+                                        else "next"
+                                    ),
+                                },
+                            }
+                        ),
                         receipt,
                         fixture["generatedAt"],
                     ),
@@ -364,7 +409,16 @@ class ReceiptFeedTests(unittest.TestCase):
                         "fixture-handback",
                         "b" * 64,
                         worker["taskKey"],
-                        '{"disposition":"completed"}',
+                        json.dumps(
+                            {
+                                "disposition": "completed",
+                                "public_metadata": {
+                                    "publicLabel": "Completed fixture",
+                                    "ownerClass": "pm-proxy",
+                                    "laneClass": "complete",
+                                },
+                            }
+                        ),
                         '{"accepted":true}',
                         fixture["generatedAt"],
                     ),
@@ -410,16 +464,31 @@ class ReceiptFeedTests(unittest.TestCase):
 
     def test_schema_and_baseline_adapter(self) -> None:
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-        self.assertEqual("urn:pm-proxy:dashboard-receipt-feed:1.0", schema["$id"])
+        legacy_schema = json.loads(LEGACY_SCHEMA_PATH.read_text(encoding="utf-8"))
+        manifest_schema = json.loads(
+            MANIFEST_SCHEMA_PATH.read_text(encoding="utf-8")
+        )
+        self.assertEqual("urn:pm-proxy:dashboard-receipt-feed:1.1", schema["$id"])
+        self.assertEqual(
+            "urn:pm-proxy:dashboard-receipt-feed:1.0", legacy_schema["$id"]
+        )
+        self.assertEqual(
+            "urn:pm-proxy:current-task-manifest:1.0", manifest_schema["$id"]
+        )
         feed = EXPORTER.export_feed(baseline())
         EXPORTER.validate_feed(feed)
-        self.assertEqual("1.0", feed["schemaVersion"])
+        self.assertEqual("1.1", feed["schemaVersion"])
         self.assertEqual("current", feed["source"]["freshness"]["state"])
         self.assertEqual(5, feed["source"]["freshness"]["ageSeconds"])
         self.assertEqual(1, feed["counts"]["done"])
         self.assertEqual(1, feed["counts"]["waiting"])
         waiting = next(row for row in feed["receipts"] if row["lifecycle"] == "waiting")
         self.assertTrue(waiting["runnable"])
+        self.assertEqual("Dashboard adapter", waiting["publicLabel"])
+        self.assertEqual("worker", waiting["ownerClass"])
+        self.assertEqual("next", waiting["laneClass"])
+        self.assertEqual("launch", waiting["metadataSource"])
+        self.assertEqual(5, waiting["evidenceAge"]["ageSeconds"])
 
     def test_real_firestarter_status_response_adapts_without_private_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -672,10 +741,10 @@ class ReceiptFeedTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(0, completed.returncode, completed.stderr)
-        self.assertEqual("1.0", json.loads(completed.stdout)["schemaVersion"])
+        self.assertEqual("1.1", json.loads(completed.stdout)["schemaVersion"])
         dashboard = DASHBOARD_PATH.read_text(encoding="utf-8")
         for marker in (
-            'payload.schemaVersion === "1.0"',
+            'payload.schemaVersion === "1.1"',
             "generatedAt",
             "servedAt",
             "sourceStatus",
@@ -687,6 +756,11 @@ class ReceiptFeedTests(unittest.TestCase):
             "metric.availability === \"unavailable\"",
             "Quarantined mirrors and conflicts",
             "review-only",
+            "publicLabel",
+            "ownerClass",
+            "laneClass",
+            "evidenceAgeSeconds",
+            "payload.source.provenance",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, dashboard)
@@ -736,6 +810,17 @@ class ReceiptFeedTests(unittest.TestCase):
             self.assertEqual(1, feed["counts"]["done"])
             self.assertEqual(1, len(feed["ownerGates"]))
             self.assertEqual(2, feed["ownerGates"][0]["revision"])
+            active_receipt = next(
+                item for item in feed["receipts"] if item["lifecycle"] == "active"
+            )
+            done_receipt = next(
+                item for item in feed["receipts"] if item["lifecycle"] == "done"
+            )
+            self.assertEqual("Active fixture", active_receipt["publicLabel"])
+            self.assertEqual("launch", active_receipt["metadataSource"])
+            self.assertEqual("Completed fixture", done_receipt["publicLabel"])
+            self.assertEqual("handback", done_receipt["metadataSource"])
+            self.assertEqual("receipt-feed-lkg.json", published["lkgPointer"])
             serialized = json.dumps(feed, sort_keys=True)
             for forbidden in (
                 "/private/redacted-fixture-path",
@@ -836,6 +921,373 @@ class ReceiptFeedTests(unittest.TestCase):
             self.assertEqual(
                 before, (output / "receipt-feed-current.json").read_bytes()
             )
+
+    def test_manifest_bootstrap_is_idempotent_and_publish_is_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = root / "canonical-state"
+            output = root / "sites-input"
+            manifest = SYNTHETIC_MANIFEST.read_text(encoding="utf-8")
+            reconcile = [
+                sys.executable,
+                "-B",
+                str(EXPORTER_PATH),
+                "reconcile-manifest",
+                "--request",
+                "-",
+                "--state-dir",
+                str(state),
+            ]
+            first = subprocess.run(
+                reconcile,
+                cwd=ROOT,
+                input=manifest,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, first.returncode, first.stderr)
+            first_result = json.loads(first.stdout)
+            self.assertFalse(first_result["idempotent"])
+            self.assertEqual(4, first_result["canonicalReceiptCount"])
+            self.assertEqual(1, first_result["excludedMirrorCount"])
+            state_bytes = (state / "receipt-feed-state.json").read_bytes()
+            second = subprocess.run(
+                reconcile,
+                cwd=ROOT,
+                input=manifest,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, second.returncode, second.stderr)
+            self.assertTrue(json.loads(second.stdout)["idempotent"])
+            self.assertEqual(
+                state_bytes, (state / "receipt-feed-state.json").read_bytes()
+            )
+            stale_manifest = json.loads(manifest)
+            stale_manifest["manifestRevision"] = 6
+            stale = subprocess.run(
+                reconcile,
+                cwd=ROOT,
+                input=json.dumps(stale_manifest),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(2, stale.returncode)
+            self.assertEqual(
+                "STALE_MANIFEST", json.loads(stale.stderr)["error"]["code"]
+            )
+            changed_same_revision = json.loads(manifest)
+            changed_same_revision["receipts"][0]["publicLabel"] = "Changed label"
+            conflict = subprocess.run(
+                reconcile,
+                cwd=ROOT,
+                input=json.dumps(changed_same_revision),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(2, conflict.returncode)
+            self.assertEqual(
+                "IDEMPOTENCY_CONFLICT",
+                json.loads(conflict.stderr)["error"]["code"],
+            )
+            self.assertEqual(
+                state_bytes, (state / "receipt-feed-state.json").read_bytes()
+            )
+
+            publish = [
+                sys.executable,
+                "-B",
+                str(EXPORTER_PATH),
+                "publish-state",
+                "--state-dir",
+                str(state),
+                "--output-dir",
+                str(output),
+                "--served-at",
+                "2026-07-28T22:00:05Z",
+                "--stale-threshold-seconds",
+                "60",
+            ]
+            published = subprocess.run(
+                publish, cwd=ROOT, capture_output=True, text=True, check=False
+            )
+            self.assertEqual(0, published.returncode, published.stderr)
+            result = json.loads(published.stdout)
+            snapshot_bytes = (output / result["snapshot"]).read_bytes()
+            feed = json.loads(snapshot_bytes)
+            self.assertEqual("1.1", feed["schemaVersion"])
+            self.assertEqual("pm-proxy-manifest", feed["source"]["provenance"]["sourceClass"])
+            self.assertEqual(1, feed["counts"]["active"])
+            self.assertEqual(1, feed["counts"]["waiting"])
+            self.assertEqual(1, feed["counts"]["ownerGated"])
+            self.assertEqual(1, feed["counts"]["done"])
+            self.assertEqual(1, feed["counts"]["quarantined"])
+            active = next(item for item in feed["receipts"] if item["lifecycle"] == "active")
+            self.assertEqual("Receipt feed bootstrap", active["publicLabel"])
+            self.assertEqual("worker", active["ownerClass"])
+            self.assertEqual("running", active["laneClass"])
+            self.assertEqual("continue-active-work", active["nextSafeMove"])
+            self.assertEqual(125, active["evidenceAge"]["ageSeconds"])
+            republished = subprocess.run(
+                publish, cwd=ROOT, capture_output=True, text=True, check=False
+            )
+            self.assertEqual(0, republished.returncode, republished.stderr)
+            self.assertEqual(result["sha256"], json.loads(republished.stdout)["sha256"])
+            self.assertEqual(snapshot_bytes, (output / result["snapshot"]).read_bytes())
+
+    def test_manifest_rejects_hostile_labels_paths_emails_and_secrets(self) -> None:
+        original = json.loads(SYNTHETIC_MANIFEST.read_text(encoding="utf-8"))
+        hostile = [
+            "/Users/example/work",
+            "person@example.com",
+            "https://example.com/task",
+            "Bearer token",
+            "api key sample",
+            "folder/child",
+            "Task 019fac21-aa4b-7be3-b2c8-dfff477405d1",
+        ]
+        for index, label in enumerate(hostile, start=1):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                manifest = deepcopy(original)
+                manifest["manifestRevision"] = 100 + index
+                manifest["receipts"][0]["publicLabel"] = label
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-B",
+                        str(EXPORTER_PATH),
+                        "reconcile-manifest",
+                        "--request",
+                        "-",
+                        "--state-dir",
+                        str(Path(temporary) / "state"),
+                    ],
+                    cwd=ROOT,
+                    input=json.dumps(manifest),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(2, completed.returncode)
+                self.assertEqual(
+                    "PRIVACY_REJECTED",
+                    json.loads(completed.stderr)["error"]["code"],
+                )
+                self.assertFalse(
+                    (Path(temporary) / "state" / "receipt-feed-state.json").exists()
+                )
+
+    def test_state_and_publish_paths_reject_symlink_components(self) -> None:
+        manifest = json.loads(SYNTHETIC_MANIFEST.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            real = root / "real"
+            real.mkdir()
+            link = root / "link"
+            link.symlink_to(real, target_is_directory=True)
+            with self.assertRaises(EXPORTER.ExportError) as state_error:
+                EXPORTER.reconcile_manifest(manifest, str(link / "state"))
+            self.assertEqual("STATE_UNSAFE", state_error.exception.code)
+
+            state = root / "state"
+            EXPORTER.reconcile_manifest(manifest, str(state))
+            feed = EXPORTER.feed_from_manifest_state(
+                str(state),
+                served_at="2026-07-28T22:00:05Z",
+                freshness_threshold_seconds=60,
+            )
+            with self.assertRaises(EXPORTER.ExportError) as output_error:
+                EXPORTER.publish_feed(feed, str(link / "published"))
+            self.assertEqual("OUTPUT_UNSAFE", output_error.exception.code)
+
+    def test_legacy_1_0_migration_adds_safe_unavailable_metadata(self) -> None:
+        current = EXPORTER.export_feed(baseline())
+        legacy = deepcopy(current)
+        legacy["schemaVersion"] = "1.0"
+        legacy["source"].pop("provenance")
+        for index, receipt in enumerate(legacy["receipts"]):
+            for key in (
+                "publicLabel",
+                "ownerClass",
+                "laneClass",
+                "metadataSource",
+                "evidenceAge",
+            ):
+                receipt.pop(key)
+            for key in (
+                "publicLabel",
+                "ownerClass",
+                "laneClass",
+                "evidenceAgeSeconds",
+            ):
+                receipt["fieldAvailability"].pop(key)
+            if index == 0:
+                receipt.pop("nextSafeMove")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "legacy.json"
+            source.write_text(
+                json.dumps(legacy, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            output = root / "published"
+            migrated = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(EXPORTER_PATH),
+                    "migrate-snapshot",
+                    "--snapshot",
+                    str(source),
+                    "--output-dir",
+                    str(output),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, migrated.returncode, migrated.stderr)
+            result = json.loads(migrated.stdout)
+            feed = json.loads(
+                (output / result["snapshot"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual("1.1", feed["schemaVersion"])
+            self.assertEqual(
+                "legacy-receipt-feed", feed["source"]["provenance"]["sourceClass"]
+            )
+            for receipt in feed["receipts"]:
+                self.assertEqual("Task label unavailable", receipt["publicLabel"])
+                self.assertEqual("unknown", receipt["ownerClass"])
+                self.assertEqual("migration", receipt["metadataSource"])
+                self.assertEqual(
+                    "unavailable", receipt["evidenceAge"]["availability"]
+                )
+                self.assertEqual(
+                    EXPORTER.NEXT_SAFE_MOVE[receipt["lifecycle"]],
+                    receipt["nextSafeMove"],
+                )
+
+    def test_duplicate_canonical_receipts_are_excluded_without_mirror(self) -> None:
+        base_receipt = {
+            "receiptKey": "duplicate-one",
+            "canonicalKey": "duplicate-canonical",
+            "receiptType": "launch",
+            "revision": 1,
+            "publicLabel": "Duplicate candidate",
+            "ownerClass": "worker",
+            "laneClass": "waiting",
+            "lifecycle": "waiting",
+            "gateKind": "dependency",
+            "recordedAt": "2026-07-28T22:00:00Z",
+            "dependsOnReceiptKeys": [],
+            "successorReceiptKeys": [],
+            "terminalLeaf": False,
+            "evidenceRefs": [],
+            "acceptanceEvidenceRefs": [],
+        }
+        manifest = {
+            "manifestVersion": "1.0",
+            "manifestRevision": 1,
+            "generatedAt": "2026-07-28T22:00:00Z",
+            "configuredWorkers": 2,
+            "provenance": {
+                "sourceClass": "pm-proxy",
+                "sourceRevision": "duplicate-test",
+                "sanitization": "caller-allowlisted",
+                "rootExcluded": True,
+            },
+            "receipts": [
+                base_receipt,
+                {**deepcopy(base_receipt), "receiptKey": "duplicate-two"},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "state"
+            EXPORTER.reconcile_manifest(manifest, str(state))
+            feed = EXPORTER.feed_from_manifest_state(
+                str(state),
+                served_at="2026-07-28T22:00:05Z",
+                freshness_threshold_seconds=60,
+            )
+            self.assertEqual([], feed["receipts"])
+            self.assertEqual(2, feed["counts"]["quarantined"])
+            self.assertIn(
+                "RECEIPT_REVISION_CONFLICT", feed["source"]["discrepancies"]
+            )
+
+    def test_concurrent_reconcile_and_publish_converge_on_one_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = root / "state"
+            output = root / "output"
+            manifest = SYNTHETIC_MANIFEST.read_text(encoding="utf-8")
+            reconcile_command = [
+                sys.executable,
+                "-B",
+                str(EXPORTER_PATH),
+                "reconcile-manifest",
+                "--request",
+                "-",
+                "--state-dir",
+                str(state),
+            ]
+            reconcile_processes = [
+                subprocess.Popen(
+                    reconcile_command,
+                    cwd=ROOT,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                for _ in range(4)
+            ]
+            reconcile_results = [
+                process.communicate(manifest) for process in reconcile_processes
+            ]
+            self.assertTrue(
+                all(process.returncode == 0 for process in reconcile_processes),
+                reconcile_results,
+            )
+            publish_command = [
+                sys.executable,
+                "-B",
+                str(EXPORTER_PATH),
+                "publish-state",
+                "--state-dir",
+                str(state),
+                "--output-dir",
+                str(output),
+                "--served-at",
+                "2026-07-28T22:00:05Z",
+            ]
+            publish_processes = [
+                subprocess.Popen(
+                    publish_command,
+                    cwd=ROOT,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                for _ in range(4)
+            ]
+            publish_results = [process.communicate() for process in publish_processes]
+            self.assertTrue(
+                all(process.returncode == 0 for process in publish_processes),
+                publish_results,
+            )
+            hashes = {json.loads(stdout)["sha256"] for stdout, _ in publish_results}
+            self.assertEqual(1, len(hashes))
+            pointer = json.loads(
+                (output / "receipt-feed-current.json").read_text(encoding="utf-8")
+            )
+            self.assertIn(pointer["sha256"], hashes)
+            EXPORTER.validate_snapshot(str(output / pointer["snapshot"]))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pm-proxy:current-task-manifest:1.0",
+  "title": "Caller-sanitized current-task bootstrap manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifestVersion", "manifestRevision", "generatedAt", "configuredWorkers", "provenance", "receipts"],
+  "properties": {
+    "manifestVersion": {"const": "1.0"},
+    "manifestRevision": {"type": "integer", "minimum": 1},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "configuredWorkers": {"type": "integer", "minimum": 1, "maximum": 64},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceClass", "sourceRevision", "sanitization", "rootExcluded"],
+      "properties": {
+        "sourceClass": {"const": "pm-proxy"},
+        "sourceRevision": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "sanitization": {"const": "caller-allowlisted"},
+        "rootExcluded": {"const": true}
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {"$ref": "#/$defs/receipt"}
+    }
+  },
+  "$defs": {
+    "safeKey": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"enum": ["receipt", "test", "commit", "pullRequest", "deployment", "decision", "artifact"]},
+        "ref": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#@+-]{0,159}$"},
+        "label": {"type": "string", "maxLength": 120, "pattern": "^[^\\r\\n<>]*$"}
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiptKey", "canonicalKey", "receiptType", "revision", "publicLabel",
+        "ownerClass", "laneClass", "lifecycle", "gateKind", "recordedAt",
+        "dependsOnReceiptKeys", "successorReceiptKeys", "terminalLeaf",
+        "evidenceRefs", "acceptanceEvidenceRefs"
+      ],
+      "properties": {
+        "receiptKey": {"$ref": "#/$defs/safeKey"},
+        "canonicalKey": {"$ref": "#/$defs/safeKey"},
+        "receiptType": {"enum": ["launch", "handback"]},
+        "revision": {"type": "integer", "minimum": 1},
+        "publicLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 .,&()'’+-]{0,79}$"
+        },
+        "ownerClass": {"enum": ["pm-proxy", "worker", "owner", "external"]},
+        "laneClass": {"enum": ["running", "next", "waiting", "owner-gated", "complete"]},
+        "lifecycle": {"enum": ["setup-reserved", "active", "waiting", "owner-gated", "failed", "done", "acknowledged"]},
+        "gateKind": {"enum": ["none", "dependency", "owner", "external", "capacity", "failure"]},
+        "recordedAt": {"type": "string", "format": "date-time"},
+        "dependsOnReceiptKeys": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/safeKey"}
+        },
+        "successorReceiptKeys": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/safeKey"}
+        },
+        "terminalLeaf": {"type": "boolean"},
+        "mirrorOfReceiptKey": {"$ref": "#/$defs/safeKey"},
+        "evidenceRefs": {"type": "array", "maxItems": 24, "items": {"$ref": "#/$defs/evidence"}},
+        "acceptanceEvidenceRefs": {"type": "array", "maxItems": 24, "items": {"$ref": "#/$defs/evidence"}}
+      }
+    }
+  }
+}

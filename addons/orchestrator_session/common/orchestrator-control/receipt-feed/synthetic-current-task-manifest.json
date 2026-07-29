@@ -1,0 +1,112 @@
+{
+  "manifestVersion": "1.0",
+  "manifestRevision": 7,
+  "generatedAt": "2026-07-28T22:00:00Z",
+  "configuredWorkers": 4,
+  "provenance": {
+    "sourceClass": "pm-proxy",
+    "sourceRevision": "synthetic-current-7",
+    "sanitization": "caller-allowlisted",
+    "rootExcluded": true
+  },
+  "receipts": [
+    {
+      "receiptKey": "feed-bootstrap",
+      "canonicalKey": "feed-bootstrap",
+      "receiptType": "launch",
+      "revision": 3,
+      "publicLabel": "Receipt feed bootstrap",
+      "ownerClass": "worker",
+      "laneClass": "running",
+      "lifecycle": "active",
+      "gateKind": "none",
+      "recordedAt": "2026-07-28T21:58:00Z",
+      "dependsOnReceiptKeys": [],
+      "successorReceiptKeys": [],
+      "terminalLeaf": false,
+      "evidenceRefs": [
+        {"kind": "receipt", "ref": "receipt:launch-accepted"}
+      ],
+      "acceptanceEvidenceRefs": []
+    },
+    {
+      "receiptKey": "dashboard-adapter",
+      "canonicalKey": "dashboard-adapter",
+      "receiptType": "launch",
+      "revision": 2,
+      "publicLabel": "Dashboard feed adapter",
+      "ownerClass": "worker",
+      "laneClass": "next",
+      "lifecycle": "waiting",
+      "gateKind": "dependency",
+      "recordedAt": "2026-07-28T21:57:00Z",
+      "dependsOnReceiptKeys": ["feed-bootstrap"],
+      "successorReceiptKeys": [],
+      "terminalLeaf": false,
+      "evidenceRefs": [
+        {"kind": "decision", "ref": "decision:dependency-recorded"}
+      ],
+      "acceptanceEvidenceRefs": []
+    },
+    {
+      "receiptKey": "owner-review",
+      "canonicalKey": "owner-review",
+      "receiptType": "handback",
+      "revision": 1,
+      "publicLabel": "Owner review queue",
+      "ownerClass": "owner",
+      "laneClass": "owner-gated",
+      "lifecycle": "owner-gated",
+      "gateKind": "owner",
+      "recordedAt": "2026-07-28T21:56:00Z",
+      "dependsOnReceiptKeys": [],
+      "successorReceiptKeys": [],
+      "terminalLeaf": false,
+      "evidenceRefs": [
+        {"kind": "decision", "ref": "decision:owner-gate"}
+      ],
+      "acceptanceEvidenceRefs": []
+    },
+    {
+      "receiptKey": "prior-contract",
+      "canonicalKey": "prior-contract",
+      "receiptType": "handback",
+      "revision": 4,
+      "publicLabel": "Prior feed contract",
+      "ownerClass": "pm-proxy",
+      "laneClass": "complete",
+      "lifecycle": "done",
+      "gateKind": "none",
+      "recordedAt": "2026-07-28T21:45:00Z",
+      "dependsOnReceiptKeys": [],
+      "successorReceiptKeys": ["feed-bootstrap"],
+      "terminalLeaf": false,
+      "evidenceRefs": [
+        {"kind": "commit", "ref": "commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      ],
+      "acceptanceEvidenceRefs": [
+        {"kind": "test", "ref": "test:prior-contract-accepted"}
+      ]
+    },
+    {
+      "receiptKey": "feed-bootstrap-mirror",
+      "canonicalKey": "feed-bootstrap",
+      "receiptType": "launch",
+      "revision": 3,
+      "publicLabel": "Receipt feed bootstrap",
+      "ownerClass": "worker",
+      "laneClass": "running",
+      "lifecycle": "active",
+      "gateKind": "none",
+      "recordedAt": "2026-07-28T21:58:00Z",
+      "dependsOnReceiptKeys": [],
+      "successorReceiptKeys": [],
+      "terminalLeaf": false,
+      "mirrorOfReceiptKey": "feed-bootstrap",
+      "evidenceRefs": [
+        {"kind": "receipt", "ref": "receipt:mirror-quarantined"}
+      ],
+      "acceptanceEvidenceRefs": []
+    }
+  ]
+}
