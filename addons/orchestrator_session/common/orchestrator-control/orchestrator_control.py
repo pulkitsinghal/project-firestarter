@@ -1124,33 +1124,35 @@ class Plane:
         previous_umask = os.umask(0o077)
         try:
             connection = sqlite3.connect(self.db_path, timeout=5, isolation_level=None)
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.execute("PRAGMA synchronous = FULL")
-            connection.execute("PRAGMA busy_timeout = 5000")
-            for suffix in ("", "-wal", "-shm"):
-                state_file = Path(str(self.db_path) + suffix)
-                if not state_file.exists():
-                    continue
-                if state_file.is_symlink():
-                    connection.close()
-                    fail(
-                        "STATE_UNSAFE",
-                        "SQLite authority files cannot be symlinks",
-                        exit_status=EXIT_STATE,
-                    )
-                if (
-                    hasattr(os, "getuid")
-                    and state_file.stat().st_uid != os.getuid()
-                ):
-                    connection.close()
-                    fail(
-                        "STATE_OWNERSHIP",
-                        "SQLite authority must be owned by the current user",
-                        exit_status=EXIT_STATE,
-                    )
-                os.chmod(state_file, 0o600)
+            try:
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA foreign_keys = ON")
+                connection.execute("PRAGMA journal_mode = WAL")
+                connection.execute("PRAGMA synchronous = FULL")
+                connection.execute("PRAGMA busy_timeout = 5000")
+                for suffix in ("", "-wal", "-shm"):
+                    state_file = Path(str(self.db_path) + suffix)
+                    if not state_file.exists():
+                        continue
+                    if state_file.is_symlink():
+                        fail(
+                            "STATE_UNSAFE",
+                            "SQLite authority files cannot be symlinks",
+                            exit_status=EXIT_STATE,
+                        )
+                    if (
+                        hasattr(os, "getuid")
+                        and state_file.stat().st_uid != os.getuid()
+                    ):
+                        fail(
+                            "STATE_OWNERSHIP",
+                            "SQLite authority must be owned by the current user",
+                            exit_status=EXIT_STATE,
+                        )
+                    os.chmod(state_file, 0o600)
+            except BaseException:
+                connection.close()
+                raise
         finally:
             os.umask(previous_umask)
         return connection

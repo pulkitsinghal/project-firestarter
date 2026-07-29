@@ -60,6 +60,7 @@ class ControlPlaneTests(unittest.TestCase):
         now: str | None = None,
         expected: int = 0,
         state: Path | None = None,
+        env: dict[str, str] | None = None,
     ) -> dict[str, object]:
         arguments = [
             sys.executable,
@@ -84,6 +85,7 @@ class ControlPlaneTests(unittest.TestCase):
             text=True,
             capture_output=True,
             check=False,
+            env=env,
         )
         self.assertEqual(
             expected,
@@ -1710,7 +1712,14 @@ class ControlPlaneTests(unittest.TestCase):
         corrupt.mkdir(mode=0o700)
         (corrupt / "orchestrator.sqlite3").write_bytes(b"not sqlite")
         os.chmod(corrupt / "orchestrator.sqlite3", 0o600)
-        error = self.run_cli("status", expected=4, state=corrupt)
+        warning_strict_env = dict(os.environ)
+        warning_strict_env["PYTHONWARNINGS"] = "error::ResourceWarning"
+        error = self.run_cli(
+            "status",
+            expected=4,
+            state=corrupt,
+            env=warning_strict_env,
+        )
         self.assertEqual("STATE_FAIL_CLOSED", error["error"]["code"])
 
     def test_blocked_queue_recycles_before_new_lower_value_work(self) -> None:
