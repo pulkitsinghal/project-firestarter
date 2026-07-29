@@ -414,6 +414,7 @@ final class DashboardWindowController {
 final class DashboardState: ObservableObject {
     @Published var pinned: Bool { didSet { onPinnedChange?(pinned) } }
     @Published private(set) var snapshot: DashboardSnapshot
+    @Published private(set) var receiptFeed: ReceiptFeedPresentation
     @Published private(set) var sourceDescription: String
     @Published private(set) var canRestorePreviousSnapshot: Bool
     var onPinnedChange: ((Bool) -> Void)?
@@ -427,25 +428,41 @@ final class DashboardState: ObservableObject {
             .appendingPathComponent("OperationsFloater", isDirectory: true)
             .appendingPathComponent("dashboard-state.json")
     }()
+    private static let defaultReceiptDirectoryURL: URL = {
+        let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        return applicationSupport
+            .appendingPathComponent("OperationsFloater", isDirectory: true)
+            .appendingPathComponent("receipts", isDirectory: true)
+    }()
     private let store: LocalSnapshotStore
+    private let receiptStore: ReceiptFeedStore
     private let liveClient: LoopbackOperationsSnapshotClient?
     private var isRefreshing = false
 
     init(
         snapshotURL: URL? = nil,
+        receiptDirectoryURL: URL? = nil,
         initialPinned: Bool = false,
         liveClient: LoopbackOperationsSnapshotClient? = LoopbackOperationsSnapshotClient()
     ) {
         pinned = initialPinned
         store = LocalSnapshotStore(snapshotURL: snapshotURL ?? Self.defaultSnapshotURL)
+        receiptStore = ReceiptFeedStore(
+            directoryURL: receiptDirectoryURL ?? Self.defaultReceiptDirectoryURL
+        )
         self.liveClient = liveClient
         snapshot = .emptyLocal
+        receiptFeed = .unavailable
         sourceDescription = "No live or saved operations — lanes empty"
         canRestorePreviousSnapshot = false
         reload()
     }
 
     func reload() {
+        receiptFeed = receiptStore.load()
         guard let decoded = store.load() else {
             snapshot = .emptyLocal
             sourceDescription = "No live or saved operations — lanes empty"
@@ -459,6 +476,7 @@ final class DashboardState: ObservableObject {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+        receiptFeed = receiptStore.load()
 
         if let liveClient, let liveSnapshot = try? await liveClient.fetch() {
             use(
@@ -507,6 +525,8 @@ private struct DashboardView: View {
     private var assistantCollapsed = false
     @AppStorage("OperationsFloater.ResourcesCollapsedV1")
     private var resourcesCollapsed = false
+    @AppStorage("OperationsFloater.ReceiptsCollapsedV1")
+    private var receiptsCollapsed = false
     @AppStorage("OperationsFloater.RacesCollapsedV1")
     private var racesCollapsed = false
     @AppStorage("OperationsFloater.TestsCollapsedV1")
@@ -542,6 +562,7 @@ private struct DashboardView: View {
                             metrics: metrics,
                             isCollapsed: $assistantCollapsed
                         )
+                        receiptFeedPanel(metrics: metrics)
                         resourceBudgetPanel(metrics: metrics)
                         QueueRaceBoard(
                             records: state.snapshot.queue,
@@ -696,6 +717,126 @@ private struct DashboardView: View {
         }
     }
 
+    private func receiptFeedPanel(metrics: DashboardLayoutMetrics) -> some View {
+        dashboardPanel(
+            title: "Receipt-backed task view",
+            subtitle: state.receiptFeed.sourceBadge,
+            isCollapsed: $receiptsCollapsed,
+            metrics: metrics
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                receiptProvenance
+                Divider()
+                receiptGroup(
+                    title: "NOW",
+                    empty: state.receiptFeed.isAvailable
+                        ? "No active receipt-backed tasks."
+                        : "Current task receipts are unavailable.",
+                    receipts: state.receiptFeed.now,
+                    metrics: metrics
+                )
+                Divider()
+                receiptDecisionGroup(metrics: metrics)
+                Divider()
+                receiptGroup(
+                    title: "RECENTLY DONE",
+                    empty: state.receiptFeed.isAvailable
+                        ? "No accepted completion receipts."
+                        : "Completion receipts are unavailable.",
+                    receipts: state.receiptFeed.recentlyDone,
+                    metrics: metrics
+                )
+            }
+        }
+    }
+
+    private var receiptProvenance: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                compactBadge(state.receiptFeed.sourceBadge)
+                if let age = state.receiptFeed.ageSeconds,
+                   let threshold = state.receiptFeed.thresholdSeconds {
+                    Text("age \(age)s · limit \(threshold)s")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(state.receiptFeed.provenance)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if let reason = state.receiptFeed.reason {
+                Text(reason)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(10)
+    }
+
+    private func receiptGroup(
+        title: String,
+        empty: String,
+        receipts: [ReceiptFeedReceipt],
+        metrics: DashboardLayoutMetrics
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, metrics.recordPadding)
+                .padding(.top, 8)
+            if receipts.isEmpty {
+                Text(empty)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(metrics.recordPadding)
+            } else {
+                ForEach(receipts) { receipt in
+                    recordRow(
+                        title: receipt.publicLabel,
+                        detail: receipt.nextSafeMove.replacingOccurrences(
+                            of: "-",
+                            with: " "
+                        ),
+                        status: receipt.laneClass,
+                        verification: receipt.ownerClass,
+                        metrics: metrics
+                    )
+                }
+            }
+        }
+    }
+
+    private func receiptDecisionGroup(metrics: DashboardLayoutMetrics) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("DECISIONS")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, metrics.recordPadding)
+                .padding(.top, 8)
+            if state.receiptFeed.decisions.isEmpty {
+                Text(
+                    state.receiptFeed.isAvailable
+                        ? "No owner decision receipts."
+                        : "Decision receipts are unavailable."
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(metrics.recordPadding)
+            } else {
+                ForEach(state.receiptFeed.decisions) { receipt in
+                    recordRow(
+                        title: receipt.publicLabel,
+                        detail: "Owner review required",
+                        status: receipt.gateKind,
+                        verification: receipt.ownerClass,
+                        metrics: metrics
+                    )
+                }
+            }
+        }
+    }
+
     private func supportingGrid(metrics: DashboardLayoutMetrics) -> some View {
         LazyVGrid(
             columns: gridColumns(metrics: metrics),
@@ -840,6 +981,7 @@ private struct DashboardView: View {
     private var hasActiveSnapshotConsumers: Bool {
         DashboardPanelActivity.shouldRefreshSnapshot(
             guideCollapsed: guideCollapsed,
+            receiptsCollapsed: receiptsCollapsed,
             resourcesCollapsed: resourcesCollapsed,
             racesCollapsed: racesCollapsed,
             testsCollapsed: testsCollapsed,
@@ -871,12 +1013,14 @@ private struct DashboardView: View {
 enum DashboardPanelActivity {
     static func shouldRefreshSnapshot(
         guideCollapsed: Bool,
+        receiptsCollapsed: Bool,
         resourcesCollapsed: Bool,
         racesCollapsed: Bool,
         testsCollapsed: Bool,
         signalsCollapsed: Bool
     ) -> Bool {
         !guideCollapsed
+            || !receiptsCollapsed
             || !resourcesCollapsed
             || !racesCollapsed
             || !testsCollapsed

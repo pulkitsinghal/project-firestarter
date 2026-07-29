@@ -1,0 +1,55 @@
+{
+  "contractVersion": "1.0",
+  "feedSchemaVersion": "1.1",
+  "fixtureFile": "receipt-feed-native-current.json",
+  "fixtureSha256": "e0c598cdcc29ba39f509ccdb553f8d2c65709896827229e3aff1ada07c1bd1f2",
+  "feedSchemaSha256": "26cfc2cddac67831c6470f32dd54537762be95138661850d70e49a734db3ccc4",
+  "manifestSchemaSha256": "6b2649aef97774a00ed8323f91ce84c951220243ed4fd8b6d036b715d17a581f",
+  "manifestFileSha256": "a94a8331b303189a99334b8c2f5940418a510326ceabbc1e58c34ee2460af1f8",
+  "canonicalManifestStateSha256": "0a815cbd060d698b39badc715c16933436b7abec6588ca226bd1ffee4d73cc6a",
+  "lkgSnapshotSha256": "ae4948b1c6396caca73a372a90474626d82d94291f36cb8bbc973799c6bebea8",
+  "expectedProjection": {
+    "active": 8,
+    "ownerGated": 1,
+    "done": 6,
+    "quarantined": 0
+  },
+  "requiredProvenance": {
+    "sourceClass": "pm-proxy-manifest",
+    "sanitization": "caller-allowlisted+projection-validated",
+    "rootExcluded": true
+  },
+  "displayAllowlist": [
+    "publicLabel",
+    "ownerClass",
+    "laneClass",
+    "lifecycle",
+    "gateKind",
+    "nextSafeMove",
+    "evidenceAge",
+    "evidenceRefs"
+  ],
+  "freshness": {
+    "ageSeconds": "max(0, ceil((readAt-generatedAt)/1000))",
+    "currentWhen": "ageSeconds <= thresholdSeconds",
+    "staleWhen": "ageSeconds > thresholdSeconds",
+    "staleSourceStatus": "degraded",
+    "missingOrInvalidSourceStatus": "unavailable"
+  },
+  "selection": {
+    "primary": "receipt-feed-current.json",
+    "fallback": "receipt-feed-lkg.json",
+    "useFallbackWhen": "primary pointer, digest, JSON, schema, or provenance validation fails",
+    "doNotFallbackWhen": "primary is valid but stale",
+    "mutation": "none"
+  },
+  "failClosed": [
+    "reject duplicate JSON object keys",
+    "reject a pointer whose digest does not match its snapshot bytes",
+    "reject unsupported schema versions",
+    "reject missing or non-allowlisted provenance",
+    "never render unknown fields as task content",
+    "never infer zero from unavailable counts",
+    "never write task state or send an action"
+  ]
+}
