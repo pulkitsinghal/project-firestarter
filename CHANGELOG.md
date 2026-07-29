@@ -6,6 +6,11 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Audit-only adaptive-capacity evaluation for the orchestrator control plane:
+  closed caller-supplied snapshot schemas, deterministic age/cap/digest
+  computation, explicit non-authority flags, and a pinned service-supervisor
+  inventory boundary. It does not collect host metrics, reserve or admit work,
+  change scheduler state, or authorize service lifecycle actions.
 - `include_browser_automation_policy` (default `no`), a stack-agnostic,
   Python-stdlib, source-only policy and semantic-adapter contract. Version 0.1
   binds typed proposals to task/tab/document/frame/origin generations; treats

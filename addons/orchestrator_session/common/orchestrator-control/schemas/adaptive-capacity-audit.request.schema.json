@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/adaptive-capacity-audit-request-1.0.schema.json",
+  "title": "adaptive capacity audit request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interface_version",
+    "request_id",
+    "snapshot_id",
+    "source",
+    "metrics",
+    "visible_limit",
+    "now"
+  ],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "evidence_ref"],
+      "properties": {
+        "kind": {
+          "enum": ["synthetic-fixture", "untrusted-local-observation"]
+        },
+        "evidence_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,127}$"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_cpus",
+        "load_1m",
+        "memory_pressure_pct",
+        "swap_used_mb",
+        "observed_at"
+      ],
+      "properties": {
+        "logical_cpus": {"type": "integer", "minimum": 1, "maximum": 1024},
+        "load_1m": {"type": "number", "minimum": 0},
+        "memory_pressure_pct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "swap_used_mb": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "observed_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z$"
+        }
+      }
+    },
+    "visible_limit": {"type": "integer", "minimum": 1, "maximum": 4},
+    "now": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z$"
+    }
+  }
+}
