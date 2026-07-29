@@ -6,6 +6,16 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- `include_service_supervisor` (default `no`), a stack-agnostic, source-only
+  supervisor contract for explicitly allowlisted loopback services. It ships a
+  strict synthetic adapter, dependency DAG, deterministic wake/idle plans,
+  `STOPPED`/`STARTING`/`READY`/`DRAINING`/`FAILED` lifecycle, concurrent wake
+  coalescing, bounded readiness, dependency-aware leases and pins, rollback and
+  crash cleanup, truthful unknown metrics, privacy-safe telemetry, a
+  local-ai inventory mapping, and an operator runbook. The runtime has no data
+  plane, listener, Docker socket, host executor, install step, or live service
+  action; the GET/HEAD wake-before-forward contract exists only as a synthetic
+  test fixture.
 - `pm-proxy-orchestrator` 0.2.0 as a repo-local source plugin and marketplace:
   fail-closed Firestarter interface checks, mandatory recycle/preflight,
   prompt-free launch tickets, exact receipt/fence enforcement, typed decision
