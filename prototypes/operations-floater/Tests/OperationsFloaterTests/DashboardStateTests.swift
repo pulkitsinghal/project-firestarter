@@ -333,6 +333,7 @@ struct DashboardStateTests {
         #expect(
             !DashboardPanelActivity.shouldRefreshSnapshot(
                 guideCollapsed: true,
+                receiptsCollapsed: true,
                 resourcesCollapsed: true,
                 racesCollapsed: true,
                 testsCollapsed: true,
@@ -342,6 +343,7 @@ struct DashboardStateTests {
         #expect(
             DashboardPanelActivity.shouldRefreshSnapshot(
                 guideCollapsed: true,
+                receiptsCollapsed: true,
                 resourcesCollapsed: true,
                 racesCollapsed: false,
                 testsCollapsed: true,

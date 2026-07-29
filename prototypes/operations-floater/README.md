@@ -30,6 +30,16 @@ live and saved input fails closed to an empty dashboard; the committed generic
 sample remains storyboard/test data only. Imports must be regular files no
 larger than one megabyte.
 
+The additive receipt-backed task view reads only content-addressed
+receipt-feed 1.1 files from the app's local
+`OperationsFloater/receipts` Application Support directory. It verifies the
+current pointer and snapshot SHA-256, rejects duplicate keys and unknown
+contract fields, requires allowlisted root-excluded provenance, and falls back
+to an independently verified LKG only when current input is invalid. A valid
+stale current feed remains selected and is visibly marked stale. Feed absence
+or failure makes only this panel unavailable; it never disables the established
+dashboard, Router, voice, recorder, or window behavior.
+
 Choose **Import Local Snapshot…** to select and install a canonical local file.
 The app does not retain the selected source path. Installation validates before
 writing, uses private file permissions, and retains the previous valid snapshot.
@@ -46,7 +56,8 @@ sharing runtime code or creating a device bridge:
 
 1. resource-budget evidence;
 2. sortable queue race lanes for running, queued, waiting, and ready work; and
-3. compact tests-and-quality and signals panels.
+3. a receipt-backed NOW, DECISIONS, and RECENTLY DONE view; and
+4. compact tests-and-quality and signals panels.
 
 The native surface adds a local queue guide and window controls. At widths of
 560 points or more, operational panels use a dense two-column grid; below that
@@ -71,6 +82,9 @@ snapshot remains schema version `1.0`.
   refresh work when all of them are collapsed; collapsing Assistant Chat stops
   voice, cancels pending work, revokes the module floor, and clears its
   ephemeral session instead of merely hiding it.
+- The receipt view has independent persisted collapse state and never performs
+  a control-plane action. It displays only bounded allowlisted labels and
+  status fields plus a current, stale, LKG, or offline provenance indicator.
 - Closing the window, including with Command-W, retains the app; use **Show
   Dashboard** or click the Dock icon to reopen the same window.
 - A procedural animated guide summarizes only canonical state. Verified
@@ -178,6 +192,8 @@ lifecycle, privacy posture, and failure behavior.
 See [docs/RECORDER_LIVE_TRACE.md](docs/RECORDER_LIVE_TRACE.md) for the visible
 voice-to-command architecture, event-echo boundary, collapse lifecycle, and
 single-Space behavior.
+See [docs/RECEIPT_FEED_NATIVE.md](docs/RECEIPT_FEED_NATIVE.md) for the pinned
+native receipt contract, selection semantics, privacy boundary, and rollback.
 
 ## Validation
 
