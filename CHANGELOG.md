@@ -21,16 +21,20 @@ All notable changes to the firestarter template. See
   Regular-file and one-megabyte input limits, last-mile browser privacy checks,
   and compensating release rollback fail closed. The prototypes are opt-in
   references and are not stamped by the generator.
-- `include_orchestrator_session` add-on (stack-agnostic): a one-paste
-  master-orchestrator bootstrap so any user (or the owner) can turn a fresh Claude
-  Code session at their portfolio root into an orchestrator that fans work out to
-  parallel subagents/workflows, gates on genuine irreversibles as a proxy-PM,
-  verifies before implementing, keeps secret hygiene, and tracks everything on one
-  decisions board. Ships `ORCHESTRATOR_PROMPT.md` (the verbatim generic prompt), a
-  paste-able `AGENTS.orchestrator.md` posture addendum, a `decisions-board/`
-  scaffold (`decisions.json` schema + self-contained dark-mode-aware
-  `decisions.html` viewer), and `docs/ORCHESTRATOR_SESSION.md`. No owner-specific
-  config, no dependencies, no host toolchain, no network calls.
+- `include_orchestrator_session` add-on (stack-agnostic): one canonical, generic
+  `ORCHESTRATOR_BILL_OF_RIGHTS.md` for scoped conversation-derived policy
+  precedence, PM-proxy ownership, routine delivery, bounded owner gates,
+  standing-decision launch envelopes, canonical repo/path ownership, read-only
+  duplicate-stop behavior, blocked-work re-audits before lower-value
+  replenishment, exact candidate-to-default evidence, truthful zero-step/billing
+  CI semantics, closure/successor lifecycle transactions, measured
+  cleanup/resource return, privacy/identity/least privilege, and never-go-dark
+  reporting. The bootstrap prompt and agent addendum are thin pointers; a stdlib
+  CI contract stamps every declared stack, byte-compares the generated Bill to
+  its source, and pins the failure-prevention clauses.
+  Also ships the dependency-free `decisions-board/` queue/status view and
+  `docs/ORCHESTRATOR_SESSION.md`. No owner-specific config, dependencies, host
+  toolchain, or network calls.
 - `include_secret_vault` add-on (stack-agnostic): cross-platform redundant secret
   storage (`secret-store`/`secret-get`/`git-crypt-key` in `.sh` for macOS Keychain
   + Linux secret-service and `.ps1` for Windows Credential Manager + DPAPI). Every
@@ -61,6 +65,10 @@ All notable changes to the firestarter template. See
   mounts. (#7)
 - FastAPI/Next dependency installs are lockfile-reproducible and use patched
   Next.js/PostCSS versions with a zero-finding production audit. (#10)
+
+### Fixed
+- Made the documented and self-CI token-leak gate ignore binary storyboard
+  assets so image bytes cannot produce a false token-leak failure.
 
 ## [0.2.0] — 2026-07-06
 

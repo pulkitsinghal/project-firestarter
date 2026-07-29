@@ -40,7 +40,7 @@ jobs:
 
           # 1. No unsubstituted tokens leaked. The only legitimate {{ matches are
           #    GitHub Actions expression syntax and JSX style={{ }} object literals.
-          if grep -rn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+          if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
             echo "::error::unsubstituted {{ token }} leaked into generated output"
             exit 1
           fi
@@ -72,6 +72,11 @@ jobs:
           print("✓ generated workflow YAML parses")
           PY
 
+      - name: Verify the orchestrator-session add-on contract
+        run: >-
+          python3 -m unittest discover -s tests
+          -p 'test_orchestrator_session_contract.py'
+
       - name: Stamp the optional k8s add-on for server-backed stacks
         run: |
           set -euo pipefail
@@ -84,7 +89,7 @@ jobs:
               || { echo "::error::k8s add-on not stamped for $stack"; exit 1; }
           done
           # No leaks in the add-on output either.
-          if grep -rn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+          if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
             echo "::error::token leak in k8s add-on output"; exit 1
           fi
           # All k8s YAML parses (multi-doc).

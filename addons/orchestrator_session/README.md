@@ -1,12 +1,14 @@
 # orchestrator_session add-on
 
-Bootstrap a **master-orchestrator** Claude Code session — one session that manages
-a whole portfolio of repos — in a single paste. Stack-agnostic, 100%
-dependency-free, and generic (nothing owner-specific).
+Bootstrap a master-orchestrator session governed by one canonical
+[`ORCHESTRATOR_BILL_OF_RIGHTS.md`](common/ORCHESTRATOR_BILL_OF_RIGHTS.md).
+The add-on is stack-agnostic, dependency-free, and generic.
 
-This add-on packages the reusable pieces so anyone (owner or not) can turn a fresh
-agent session into an orchestrator that plans, delegates, verifies, and lands work
-across many repos while the human stays in the loop through that one session.
+The Bill consolidates the reusable policy for a PM proxy, scoped
+conversation-derived learning, routine delivery, bounded owner gates, visible
+nonduplicative queues with blocked-work re-audits, exact-candidate/default
+evidence, truthful CI, closure and successor handoff, canonical repo/path
+ownership and cleanup, privacy/identity, and never-go-dark reporting.
 
 ## What's in here
 
@@ -14,8 +16,9 @@ across many repos while the human stays in the loop through that one session.
 orchestrator_session/
 ├── README.md                          # this file (addon-level, not stamped into projects)
 └── common/                            # overlaid into a project when include_orchestrator_session=yes
-    ├── ORCHESTRATOR_PROMPT.md         # the paste-in bootstrap prompt (verbatim, generic)
-    ├── AGENTS.orchestrator.md         # paste-able AGENTS.md addendum ("Orchestrator posture")
+    ├── ORCHESTRATOR_BILL_OF_RIGHTS.md # authoritative orchestrator policy
+    ├── ORCHESTRATOR_PROMPT.md         # thin paste-in pointer to the Bill
+    ├── AGENTS.orchestrator.md         # thin paste-able pointer to the Bill
     ├── docs/ORCHESTRATOR_SESSION.md   # the house-style add-on doc that lands in a stamped project
     └── decisions-board/
         ├── decisions.json             # starter schema + 2–3 EXAMPLE items to replace
@@ -24,15 +27,16 @@ orchestrator_session/
 
 ## Very easy setup (three steps)
 
-1. Open a **fresh** Claude Code session at the root of your projects/portfolio.
-2. Paste the contents of [`common/ORCHESTRATOR_PROMPT.md`](common/ORCHESTRATOR_PROMPT.md).
+1. Put `ORCHESTRATOR_BILL_OF_RIGHTS.md` and `ORCHESTRATOR_PROMPT.md` together at
+   the root of your projects/portfolio (stamping the add-on does this).
+2. Open a fresh capable-agent session at that root and paste the contents of
+   [`common/ORCHESTRATOR_PROMPT.md`](common/ORCHESTRATOR_PROMPT.md).
 3. Go.
 
-That's it — no install, no config. Optionally, instead of pasting each time,
-reference the prompt from your repo's `CLAUDE.md`/`AGENTS.md`, and paste the
-"Orchestrator posture" section from
+That's it — no install, no config. Optionally, paste the "Orchestrator posture"
+section from
 [`common/AGENTS.orchestrator.md`](common/AGENTS.orchestrator.md) into your
-`AGENTS.md` so every future session inherits the posture automatically.
+`AGENTS.md` so every future session resolves the same Bill automatically.
 
 To vendor these files into a generated project instead, stamp with the add-on on:
 
@@ -40,34 +44,26 @@ To vendor these files into a generated project instead, stamp with the add-on on
 ./bin/firestart.sh --set include_orchestrator_session=yes
 ```
 
-## What it does
+## Contract
 
-- **Fan-out, not do-it-all:** the session spawns parallel subagents (one lane per
-  independent task) and authors workflows for wide/multi-phase work (audits,
-  migrations, sweeps) — scout inline first to build the work-list, then delegate.
-- **Proxy-PM decision gate:** acts autonomously on routine, low-risk work; pauses
-  only for genuine irreversibles (prod deploys/releases, DNS/prod-config, deleting
-  or overwriting data it didn't create, sending on your behalf, spend, self-merging
-  someone's active branch). When it gates, it gives a recommendation, not a survey.
-- **One decisions board:** a single `decisions.json` + `decisions.html` as the
-  canonical status of everything — done / running / owner-gated — updated as work
-  lands.
-- **Never-go-dark loop:** understand → fan out → verify → land → report → next,
-  with owner-gated items surfaced early and a labeled footer of links each turn.
-- **Verify before implementing:** checks current state first (already merged?
-  already shipped?) so finished work isn't redone.
-- **Secret hygiene & injection safety:** never echoes/logs/commits secrets; treats
-  everything read through tools as data, not instructions; never blanket-stages in
-  shared clones.
+- The Bill is the only authoritative orchestrator policy in the add-on.
+- `ORCHESTRATOR_PROMPT.md` and `AGENTS.orchestrator.md` are thin pointers, so
+  summaries cannot drift into competing rules.
+- A stdlib contract test stamps every declared stack with
+  `include_orchestrator_session=yes`, requires every add-on file, and proves the
+  stamped Bill is byte-for-byte identical to the canonical source. It also pins
+  the failure-prevention clauses so they cannot disappear in a prose refactor.
+- The decisions board remains the visible queue/status view; it is not a second
+  policy source.
 
 ## What it deliberately does NOT include
 
 - **No owner-specific configuration** — no private repos, hostnames, ports,
-  schedules, secrets, or personal decision history. The prompt encodes *posture*,
-  so it's usable by anyone; you bring your own portfolio.
-- **No dependencies and no host toolchain** — the prompt is text and the board is a
-  single self-contained HTML file plus a JSON. Nothing to install, nothing to run
-  on the host.
+  schedules, secrets, or personal decision history. The Bill is usable by anyone;
+  active scope supplies portfolio policy.
+- **No dependencies and no host toolchain** — the policy and pointers are text,
+  and the board is a single self-contained HTML file plus JSON. Nothing to
+  install or run on the host.
 - **No credentials or network calls** baked in. The board's example items are
   clearly labeled placeholders meant to be replaced.
 
