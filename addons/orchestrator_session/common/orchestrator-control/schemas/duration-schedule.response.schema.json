@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/duration-schedule-response-1.0.schema.json",
+  "title": "duration-schedule response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "duration-schedule"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selected_candidate_id", "selected_resource_profile", "outcome", "dispatch_required", "owner_prompt_required", "dispatch_contract", "selected_reason", "ranked_eligible", "deferred", "reservation_summary"],
+      "properties": {
+        "selected_candidate_id": {"type": ["string", "null"]},
+        "selected_resource_profile": {"type": ["object", "null"]},
+        "outcome": {"enum": ["SELECTED", "EMPTY", "CAPACITY_FULL"]},
+        "dispatch_required": {"type": "boolean"},
+        "owner_prompt_required": {"const": false},
+        "dispatch_contract": {"enum": ["CALLER_MUST_EXECUTE_RECEIPT_BACKED_PREPARE", "NO_DISPATCH_EMPTY", "NO_DISPATCH_CAPACITY_FULL"]},
+        "selected_reason": {"type": "string"},
+        "ranked_eligible": {"type": "array"},
+        "deferred": {"type": "array"},
+        "reservation_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["queued_setup_reserved_count", "queued_setup_active_count", "failed_setup_rollback_count", "resource_held_queued_count", "resource_held_queued_weight", "active_resource_weight", "heavy_resource_active_or_reserved_count", "root_excluded_from_logical_capacity", "process_oversubscription_inferred"],
+          "properties": {
+            "queued_setup_reserved_count": {"type": "integer"},
+            "queued_setup_active_count": {"const": 0},
+            "failed_setup_rollback_count": {"type": "integer"},
+            "resource_held_queued_count": {"type": "integer"},
+            "resource_held_queued_weight": {"type": "integer"},
+            "active_resource_weight": {"type": "integer"},
+            "heavy_resource_active_or_reserved_count": {"type": "integer"},
+            "root_excluded_from_logical_capacity": {"const": true},
+            "process_oversubscription_inferred": {"const": false}
+          }
+        }
+      }
+    }
+  }
+}

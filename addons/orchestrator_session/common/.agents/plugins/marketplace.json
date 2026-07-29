@@ -1,0 +1,20 @@
+{
+  "name": "project-firestarter",
+  "interface": {
+    "displayName": "Project Firestarter"
+  },
+  "plugins": [
+    {
+      "name": "pm-proxy-orchestrator",
+      "source": {
+        "source": "local",
+        "path": "./plugins/pm-proxy-orchestrator"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

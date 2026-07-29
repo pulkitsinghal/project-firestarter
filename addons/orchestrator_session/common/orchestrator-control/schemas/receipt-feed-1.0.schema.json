@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pm-proxy:dashboard-receipt-feed:1.0",
+  "title": "Privacy-safe Operations Dashboard receipt feed",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "source", "capacity", "counts", "receipts", "ownerGates", "quarantine"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generatedAt", "servedAt", "sourceStatus", "freshness"],
+      "properties": {
+        "generatedAt": {"type": ["string", "null"], "format": "date-time"},
+        "servedAt": {"type": "string", "format": "date-time"},
+        "sourceStatus": {"enum": ["live", "degraded", "unavailable", "invalid"]},
+        "freshness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "ageSeconds", "thresholdSeconds"],
+          "properties": {
+            "state": {"enum": ["current", "stale", "unknown"]},
+            "ageSeconds": {"type": ["integer", "null"], "minimum": 0},
+            "thresholdSeconds": {"type": "integer", "minimum": 1}
+          }
+        },
+        "sourceRevision": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9._:-]{1,128}$"},
+        "discrepancies": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 16,
+          "items": {
+            "enum": [
+              "CAPACITY_INVARIANT_FAILED",
+              "MIRROR_QUARANTINED",
+              "RECEIPT_REVISION_CONFLICT",
+              "STALE_SOURCE",
+              "SUPPLIED_DERIVED_MISMATCH"
+            ]
+          }
+        }
+      }
+    },
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configuredWorkers", "rootExcluded", "availability"],
+      "properties": {
+        "configuredWorkers": {"type": ["integer", "null"], "minimum": 0},
+        "rootExcluded": {"const": true},
+        "availability": {"enum": ["supplied", "derived", "unavailable"]}
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability"],
+      "properties": {
+        "availability": {"enum": ["derived", "unavailable"]},
+        "setupReserved": {"type": ["integer", "null"], "minimum": 0},
+        "active": {"type": ["integer", "null"], "minimum": 0},
+        "waiting": {"type": ["integer", "null"], "minimum": 0},
+        "ownerGated": {"type": ["integer", "null"], "minimum": 0},
+        "failed": {"type": ["integer", "null"], "minimum": 0},
+        "done": {"type": ["integer", "null"], "minimum": 0},
+        "acknowledged": {"type": ["integer", "null"], "minimum": 0},
+        "runnable": {"type": ["integer", "null"], "minimum": 0},
+        "quarantined": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/receipt"}
+    },
+    "ownerGates": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/ownerGate"}
+    },
+    "quarantine": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/quarantine"}
+    }
+  },
+  "$defs": {
+    "availability": {"enum": ["supplied", "derived", "unavailable"]},
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "availability"],
+      "properties": {
+        "value": {"type": ["integer", "null"], "minimum": 0},
+        "availability": {"$ref": "#/$defs/availability"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"enum": ["receipt", "test", "commit", "pullRequest", "deployment", "decision", "artifact"]},
+        "ref": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#@+-]{0,159}$"},
+        "label": {"type": "string", "maxLength": 120, "pattern": "^[^\\r\\n<>]*$"}
+      }
+    },
+    "duration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["estimateSeconds", "elapsedActiveSeconds", "externalWaitSeconds", "firstUsefulEvidenceSeconds"],
+      "properties": {
+        "estimateSeconds": {"$ref": "#/$defs/metric"},
+        "elapsedActiveSeconds": {"$ref": "#/$defs/metric"},
+        "externalWaitSeconds": {"$ref": "#/$defs/metric"},
+        "firstUsefulEvidenceSeconds": {"$ref": "#/$defs/metric"}
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint", "revision", "lifecycle", "gateKind", "dependsOn",
+        "acceptanceReceipts", "successorReceipts", "runnable", "duration",
+        "nextSafeMove", "fieldAvailability", "evidenceRefs"
+      ],
+      "properties": {
+        "fingerprint": {"type": "string", "pattern": "^rcpt_[a-f0-9]{32,64}$"},
+        "revision": {"type": "integer", "minimum": 1},
+        "lifecycle": {"enum": ["setup-reserved", "active", "waiting", "owner-gated", "failed", "done", "acknowledged"]},
+        "gateKind": {"enum": ["none", "dependency", "owner", "external", "capacity", "failure"]},
+        "dependsOn": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^rcpt_[a-f0-9]{32,64}$"}},
+        "acceptanceReceipts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^rcpt_[a-f0-9]{32,64}$"}},
+        "successorReceipts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^rcpt_[a-f0-9]{32,64}$"}},
+        "mirrorOf": {"type": "string", "pattern": "^rcpt_[a-f0-9]{32,64}$"},
+        "runnable": {"type": ["boolean", "null"]},
+        "nextSafeMove": {
+          "enum": [
+            "await-launch-receipt",
+            "continue-active-work",
+            "resolve-dependency",
+            "review-owner-gate",
+            "retry-or-reconcile-failure",
+            "verify-and-archive",
+            "none-terminal"
+          ]
+        },
+        "duration": {"$ref": "#/$defs/duration"},
+        "fieldAvailability": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/availability"}
+        },
+        "evidenceRefs": {"type": "array", "maxItems": 24, "items": {"$ref": "#/$defs/evidence"}}
+      }
+    },
+    "ownerGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingerprint", "revision", "decisionCode", "recordedAt", "nextSafeMove", "evidenceRefs"],
+      "properties": {
+        "fingerprint": {"type": "string", "pattern": "^rcpt_[a-f0-9]{32,64}$"},
+        "revision": {"type": "integer", "minimum": 1},
+        "decisionCode": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,127}$"},
+        "recordedAt": {"type": "string", "format": "date-time"},
+        "nextSafeMove": {"const": "review-owner-gate"},
+        "evidenceRefs": {"type": "array", "minItems": 1, "maxItems": 24, "items": {"$ref": "#/$defs/evidence"}}
+      }
+    },
+    "quarantine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingerprint", "reason", "excludedFromCounts"],
+      "properties": {
+        "fingerprint": {"type": "string", "pattern": "^rcpt_[a-f0-9]{32,64}$"},
+        "reason": {"enum": ["duplicate-without-mirrorOf", "mirror", "revision-conflict", "invalid", "privacy-rejected"]},
+        "mirrorOf": {"type": ["string", "null"], "pattern": "^rcpt_[a-f0-9]{32,64}$"},
+        "excludedFromCounts": {"const": true}
+      }
+    }
+  }
+}

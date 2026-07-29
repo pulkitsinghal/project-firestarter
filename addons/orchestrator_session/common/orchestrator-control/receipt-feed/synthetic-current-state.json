@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-28T15:00:00Z",
+  "servedAt": "2026-07-28T15:00:05Z",
+  "configuredWorkers": 2,
+  "workers": [
+    {
+      "taskKey": "fixture-active",
+      "sourceEventKey": "fixture-source-active",
+      "outcomeKey": "fixture-outcome-active",
+      "state": "RUNNING",
+      "externalThreadKey": "fixture-worker-active",
+      "dependencies": []
+    },
+    {
+      "taskKey": "fixture-reserved",
+      "sourceEventKey": "fixture-source-reserved",
+      "outcomeKey": "fixture-outcome-reserved",
+      "state": "LAUNCH_PENDING",
+      "dependencies": []
+    },
+    {
+      "taskKey": "fixture-waiting",
+      "sourceEventKey": "fixture-source-waiting",
+      "outcomeKey": "fixture-outcome-waiting",
+      "state": "BLOCKED",
+      "dependencies": ["fixture-done"],
+      "blockClassification": "dependency"
+    },
+    {
+      "taskKey": "fixture-done",
+      "sourceEventKey": "fixture-source-done",
+      "outcomeKey": "fixture-outcome-done",
+      "state": "ARCHIVE_PENDING",
+      "dependencies": [],
+      "successorTaskKey": "fixture-reserved"
+    }
+  ],
+  "ownerGateDecisions": [
+    {
+      "gateKey": "fixture-production-release",
+      "decisionCode": "PRODUCTION_RELEASE_REQUIRES_OWNER",
+      "recordedAt": "2026-07-28T14:59:00Z"
+    },
+    {
+      "gateKey": "fixture-production-release",
+      "decisionCode": "PRODUCTION_RELEASE_REQUIRES_OWNER",
+      "recordedAt": "2026-07-28T15:00:00Z"
+    }
+  ]
+}

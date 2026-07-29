@@ -38,6 +38,8 @@
             "dependencies",
             "evidence_contract",
             "cleanup_duty",
+            "duration_estimate",
+            "duration_protocol",
             "heartbeat_protocol",
             "closure_protocol",
             "receipt_required"
@@ -63,6 +65,18 @@
             "dependencies": {"type": "array"},
             "evidence_contract": {"type": "array"},
             "cleanup_duty": {"type": "array"},
+            "duration_estimate": {"type": "object"},
+            "duration_protocol": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["progress_command", "observation_command", "blocked_waiting_are_non_runtime", "reclassification_preserves_worker"],
+              "properties": {
+                "progress_command": {"const": "record-duration-progress"},
+                "observation_command": {"const": "record-duration-observation"},
+                "blocked_waiting_are_non_runtime": {"const": true},
+                "reclassification_preserves_worker": {"const": true}
+              }
+            },
             "heartbeat_protocol": {"type": "object"},
             "closure_protocol": {"type": "object"},
             "receipt_required": {"type": "object"}

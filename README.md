@@ -88,7 +88,10 @@ gh secret set ANTHROPIC_API_KEY   # turn on the AI reviewer
   - `node-notifier` — Express · BullMQ · Redis · Socket.IO · OIDC resource-server starter.
 - **Optional add-ons** (`addons/`) — e.g. `k8s` Kustomize or the
   stack-agnostic canonical Orchestrator Bill of Rights (opt in with
-  `include_k8s=yes` or `include_orchestrator_session=yes`).
+  `include_k8s=yes` or `include_orchestrator_session=yes`). The orchestrator
+  add-on includes a repo-local, source-only `pm-proxy-orchestrator` Codex plugin
+  marketplace plus schema-1.2 receipt-backed capacity and duration-lane
+  contracts; generation does not install it or change live Codex settings.
 - **Reference prototypes** (`prototypes/`) — an opt-in unified operations
   dashboard: a native macOS floater, a static sanitized web renderer, a strict
   shared contract, and an offline immutable publication workflow. These are

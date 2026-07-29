@@ -21,6 +21,7 @@
     "policy_snapshot_revision": {"type": "integer", "minimum": 1},
     "lease_epoch": {"type": "integer", "minimum": 1},
     "fencing_token": {"type": "integer", "minimum": 1},
+    "external_thread_id": {"type": "string"},
     "lease_expires_at": {"type": "string"},
     "now": {"type": "string"}
   }

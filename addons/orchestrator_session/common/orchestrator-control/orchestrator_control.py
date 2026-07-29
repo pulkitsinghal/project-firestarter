@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -13,13 +14,15 @@ import sqlite3
 import stat
 import sys
 import unicodedata
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
 
 INTERFACE_VERSION = "1.0"
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.2"
+POLICY_SCHEMA_VERSION = "1.0"
 EXIT_INVALID = 2
 EXIT_CONFLICT = 3
 EXIT_STATE = 4
@@ -118,6 +121,31 @@ TASK_STATES = {
     "FAILED",
     "SUPERSEDED",
 }
+DURATION_BUCKETS = (
+    "seconds",
+    "5m",
+    "10m",
+    "15m",
+    "20m",
+    "30m",
+    "45m",
+    "60m+",
+)
+DURATION_LIMITS = {
+    "seconds": 60,
+    "5m": 450,
+    "10m": 750,
+    "15m": 1_050,
+    "20m": 1_500,
+    "30m": 2_250,
+    "45m": 3_150,
+    "60m+": 2_147_483_647,
+}
+NON_RUNTIME_STATES = {"blocked", "waiting"}
+HEAVY_BUCKETS = {"45m", "60m+"}
+SHORT_BUCKETS = {"seconds", "5m", "10m"}
+MIN_CALIBRATION_SAMPLES = 5
+MAX_CALIBRATION_SAMPLES = 20
 SECRET_PATTERNS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -255,6 +283,147 @@ def canonical(value: Any) -> str:
 
 def digest(value: Any) -> str:
     return hashlib.sha256((canonical(value) + "\n").encode()).hexdigest()
+
+
+def coarse_label(value: Any, label: str) -> str:
+    result = identifier(value, label)
+    if (
+        "/" in result
+        or "\\" in result
+        or ".." in result
+        or "@" in result
+        or ":" in result
+    ):
+        fail(
+            "PRIVACY_REJECTED",
+            f"{label} must be a coarse non-path, non-identity label",
+        )
+    return result
+
+
+def optional_seconds(value: Any, label: str) -> int | None:
+    if value is None:
+        return None
+    return bounded_int(value, label, 0, 2_147_483_647)
+
+
+def bucket_for_seconds(seconds: int) -> str:
+    for bucket in DURATION_BUCKETS:
+        if seconds < DURATION_LIMITS[bucket]:
+            return bucket
+    return "60m+"
+
+
+def utc_instant(raw: str) -> datetime:
+    return datetime.fromisoformat(raw.removesuffix("Z") + "+00:00")
+
+
+def duration_index(bucket: str) -> int:
+    try:
+        return DURATION_BUCKETS.index(bucket)
+    except ValueError:
+        fail("SCHEMA_INVALID", "duration bucket is invalid")
+    raise AssertionError("unreachable")
+
+
+def validate_duration_estimate(
+    value: Any,
+    *,
+    task_family_fallback: str,
+    environment_fallback: str,
+) -> dict[str, Any]:
+    if value is None:
+        return {
+            "estimate_version": 1,
+            "estimated_bucket": "60m+",
+            "confidence": "low",
+            "task_family": coarse_label(
+                task_family_fallback, "duration.task_family"
+            ),
+            "tool_family": "unspecified",
+            "environment_class": coarse_label(
+                environment_fallback, "duration.environment_class"
+            ),
+            "evidence_basis": ["compatibility-fallback"],
+            "expected_components": {
+                "setup_seconds": None,
+                "test_seconds": None,
+                "remote_wait_seconds": None,
+            },
+            "heavyweight_concurrency_cap": 64,
+        }
+    estimate = strict(
+        value,
+        {
+            "estimate_version",
+            "estimated_bucket",
+            "confidence",
+            "task_family",
+            "tool_family",
+            "environment_class",
+            "evidence_basis",
+            "expected_components",
+            "heavyweight_concurrency_cap",
+        },
+        label="duration estimate",
+    )
+    if estimate["estimated_bucket"] not in DURATION_BUCKETS:
+        fail("SCHEMA_INVALID", "duration.estimated_bucket is invalid")
+    if estimate["confidence"] not in {"low", "moderate", "high"}:
+        fail("SCHEMA_INVALID", "duration.confidence is invalid")
+    basis = estimate["evidence_basis"]
+    if not isinstance(basis, list) or not 1 <= len(basis) <= 20:
+        fail(
+            "SCHEMA_INVALID",
+            "duration.evidence_basis must be a non-empty bounded list",
+        )
+    safe_basis = [
+        coarse_label(item, "duration.evidence_basis[]") for item in basis
+    ]
+    components = strict(
+        estimate["expected_components"],
+        {"setup_seconds", "test_seconds", "remote_wait_seconds"},
+        label="duration.expected_components",
+    )
+    result = {
+        "estimate_version": bounded_int(
+            estimate["estimate_version"], "duration.estimate_version", 1, 1_000_000
+        ),
+        "estimated_bucket": estimate["estimated_bucket"],
+        "confidence": estimate["confidence"],
+        "task_family": coarse_label(
+            estimate["task_family"], "duration.task_family"
+        ),
+        "tool_family": coarse_label(
+            estimate["tool_family"], "duration.tool_family"
+        ),
+        "environment_class": coarse_label(
+            estimate["environment_class"], "duration.environment_class"
+        ),
+        "evidence_basis": safe_basis,
+        "expected_components": {
+            "setup_seconds": optional_seconds(
+                components["setup_seconds"],
+                "duration.expected_components.setup_seconds",
+            ),
+            "test_seconds": optional_seconds(
+                components["test_seconds"],
+                "duration.expected_components.test_seconds",
+            ),
+            "remote_wait_seconds": optional_seconds(
+                components["remote_wait_seconds"],
+                "duration.expected_components.remote_wait_seconds",
+            ),
+        },
+        "heavyweight_concurrency_cap": bounded_int(
+            estimate["heavyweight_concurrency_cap"],
+            "duration.heavyweight_concurrency_cap",
+            1,
+            64,
+        ),
+    }
+    reject_sensitive(result, "duration estimate")
+    return result
 
 
 def safe_state_dir(raw: str) -> Path:
@@ -440,6 +609,27 @@ def validate_context(value: Any, required_action: str) -> dict[str, str]:
     return output
 
 
+def load_root_role_guard() -> Any:
+    """Load the sibling guard without relying on the process import path."""
+
+    guard_path = Path(__file__).resolve().with_name("root_role_guard.py")
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "firestarter_root_role_guard", guard_path
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("guard module has no loader")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        fail(
+            "ROOT_GUARD_UNAVAILABLE",
+            "root-role guard is unavailable; proposed action denied",
+            exit_status=EXIT_STATE,
+        )
+
+
 def validate_rule(value: Any) -> dict[str, Any]:
     rule = strict(
         value,
@@ -463,7 +653,7 @@ def validate_rule(value: Any) -> dict[str, Any]:
         },
         label="policy rule",
     )
-    if rule["schema_version"] != SCHEMA_VERSION:
+    if rule["schema_version"] != POLICY_SCHEMA_VERSION:
         fail("VERSION_UNSUPPORTED", "policy rule schema version is unsupported")
     rule_id = text(rule["id"], "rule.id", 80, single_line=True)
     if not RULE_ID_RE.fullmatch(rule_id):
@@ -538,7 +728,7 @@ def validate_rule(value: Any) -> dict[str, Any]:
     if conflict_group is not None:
         conflict_group = identifier(conflict_group, "conflict_group")
     output = {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": POLICY_SCHEMA_VERSION,
         "id": rule_id,
         "rule_revision": bounded_int(rule["rule_revision"], "rule_revision", 1, 1_000_000),
         "state": rule["state"],
@@ -563,7 +753,7 @@ def validate_rule(value: Any) -> dict[str, Any]:
 
 def validate_policy(value: Any) -> dict[str, Any]:
     ledger = strict(value, {"schema_version", "ledger_version", "rules"}, label="policy ledger")
-    if ledger["schema_version"] != SCHEMA_VERSION:
+    if ledger["schema_version"] != POLICY_SCHEMA_VERSION:
         fail("VERSION_UNSUPPORTED", "policy ledger schema version is unsupported")
     rules = [validate_rule(item) for item in ledger["rules"]] if isinstance(ledger["rules"], list) else []
     if not rules:
@@ -572,7 +762,7 @@ def validate_policy(value: Any) -> dict[str, Any]:
     if len(ids) != len(set(ids)):
         fail("SCHEMA_INVALID", "policy rule identity/revision must be unique")
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": POLICY_SCHEMA_VERSION,
         "ledger_version": bounded_int(ledger["ledger_version"], "ledger_version", 1, 1_000_000),
         "rules": rules,
     }
@@ -773,6 +963,88 @@ CREATE TABLE IF NOT EXISTS handbacks (
   result_json TEXT NOT NULL,
   recorded_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS capacity_sagas (
+  saga_id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+  configured_capacity INTEGER NOT NULL,
+  runnable_queue_count INTEGER NOT NULL,
+  terminal_status TEXT NOT NULL,
+  clean_handback INTEGER NOT NULL,
+  outcome TEXT NOT NULL,
+  successor_task_id TEXT,
+  successor_receipted INTEGER NOT NULL,
+  evidence_refs_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS setup_failures (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  saga_id TEXT NOT NULL,
+  failed_outbox_id TEXT NOT NULL,
+  selected_successor_task_id TEXT,
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS task_timing (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(task_id),
+  estimate_version INTEGER NOT NULL,
+  estimated_bucket TEXT NOT NULL,
+  current_lane TEXT NOT NULL,
+  confidence TEXT NOT NULL,
+  task_family TEXT NOT NULL,
+  tool_family TEXT NOT NULL,
+  environment_class TEXT NOT NULL,
+  evidence_basis_json TEXT NOT NULL,
+  expected_setup_seconds INTEGER,
+  expected_test_seconds INTEGER,
+  expected_active_seconds INTEGER,
+  expected_external_wait_seconds INTEGER,
+  heavyweight_concurrency_cap INTEGER NOT NULL,
+  queue_entered_at TEXT NOT NULL,
+  started_at TEXT,
+  actual_json TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS duration_reclassifications (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  from_bucket TEXT NOT NULL,
+  to_bucket TEXT NOT NULL,
+  estimate_version INTEGER NOT NULL,
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS duration_progress (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS duration_samples (
+  sample_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+  task_family TEXT NOT NULL,
+  tool_family TEXT NOT NULL,
+  environment_class TEXT NOT NULL,
+  estimated_bucket TEXT NOT NULL,
+  actual_bucket TEXT NOT NULL,
+  estimate_version INTEGER NOT NULL,
+  active_seconds INTEGER NOT NULL,
+  queue_seconds INTEGER,
+  setup_seconds INTEGER,
+  tool_wait_seconds INTEGER,
+  external_wait_seconds INTEGER,
+  total_wall_seconds INTEGER,
+  first_evidence_seconds INTEGER,
+  safe_close_seconds INTEGER,
+  evidence_refs_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS events (
   event_id INTEGER PRIMARY KEY AUTOINCREMENT,
   revision INTEGER NOT NULL,
@@ -853,11 +1125,15 @@ class Plane:
             os.chmod(self.db_path, 0o600)
             connection.execute("BEGIN IMMEDIATE")
             if connection.execute("SELECT 1 FROM metadata WHERE key='schema_version'").fetchone():
-                major = connection.execute(
+                installed_version = connection.execute(
                     "SELECT value FROM metadata WHERE key='schema_version'"
-                ).fetchone()[0].split(".", 1)[0]
-                if major != SCHEMA_VERSION.split(".", 1)[0]:
+                ).fetchone()[0]
+                if installed_version.split(".", 1)[0] != SCHEMA_VERSION.split(".", 1)[0]:
                     fail("VERSION_UNSUPPORTED", "database schema major version is unsupported")
+                connection.execute(
+                    "UPDATE metadata SET value=? WHERE key='schema_version'",
+                    (SCHEMA_VERSION,),
+                )
             else:
                 ledger = validate_policy(read_json(str(self.ledger_path)))
                 connection.executemany(
@@ -877,6 +1153,23 @@ class Plane:
                 connection.executemany(
                     "INSERT INTO metadata(key,value) VALUES(?,?)", values.items()
                 )
+            connection.execute(
+                """INSERT OR IGNORE INTO task_timing(
+                  task_id,estimate_version,estimated_bucket,current_lane,
+                  confidence,task_family,tool_family,environment_class,
+                  evidence_basis_json,expected_setup_seconds,
+                  expected_test_seconds,expected_active_seconds,
+                  expected_external_wait_seconds,heavyweight_concurrency_cap,
+                  queue_entered_at,started_at,actual_json,updated_at
+                )
+                SELECT task_id,1,'60m+','60m+','low','legacy-unspecified',
+                       'unspecified','unspecified',?,NULL,NULL,NULL,NULL,64,
+                       created_at,
+                       CASE WHEN state='RUNNING' THEN updated_at ELSE NULL END,
+                       NULL,?
+                FROM tasks""",
+                (canonical(["schema-migration-fallback"]), now),
+            )
             connection.commit()
         except Exception:
             connection.rollback()
@@ -1059,6 +1352,33 @@ class Plane:
         *,
         source: str,
     ) -> dict[str, Any]:
+        requested_duration = request["duration_estimate"]
+        if (
+            requested_duration["estimated_bucket"] in HEAVY_BUCKETS
+            and requested_duration["evidence_basis"]
+            != ["compatibility-fallback"]
+        ):
+            heavyweight_reserved = connection.execute(
+                """SELECT count(*) FROM task_timing AS timing
+                   JOIN tasks AS task ON task.task_id=timing.task_id
+                   WHERE timing.current_lane IN ('45m','60m+')
+                     AND task.state IN ('LAUNCH_PENDING','RUNNING')"""
+            ).fetchone()[0]
+            if (
+                heavyweight_reserved
+                >= requested_duration["heavyweight_concurrency_cap"]
+            ):
+                fail(
+                    "HEAVYWEIGHT_CAP",
+                    "heavyweight lane capacity is already active or reserved",
+                    exit_status=EXIT_CONFLICT,
+                    details={
+                        "active_or_reserved": heavyweight_reserved,
+                        "cap": requested_duration[
+                            "heavyweight_concurrency_cap"
+                        ],
+                    },
+                )
         existing = connection.execute(
             """SELECT task_id,state FROM tasks
                WHERE source_event_key=? OR idempotency_key=? OR outcome_key=?""",
@@ -1123,6 +1443,7 @@ class Plane:
         lease_epoch = 1
         rule_ids = [rule["id"] for rule in rules]
         claim_id = f"claim:{digest([request['task_id'], target['canonical_key']])[:24]}"
+        duration = request["duration_estimate"]
         appendix = {
             "envelope_version": INTERFACE_VERSION,
             "task_id": request["task_id"],
@@ -1165,6 +1486,13 @@ class Plane:
             "dependencies": request["dependencies"],
             "evidence_contract": request["evidence_contract"],
             "cleanup_duty": request["cleanup_duty"],
+            "duration_estimate": duration,
+            "duration_protocol": {
+                "progress_command": "record-duration-progress",
+                "observation_command": "record-duration-observation",
+                "blocked_waiting_are_non_runtime": True,
+                "reclassification_preserves_worker": True,
+            },
             "heartbeat_protocol": {
                 "command": "record-heartbeat",
                 "requires_current_fence": True,
@@ -1180,6 +1508,7 @@ class Plane:
                 "applicable_rule_ids": rule_ids,
                 "lease_epoch": lease_epoch,
                 "fencing_token": fence,
+                "duration_estimate": duration,
             },
         }
         stored_envelope = dict(appendix)
@@ -1265,6 +1594,41 @@ class Plane:
                 request["now"],
             ),
         )
+        expected = duration["expected_components"]
+        expected_active = (
+            None
+            if expected["setup_seconds"] is None
+            or expected["test_seconds"] is None
+            else expected["setup_seconds"] + expected["test_seconds"]
+        )
+        connection.execute(
+            """INSERT INTO task_timing(
+              task_id,estimate_version,estimated_bucket,current_lane,confidence,
+              task_family,tool_family,environment_class,evidence_basis_json,
+              expected_setup_seconds,expected_test_seconds,
+              expected_active_seconds,expected_external_wait_seconds,
+              heavyweight_concurrency_cap,queue_entered_at,started_at,
+              actual_json,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?)""",
+            (
+                request["task_id"],
+                duration["estimate_version"],
+                duration["estimated_bucket"],
+                duration["estimated_bucket"],
+                duration["confidence"],
+                duration["task_family"],
+                duration["tool_family"],
+                duration["environment_class"],
+                canonical(duration["evidence_basis"]),
+                expected["setup_seconds"],
+                expected["test_seconds"],
+                expected_active,
+                expected["remote_wait_seconds"],
+                duration["heavyweight_concurrency_cap"],
+                request["now"],
+                request["now"],
+            ),
+        )
         self.event(
             connection,
             request["now"],
@@ -1331,6 +1695,76 @@ class Plane:
             raise
         finally:
             connection.close()
+
+    def classify_root_action(self, raw: Any) -> dict[str, Any]:
+        guard = load_root_role_guard()
+        try:
+            response = guard.classify_action(raw)
+        except guard.GuardInputError as error:
+            fail(error.code, str(error))
+
+        result = response["result"]
+        if (
+            raw.get("action_type") == "notify_owner"
+            and result["decision"] == "ALLOW"
+        ):
+            evidence = next(
+                (
+                    item
+                    for item in raw.get("evidence", [])
+                    if item.get("kind") == "owner_gate"
+                    and item.get("verified") is True
+                    and item.get("route") == "OWNER_GATE"
+                    and item.get("owner_prompt_required") is True
+                ),
+                None,
+            )
+            verified = False
+            if evidence is not None:
+                connection = self.connect()
+                try:
+                    decision = connection.execute(
+                        """SELECT request_id,route,gate_fingerprint
+                           FROM decisions WHERE request_id=?""",
+                        (evidence["decision_request_id"],),
+                    ).fetchone()
+                    if decision and decision["route"] == "OWNER_GATE":
+                        first = connection.execute(
+                            """SELECT request_id FROM decisions
+                               WHERE gate_fingerprint=?
+                               ORDER BY recorded_at,request_id LIMIT 1""",
+                            (decision["gate_fingerprint"],),
+                        ).fetchone()
+                        verified = bool(
+                            first
+                            and first["request_id"] == decision["request_id"]
+                            and (
+                                evidence.get("gate_fingerprint") is None
+                                or evidence["gate_fingerprint"]
+                                == decision["gate_fingerprint"]
+                            )
+                        )
+                finally:
+                    connection.close()
+            if not verified:
+                result.update(
+                    {
+                        "decision": "DENY",
+                        "reason_code": "VERIFIED_OWNER_GATE_REQUIRED",
+                        "required_action": "PROVIDE_OWNER_GATE_EVIDENCE",
+                        "owner_notification_authorized": False,
+                    }
+                )
+
+        try:
+            guard.record_evaluation(
+                raw,
+                response,
+                state_file=self.state_dir / "root-role-audit.json",
+            )
+        except guard.GuardInputError as error:
+            fail(error.code, str(error), exit_status=EXIT_STATE)
+        return result
 
     def classify(self, raw: Any) -> dict[str, Any]:
         request = validate_classify(raw)
@@ -1492,8 +1926,19 @@ class Plane:
                 and sorted(json.loads(existing_task["applicable_rule_ids_json"]))
                 == sorted(request["applicable_rule_ids"])
             ):
+                self.record_capacity_receipt(connection, request)
+                timing = connection.execute(
+                    "SELECT * FROM task_timing WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchone()
                 connection.commit()
-                return {"task_id": request["task_id"], "state": "RUNNING"}
+                return {
+                    "task_id": request["task_id"],
+                    "state": "RUNNING",
+                    "duration_estimate": (
+                        self.duration_result(timing) if timing else None
+                    ),
+                }
             task = self.checked_task(connection, request, {"LAUNCH_PENDING"})
             expected_ids = json.loads(task["applicable_rule_ids_json"])
             if sorted(request["applicable_rule_ids"]) != sorted(expected_ids):
@@ -1503,8 +1948,26 @@ class Plane:
                 (request["external_thread_id"], request["now"], request["task_id"]),
             )
             connection.execute(
+                """UPDATE task_timing SET started_at=COALESCE(started_at,?),
+                   updated_at=? WHERE task_id=?""",
+                (request["now"], request["now"], request["task_id"]),
+            )
+            timing = connection.execute(
+                "SELECT * FROM task_timing WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            duration_receipt = self.duration_result(timing) if timing else None
+            connection.execute(
                 "UPDATE launches SET receipt_json=? WHERE task_id=?",
-                (canonical(request), request["task_id"]),
+                (
+                    canonical(
+                        {
+                            **request,
+                            "duration_estimate": duration_receipt,
+                        }
+                    ),
+                    request["task_id"],
+                ),
             )
             connection.execute(
                 "UPDATE outbox SET state='completed',updated_at=? WHERE task_id=? AND kind='CREATE_THREAD'",
@@ -1522,13 +1985,790 @@ class Plane:
                 "RUNNING",
                 {"external_thread_id": request["external_thread_id"]},
             )
+            self.record_capacity_receipt(connection, request)
             connection.commit()
-            return {"task_id": request["task_id"], "state": "RUNNING"}
+            return {
+                "task_id": request["task_id"],
+                "state": "RUNNING",
+                "duration_estimate": duration_receipt,
+            }
         except Exception:
             connection.rollback()
             raise
         finally:
             connection.close()
+
+    @staticmethod
+    def active_or_reserved_count(connection: sqlite3.Connection) -> int:
+        return connection.execute(
+            """SELECT count(*) FROM tasks AS task
+               JOIN owner_claims AS claim ON claim.task_id=task.task_id
+               WHERE claim.status='active'
+                 AND task.state IN ('LAUNCH_PENDING','RUNNING')"""
+        ).fetchone()[0]
+
+    @staticmethod
+    def active_and_reserved_counts(
+        connection: sqlite3.Connection,
+    ) -> tuple[int, int]:
+        row = connection.execute(
+            """SELECT
+                 sum(CASE WHEN task.state='RUNNING' THEN 1 ELSE 0 END) AS active,
+                 sum(CASE WHEN task.state='LAUNCH_PENDING' THEN 1 ELSE 0 END) AS reserved
+               FROM tasks AS task
+               JOIN owner_claims AS claim ON claim.task_id=task.task_id
+               WHERE claim.status='active'
+                 AND task.state IN ('LAUNCH_PENDING','RUNNING')"""
+        ).fetchone()
+        return int(row["active"] or 0), int(row["reserved"] or 0)
+
+    def capacity_result(
+        self, connection: sqlite3.Connection, row: sqlite3.Row
+    ) -> dict[str, Any]:
+        active_count, reserved_count = self.active_and_reserved_counts(connection)
+        active = active_count + reserved_count
+        runnable = row["runnable_queue_count"]
+        configured = row["configured_capacity"]
+        deficit = runnable > 0 and active != configured
+        return {
+            "saga_id": row["saga_id"],
+            "configured_capacity": configured,
+            "runnable_queue_count": runnable,
+            "active_or_reserved_count": active,
+            "active_count": active_count,
+            "reserved_setup_count": reserved_count,
+            "outcome": row["outcome"],
+            "successor_task_id": row["successor_task_id"],
+            "successor_receipted": bool(row["successor_receipted"]),
+            "terminal_status": row["terminal_status"],
+            "clean_handback": bool(row["clean_handback"]),
+            "failure_state": "CAPACITY_INVARIANT_FAILED" if deficit else None,
+            "evidence_refs": json.loads(row["evidence_refs_json"]),
+            "updated_at": row["updated_at"],
+        }
+
+    def record_capacity_receipt(
+        self, connection: sqlite3.Connection, request: dict[str, Any]
+    ) -> None:
+        row = connection.execute(
+            "SELECT * FROM capacity_sagas WHERE successor_task_id=?",
+            (request["task_id"],),
+        ).fetchone()
+        if not row:
+            return
+        if row["successor_receipted"]:
+            return
+        active = self.active_or_reserved_count(connection)
+        outcome = (
+            "SUCCESSOR_RECEIPTED"
+            if active == row["configured_capacity"]
+            else "CAPACITY_DEFICIT"
+        )
+        connection.execute(
+            """UPDATE capacity_sagas
+               SET successor_receipted=1,outcome=?,updated_at=?
+               WHERE saga_id=?""",
+            (outcome, request["now"], row["saga_id"]),
+        )
+        self.event(
+            connection,
+            request["now"],
+            request["task_id"],
+            row["saga_id"],
+            (
+                "CAPACITY_REFILL_SATISFIED"
+                if outcome == "SUCCESSOR_RECEIPTED"
+                else "CAPACITY_DEFICIT"
+            ),
+            outcome,
+            ["BR-CLOSE-001", "BR-LAUNCH-001"],
+            "LAUNCH_PENDING",
+            "RUNNING",
+            {
+                "configured_capacity": row["configured_capacity"],
+                "runnable_queue_count": row["runnable_queue_count"],
+                "active_or_reserved_count": active,
+            },
+        )
+
+    @staticmethod
+    def duration_result(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "estimate_version": row["estimate_version"],
+            "estimated_bucket": row["estimated_bucket"],
+            "current_lane": row["current_lane"],
+            "confidence": row["confidence"],
+            "task_family": row["task_family"],
+            "tool_family": row["tool_family"],
+            "environment_class": row["environment_class"],
+            "evidence_basis": json.loads(row["evidence_basis_json"]),
+            "expected_components": {
+                "setup_seconds": row["expected_setup_seconds"],
+                "test_seconds": row["expected_test_seconds"],
+                "remote_wait_seconds": row["expected_external_wait_seconds"],
+            },
+            "heavyweight_concurrency_cap": row["heavyweight_concurrency_cap"],
+            "queue_entered_at": row["queue_entered_at"],
+            "started_at": row["started_at"],
+            "actual": (
+                None if row["actual_json"] is None else json.loads(row["actual_json"])
+            ),
+            "updated_at": row["updated_at"],
+        }
+
+    def record_duration_progress(self, raw: Any) -> dict[str, Any]:
+        request = validate_duration_progress(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            sanitized_hash = digest(
+                {
+                    key: value
+                    for key, value in request.items()
+                    if key != "successor_request"
+                }
+                | {
+                    "successor_identity": (
+                        None
+                        if request["successor_request"] is None
+                        else {
+                            key: request["successor_request"][key]
+                            for key in (
+                                "request_id",
+                                "task_id",
+                                "source_event_key",
+                                "idempotency_key",
+                                "outcome_key",
+                            )
+                        }
+                    )
+                }
+            )
+            existing = connection.execute(
+                "SELECT * FROM duration_progress WHERE request_id=?",
+                (request["request_id"],),
+            ).fetchone()
+            if existing:
+                if existing["request_hash"] != sanitized_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "duration progress request_id input changed",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                connection.commit()
+                return json.loads(existing["result_json"])
+            task = self.checked_task(connection, request, {"RUNNING", "BLOCKED"})
+            self.require_external_receipt(connection, request)
+            timing = connection.execute(
+                "SELECT * FROM task_timing WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if not timing:
+                fail(
+                    "DURATION_STATE_MISSING",
+                    "task has no durable duration estimate",
+                    exit_status=EXIT_STATE,
+                )
+            previous_actual = (
+                {}
+                if timing["actual_json"] is None
+                else json.loads(timing["actual_json"])
+            )
+            for key in (
+                "active_seconds",
+                "queue_seconds",
+                "setup_seconds",
+                "tool_wait_seconds",
+                "external_wait_seconds",
+                "total_wall_seconds",
+                "first_evidence_seconds",
+            ):
+                before = previous_actual.get(key)
+                after = request[key]
+                if before is not None and after is not None and after < before:
+                    fail(
+                        "DURATION_NON_MONOTONIC",
+                        f"{key} cannot decrease",
+                        exit_status=EXIT_CONFLICT,
+                    )
+            from_bucket = timing["current_lane"]
+            to_bucket = from_bucket
+            reason_codes: list[str] = []
+            successor = None
+            active_seconds = request["active_seconds"]
+            if request["runtime_state"] == "active":
+                measured_bucket = bucket_for_seconds(active_seconds)
+                from_index = duration_index(from_bucket)
+                measured_index = duration_index(measured_bucket)
+                if measured_index > from_index:
+                    to_bucket = measured_bucket
+                    reason_codes.append("NEXT_BUCKET_CROSSED")
+                    if measured_index - from_index >= 2:
+                        reason_codes.append("TWO_BUCKETS_SKIPPED")
+                expected_active = timing["expected_active_seconds"]
+                if (
+                    expected_active is not None
+                    and active_seconds > max(1, expected_active) * 2
+                    and from_index < len(DURATION_BUCKETS) - 1
+                ):
+                    to_bucket = DURATION_BUCKETS[
+                        max(duration_index(to_bucket), from_index + 1)
+                    ]
+                    reason_codes.append("ESTIMATE_ERROR_OVER_2X")
+            reclassified = to_bucket != from_bucket
+            new_version = timing["estimate_version"]
+            if reclassified:
+                new_version += 1
+                replacement_expected = max(
+                    active_seconds,
+                    (
+                        DURATION_LIMITS[to_bucket]
+                        if to_bucket != "60m+"
+                        else active_seconds * 2
+                    ),
+                )
+                connection.execute(
+                    """UPDATE task_timing SET estimate_version=?,current_lane=?,
+                       expected_active_seconds=?,actual_json=?,updated_at=?
+                       WHERE task_id=?""",
+                    (
+                        new_version,
+                        to_bucket,
+                        replacement_expected,
+                        canonical(request["actual"]),
+                        request["now"],
+                        request["task_id"],
+                    ),
+                )
+                if request["successor_request"] is not None:
+                    successor = self.reserve_launch(
+                        connection,
+                        request["successor_request"],
+                        source="duration-reclassification",
+                    )
+                result = {
+                    "task_id": request["task_id"],
+                    "reclassified": True,
+                    "worker_restart_required": False,
+                    "ownership_preserved": True,
+                    "lease_epoch": task["lease_epoch"],
+                    "fencing_token": task["fencing_token"],
+                    "from_bucket": from_bucket,
+                    "to_bucket": to_bucket,
+                    "estimate_version": new_version,
+                    "released_lane": from_bucket,
+                    "reason_codes": sorted(set(reason_codes)),
+                    "successor": successor,
+                }
+                connection.execute(
+                    """INSERT INTO duration_reclassifications(
+                      request_id,request_hash,task_id,from_bucket,to_bucket,
+                      estimate_version,result_json,recorded_at
+                    ) VALUES(?,?,?,?,?,?,?,?)""",
+                    (
+                        request["request_id"],
+                        sanitized_hash,
+                        request["task_id"],
+                        from_bucket,
+                        to_bucket,
+                        new_version,
+                        canonical(result),
+                        request["now"],
+                    ),
+                )
+                self.event(
+                    connection,
+                    request["now"],
+                    request["task_id"],
+                    request["request_id"],
+                    "DURATION_LANE_RECLASSIFIED",
+                    sorted(set(reason_codes))[0],
+                    ["BR-LAUNCH-001", "BR-OWNER-001"],
+                    from_bucket,
+                    to_bucket,
+                    {
+                        "active_seconds": active_seconds,
+                        "estimate_version": new_version,
+                        "released_lane": from_bucket,
+                        "successor_task_id": (
+                            None
+                            if request["successor_request"] is None
+                            else request["successor_request"]["task_id"]
+                        ),
+                    },
+                )
+            else:
+                if request["successor_request"] is not None:
+                    fail(
+                        "SUCCESSOR_NOT_ALLOWED",
+                        "a successor may be reserved only by an actual lane reclassification",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                connection.execute(
+                    """UPDATE task_timing SET actual_json=?,updated_at=?
+                       WHERE task_id=?""",
+                    (
+                        canonical(request["actual"]),
+                        request["now"],
+                        request["task_id"],
+                    ),
+                )
+                result = {
+                    "task_id": request["task_id"],
+                    "reclassified": False,
+                    "worker_restart_required": False,
+                    "ownership_preserved": True,
+                    "lease_epoch": task["lease_epoch"],
+                    "fencing_token": task["fencing_token"],
+                    "from_bucket": from_bucket,
+                    "to_bucket": from_bucket,
+                    "estimate_version": new_version,
+                    "released_lane": None,
+                    "reason_codes": (
+                        ["NON_RUNTIME_WAIT_EXCLUDED"]
+                        if request["runtime_state"] in NON_RUNTIME_STATES
+                        else []
+                    ),
+                    "successor": None,
+                }
+            connection.execute(
+                "INSERT INTO duration_progress VALUES(?,?,?,?,?)",
+                (
+                    request["request_id"],
+                    sanitized_hash,
+                    request["task_id"],
+                    canonical(result),
+                    request["now"],
+                ),
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def record_duration_observation(self, raw: Any) -> dict[str, Any]:
+        request = validate_duration_observation(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            request_hash = digest(request)
+            existing = connection.execute(
+                "SELECT * FROM duration_samples WHERE sample_id=?",
+                (request["sample_id"],),
+            ).fetchone()
+            if existing:
+                if existing["request_hash"] != request_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "duration sample_id input changed",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                timing = connection.execute(
+                    "SELECT * FROM task_timing WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchone()
+                connection.commit()
+                return {
+                    "task_id": request["task_id"],
+                    "sample_id": request["sample_id"],
+                    "actual_bucket": existing["actual_bucket"],
+                    "early_finish": duration_index(existing["actual_bucket"])
+                    < duration_index(existing["estimated_bucket"]),
+                    "duration": self.duration_result(timing),
+                }
+            prior_task_sample = connection.execute(
+                "SELECT sample_id FROM duration_samples WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if prior_task_sample:
+                fail(
+                    "DURATION_SAMPLE_EXISTS",
+                    "a completed task contributes at most one calibration sample",
+                    exit_status=EXIT_CONFLICT,
+                    details={"sample_id": prior_task_sample["sample_id"]},
+                )
+            task = connection.execute(
+                "SELECT * FROM tasks WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if not task:
+                fail("TASK_NOT_FOUND", "task does not exist")
+            if (
+                request["policy_snapshot_revision"] != task["policy_revision"]
+                or request["lease_epoch"] != task["lease_epoch"]
+                or request["fencing_token"] != task["fencing_token"]
+            ):
+                fail("STALE_FENCE", "duration observation has stale fencing")
+            self.require_external_receipt(connection, request)
+            timing = connection.execute(
+                "SELECT * FROM task_timing WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if not timing:
+                fail("DURATION_STATE_MISSING", "task has no duration state")
+            actual_bucket = bucket_for_seconds(request["active_seconds"])
+            early = duration_index(actual_bucket) < duration_index(
+                timing["estimated_bucket"]
+            )
+            connection.execute(
+                """INSERT INTO duration_samples(
+                  sample_id,request_hash,task_id,task_family,tool_family,
+                  environment_class,estimated_bucket,actual_bucket,
+                  estimate_version,active_seconds,queue_seconds,setup_seconds,
+                  tool_wait_seconds,external_wait_seconds,total_wall_seconds,
+                  first_evidence_seconds,safe_close_seconds,evidence_refs_json,
+                  recorded_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    request["sample_id"],
+                    request_hash,
+                    request["task_id"],
+                    timing["task_family"],
+                    timing["tool_family"],
+                    timing["environment_class"],
+                    timing["estimated_bucket"],
+                    actual_bucket,
+                    timing["estimate_version"],
+                    request["active_seconds"],
+                    request["queue_seconds"],
+                    request["setup_seconds"],
+                    request["tool_wait_seconds"],
+                    request["external_wait_seconds"],
+                    request["total_wall_seconds"],
+                    request["first_evidence_seconds"],
+                    request["safe_close_seconds"],
+                    canonical(request["evidence_refs"]),
+                    request["now"],
+                ),
+            )
+            connection.execute(
+                "UPDATE task_timing SET actual_json=?,updated_at=? WHERE task_id=?",
+                (
+                    canonical(request["actual"]),
+                    request["now"],
+                    request["task_id"],
+                ),
+            )
+            self.event(
+                connection,
+                request["now"],
+                request["task_id"],
+                request["sample_id"],
+                (
+                    "DURATION_EARLY_FINISH"
+                    if early
+                    else "DURATION_COMPLETED_SAMPLE"
+                ),
+                (
+                    "ACTUAL_SHORTER_THAN_ESTIMATE"
+                    if early
+                    else "COMPLETED_CALIBRATION_EVIDENCE"
+                ),
+                ["BR-EVIDENCE-001"],
+                timing["estimated_bucket"],
+                actual_bucket,
+                {
+                    "active_seconds": request["active_seconds"],
+                    "estimate_version": timing["estimate_version"],
+                    "evidence_count": len(request["evidence_refs"]),
+                },
+            )
+            updated = connection.execute(
+                "SELECT * FROM task_timing WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            connection.commit()
+            return {
+                "task_id": request["task_id"],
+                "sample_id": request["sample_id"],
+                "actual_bucket": actual_bucket,
+                "early_finish": early,
+                "duration": self.duration_result(updated),
+            }
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def duration_estimate(self, raw: Any) -> dict[str, Any]:
+        request = validate_duration_estimate_query(raw)
+        connection = self.connect()
+        try:
+            rows = connection.execute(
+                """SELECT * FROM duration_samples
+                   WHERE task_family=? AND tool_family=? AND environment_class=?
+                   ORDER BY recorded_at DESC,sample_id DESC LIMIT ?""",
+                (
+                    request["task_family"],
+                    request["tool_family"],
+                    request["environment_class"],
+                    MAX_CALIBRATION_SAMPLES,
+                ),
+            ).fetchall()
+            if len(rows) < MIN_CALIBRATION_SAMPLES:
+                return {
+                    "state": "SPARSE_EVIDENCE",
+                    "automatic": False,
+                    "confidence": "low",
+                    "completed_sample_count": len(rows),
+                    "minimum_required": MIN_CALIBRATION_SAMPLES,
+                    "estimate": None,
+                }
+            counts = {
+                bucket: sum(row["actual_bucket"] == bucket for row in rows)
+                for bucket in DURATION_BUCKETS
+            }
+            highest = max(counts.values())
+            leaders = [bucket for bucket, count in counts.items() if count == highest]
+            if len(leaders) != 1 or highest * 5 < len(rows) * 3:
+                return {
+                    "state": "CONFLICTING_EVIDENCE",
+                    "automatic": False,
+                    "confidence": "low",
+                    "completed_sample_count": len(rows),
+                    "minimum_required": MIN_CALIBRATION_SAMPLES,
+                    "estimate": None,
+                }
+            active = sorted(row["active_seconds"] for row in rows)
+            median = active[len(active) // 2]
+            bucket = bucket_for_seconds(median)
+            return {
+                "state": "LEARNED_PRIOR_AVAILABLE",
+                "automatic": True,
+                "confidence": "high" if len(rows) >= 10 else "moderate",
+                "completed_sample_count": len(rows),
+                "minimum_required": MIN_CALIBRATION_SAMPLES,
+                "estimate": {
+                    "estimate_version": request["minimum_estimate_version"],
+                    "estimated_bucket": bucket,
+                    "task_family": request["task_family"],
+                    "tool_family": request["tool_family"],
+                    "environment_class": request["environment_class"],
+                    "evidence_basis": [
+                        f"completed-samples-{len(rows)}",
+                        "bounded-rolling-median",
+                    ],
+                    "median_active_seconds": median,
+                },
+            }
+        finally:
+            connection.close()
+
+    @staticmethod
+    def duration_schedule(raw: Any) -> dict[str, Any]:
+        request = validate_duration_schedule(raw)
+        eligible = []
+        deferred = []
+        queued_setup_reserved = 0
+        failed_setup_rollbacks = 0
+        holds = list(request["resource_holds"])
+        holds.extend(
+            {
+                "holder_id": candidate["candidate_id"],
+                "state": "queued_setup",
+                "resource_profile": candidate["resource_profile"],
+            }
+            for candidate in request["candidates"]
+            if candidate["setup_state"] == "queued_setup"
+        )
+        heavy_exclusive_groups = {
+            hold["resource_profile"]["exclusive_group"]
+            for hold in holds
+            if hold["resource_profile"]["resource_class"] == "heavy"
+            and hold["resource_profile"]["exclusive_group"] is not None
+        }
+        heavy_resource_holds = sum(
+            hold["resource_profile"]["resource_class"] == "heavy"
+            for hold in holds
+        )
+        resource_weights: dict[str, int] = {}
+        resource_caps: dict[str, int] = {}
+        for hold in holds:
+            profile = hold["resource_profile"]
+            pool = (
+                profile["exclusive_group"]
+                or f"class-{profile['resource_class']}"
+            )
+            resource_weights[pool] = (
+                resource_weights.get(pool, 0) + profile["weight"]
+            )
+            resource_caps[pool] = min(
+                resource_caps.get(pool, profile["cap"]), profile["cap"]
+            )
+        for candidate in request["candidates"]:
+            if candidate["setup_state"] == "queued_setup":
+                queued_setup_reserved += 1
+                deferred.append(
+                    {
+                        "candidate_id": candidate["candidate_id"],
+                        "reason_code": "QUEUED_SETUP_RESERVED_NOT_ACTIVE",
+                    }
+                )
+                continue
+            if candidate["setup_state"] == "failed":
+                failed_setup_rollbacks += 1
+                deferred.append(
+                    {
+                        "candidate_id": candidate["candidate_id"],
+                        "reason_code": "SETUP_FAILED_RESERVATION_ROLLED_BACK",
+                    }
+                )
+                continue
+            if candidate["runtime_state"] in NON_RUNTIME_STATES:
+                deferred.append(
+                    {
+                        "candidate_id": candidate["candidate_id"],
+                        "reason_code": "NON_RUNTIME_STATE",
+                    }
+                )
+                continue
+            profile = candidate["resource_profile"]
+            if (
+                (
+                    candidate["bucket"] in HEAVY_BUCKETS
+                    or profile["resource_class"] == "heavy"
+                )
+                and max(request["active_heavyweight"], heavy_resource_holds)
+                >= request["heavyweight_concurrency_cap"]
+            ):
+                deferred.append(
+                    {
+                        "candidate_id": candidate["candidate_id"],
+                        "reason_code": "HEAVYWEIGHT_CAP",
+                    }
+                )
+                continue
+            if (
+                profile["resource_class"] == "heavy"
+                and profile["exclusive_group"] is not None
+                and profile["exclusive_group"] in heavy_exclusive_groups
+            ):
+                deferred.append(
+                    {
+                        "candidate_id": candidate["candidate_id"],
+                        "reason_code": "HEAVY_EXCLUSIVE_GROUP_HELD",
+                    }
+                )
+                continue
+            pool = (
+                profile["exclusive_group"]
+                or f"class-{profile['resource_class']}"
+            )
+            effective_cap = min(
+                profile["cap"], resource_caps.get(pool, profile["cap"])
+            )
+            if resource_weights.get(pool, 0) + profile["weight"] > effective_cap:
+                deferred.append(
+                    {
+                        "candidate_id": candidate["candidate_id"],
+                        "reason_code": "RESOURCE_WEIGHT_CAP",
+                    }
+                )
+                continue
+            score = candidate["priority"] * 100 + min(
+                candidate["queue_seconds"] // 60, 100_000
+            )
+            eligible.append((candidate, score))
+        eligible.sort(
+            key=lambda item: (
+                -item[1],
+                -item[0]["queue_seconds"],
+                item[0]["candidate_id"],
+            )
+        )
+        short = [
+            item for item in eligible if item[0]["bucket"] in SHORT_BUCKETS
+        ]
+        selected = (
+            (
+                short[0]
+                if request["short_lane_available"] and short
+                else (eligible[0] if eligible else None)
+            )
+            if request["capacity_deficit"]
+            else None
+        )
+        ranked = [
+            {
+                "rank": index + 1,
+                "candidate_id": item[0]["candidate_id"],
+                "bucket": item[0]["bucket"],
+                "score": item[1],
+                "aged_seconds": item[0]["queue_seconds"],
+                "resource_profile": item[0]["resource_profile"],
+            }
+            for index, item in enumerate(eligible)
+        ]
+        return {
+            "selected_candidate_id": (
+                None if selected is None else selected[0]["candidate_id"]
+            ),
+            "selected_resource_profile": (
+                None if selected is None else selected[0]["resource_profile"]
+            ),
+            "outcome": (
+                "SELECTED"
+                if selected is not None
+                else (
+                    "EMPTY"
+                    if request["capacity_deficit"]
+                    else "CAPACITY_FULL"
+                )
+            ),
+            "dispatch_required": selected is not None,
+            "owner_prompt_required": False,
+            "dispatch_contract": (
+                "CALLER_MUST_EXECUTE_RECEIPT_BACKED_PREPARE"
+                if selected is not None
+                else (
+                    "NO_DISPATCH_EMPTY"
+                    if request["capacity_deficit"]
+                    else "NO_DISPATCH_CAPACITY_FULL"
+                )
+            ),
+            "selected_reason": (
+                "SHORT_LANE_ANTI_STARVATION"
+                if selected is not None
+                and request["short_lane_available"]
+                and selected[0]["bucket"] in SHORT_BUCKETS
+                else (
+                    "FAIR_AGED_VALUE"
+                    if selected is not None
+                    else (
+                        "NO_ELIGIBLE"
+                        if request["capacity_deficit"]
+                        else "CAPACITY_FULL"
+                    )
+                )
+            ),
+            "ranked_eligible": ranked,
+            "deferred": sorted(deferred, key=lambda item: item["candidate_id"]),
+            "reservation_summary": {
+                "queued_setup_reserved_count": queued_setup_reserved,
+                "queued_setup_active_count": 0,
+                "failed_setup_rollback_count": failed_setup_rollbacks,
+                "resource_held_queued_count": sum(
+                    hold["state"] == "queued_setup" for hold in holds
+                ),
+                "resource_held_queued_weight": sum(
+                    hold["resource_profile"]["weight"]
+                    for hold in holds
+                    if hold["state"] == "queued_setup"
+                ),
+                "active_resource_weight": sum(
+                    hold["resource_profile"]["weight"]
+                    for hold in holds
+                    if hold["state"] == "active"
+                ),
+                "heavy_resource_active_or_reserved_count": heavy_resource_holds,
+                "root_excluded_from_logical_capacity": True,
+                "process_oversubscription_inferred": False,
+            },
+        }
 
     def checked_task(
         self, connection: sqlite3.Connection, request: dict[str, Any], states: set[str]
@@ -1554,6 +2794,31 @@ class Plane:
             fail("STALE_FENCE", "active ownership claim is missing")
         return task
 
+    @staticmethod
+    def require_external_receipt(
+        connection: sqlite3.Connection, request: dict[str, Any]
+    ) -> str:
+        launch = connection.execute(
+            "SELECT receipt_json FROM launches WHERE task_id=?",
+            (request["task_id"],),
+        ).fetchone()
+        if not launch or not launch["receipt_json"]:
+            fail(
+                "EXTERNAL_RECEIPT_REQUIRED",
+                "worker mutation requires a canonical external launch receipt",
+            )
+        canonical_external_id = json.loads(launch["receipt_json"])[
+            "external_thread_id"
+        ]
+        if request.get("external_thread_id") != canonical_external_id:
+            fail(
+                "EXTERNAL_RECEIPT_MISMATCH",
+                "only the receipt-backed external task may mutate",
+                exit_status=EXIT_CONFLICT,
+                details={"canonical_external_thread_id": canonical_external_id},
+            )
+        return canonical_external_id
+
     def record_handback(self, raw: Any) -> dict[str, Any]:
         request = validate_handback(raw)
         connection = self.connect()
@@ -1569,15 +2834,49 @@ class Plane:
                     "policy_snapshot_revision": request["policy_snapshot_revision"],
                     "lease_epoch": request["lease_epoch"],
                     "fencing_token": request["fencing_token"],
+                    "external_thread_id": request["external_thread_id"],
                     "disposition": request["disposition"],
+                    "successor_task_id": (
+                        request["successor_request"]["task_id"]
+                        if request["successor_request"]
+                        else None
+                    ),
+                    "capacity": {
+                        key: request["capacity"][key]
+                        for key in (
+                            "configured_capacity",
+                            "runnable_queue_count",
+                            "terminal_status",
+                            "clean_handback",
+                            "empty_outcome",
+                        )
+                    },
+                    "blocked_audits": [
+                        {
+                            "task_id": audit["task_id"],
+                            "classification": audit["classification"],
+                            "outcome": audit["outcome"],
+                            "reason_code": audit["reason_code"],
+                        }
+                        for audit in request["capacity"]["blocked_audits"]
+                    ],
                 }
             )
             if existing:
                 if existing["request_hash"] != request_hash:
                     fail("IDEMPOTENCY_CONFLICT", "handback_id input changed", exit_status=EXIT_CONFLICT)
+                replay = json.loads(existing["result_json"])
+                if replay.get("successor") and request["successor_request"]:
+                    replay["successor"]["prompt"] = (
+                        request["successor_request"]["prompt"]
+                        + "\n\n<orchestrator_launch_envelope>\n"
+                        + canonical(replay["successor"]["envelope"])
+                        + "\n</orchestrator_launch_envelope>"
+                    )
                 connection.commit()
-                return json.loads(existing["result_json"])
+                return replay
             task = self.checked_task(connection, request, {"RUNNING", "BLOCKED", "FAILED"})
+            self.require_external_receipt(connection, request)
             before = task["state"]
             if request["disposition"] == "blocked":
                 if request["successor_request"] is not None:
@@ -1627,12 +2926,20 @@ class Plane:
                 )
                 connection.commit()
                 return result
+            capacity = request["capacity"]
+            audit_result = self.recycle_blocked_in_transaction(
+                connection,
+                audits=capacity["blocked_audits"],
+                now=request["now"],
+                request_id=f"{request['handback_id']}:blocked-audit",
+            )
             successor_result = None
+            connection.execute(
+                """UPDATE owner_claims SET status='released',heartbeat_at=?
+                   WHERE task_id=? AND status='active'""",
+                (request["now"], request["task_id"]),
+            )
             if request["successor_request"] is not None:
-                connection.execute(
-                    "UPDATE owner_claims SET status='released',heartbeat_at=? WHERE task_id=? AND status='active'",
-                    (request["now"], request["task_id"]),
-                )
                 successor = validate_prepare(request["successor_request"])
                 successor_result = self.reserve_launch(
                     connection, successor, source="handback-successor"
@@ -1677,12 +2984,99 @@ class Plane:
                 "UPDATE tasks SET state='ARCHIVE_PENDING',closure_json=?,updated_at=? WHERE task_id=?",
                 (canonical(closure), request["now"], request["task_id"]),
             )
-            if request["successor_request"] is not None:
-                connection.execute(
-                    """UPDATE owner_claims SET status='released',heartbeat_at=?
-                       WHERE task_id=? AND status='active'""",
-                    (request["now"], request["task_id"]),
+            active = self.active_or_reserved_count(connection)
+            if (
+                capacity["runnable_queue_count"] > 0
+                and active != capacity["configured_capacity"]
+            ):
+                fail(
+                    "REFILL_PROOF_REQUIRED",
+                    "terminal handback cannot release capacity until recycle reserves an exact replacement",
+                    exit_status=EXIT_CONFLICT,
+                    details={
+                        "configured_capacity": capacity["configured_capacity"],
+                        "active_or_reserved_count": active,
+                    },
                 )
+            if (
+                capacity["runnable_queue_count"] == 0
+                and request["successor_request"] is not None
+            ):
+                fail(
+                    "CAPACITY_EVIDENCE_CONFLICT",
+                    "zero runnable work cannot carry a successor reservation",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if (
+                capacity["empty_outcome"] == "OWNER_GATED"
+                and not audit_result["owner_gated_task_ids"]
+            ):
+                fail(
+                    "OWNER_GATE_EVIDENCE_REQUIRED",
+                    "OWNER_GATED capacity requires an authority-derived blocked audit",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if request["successor_request"] is not None:
+                capacity_outcome = "SUCCESSOR_RESERVED"
+            elif capacity["runnable_queue_count"] == 0:
+                capacity_outcome = capacity["empty_outcome"]
+            elif active == capacity["configured_capacity"]:
+                capacity_outcome = "CAPACITY_FULL"
+            else:
+                capacity_outcome = "CAPACITY_DEFICIT"
+            connection.execute(
+                """INSERT INTO capacity_sagas(
+                  saga_id,task_id,configured_capacity,runnable_queue_count,
+                  terminal_status,clean_handback,outcome,successor_task_id,
+                  successor_receipted,evidence_refs_json,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,0,?,?,?)""",
+                (
+                    request["handback_id"],
+                    request["task_id"],
+                    capacity["configured_capacity"],
+                    capacity["runnable_queue_count"],
+                    capacity["terminal_status"],
+                    int(capacity["clean_handback"]),
+                    capacity_outcome,
+                    (
+                        request["successor_request"]["task_id"]
+                        if request["successor_request"]
+                        else None
+                    ),
+                    canonical(capacity["evidence_refs"]),
+                    request["now"],
+                    request["now"],
+                ),
+            )
+            capacity_row = connection.execute(
+                "SELECT * FROM capacity_sagas WHERE saga_id=?",
+                (request["handback_id"],),
+            ).fetchone()
+            self.event(
+                connection,
+                request["now"],
+                request["task_id"],
+                request["handback_id"],
+                "CAPACITY_RELEASED",
+                capacity_outcome,
+                ["BR-CLOSE-001", "BR-RESOURCE-001"],
+                before,
+                "ARCHIVE_PENDING",
+                {
+                    "configured_capacity": capacity["configured_capacity"],
+                    "runnable_queue_count": capacity["runnable_queue_count"],
+                    "active_or_reserved_count": active,
+                    "successor_task_id": (
+                        request["successor_request"]["task_id"]
+                        if request["successor_request"]
+                        else None
+                    ),
+                    "blocked_audit_request_id": (
+                        f"{request['handback_id']}:blocked-audit"
+                    ),
+                    "blocked_resume_task_id": audit_result["selected_task_id"],
+                },
+            )
             archive_outbox = f"archive:{request['task_id']}"
             connection.execute(
                 """INSERT OR IGNORE INTO outbox(
@@ -1708,6 +3102,7 @@ class Plane:
                 "state": "ARCHIVE_PENDING",
                 "archive_outbox_id": archive_outbox,
                 "successor": successor_result,
+                "capacity": self.capacity_result(connection, capacity_row),
                 "evidence_count": len(request["checks"]) + len(request["exact_refs"]),
                 "resource_count": len(request["resources"]),
                 "reclaimed_bytes": sum(
@@ -1716,6 +3111,13 @@ class Plane:
                     if item["disposition"] == "removed"
                 ),
             }
+            stored_result = dict(result)
+            if successor_result is not None:
+                stored_result["successor"] = {
+                    key: value
+                    for key, value in successor_result.items()
+                    if key != "prompt"
+                }
             connection.execute(
                 "INSERT INTO handbacks VALUES(?,?,?,?,?,?)",
                 (
@@ -1736,9 +3138,12 @@ class Plane:
                                 if request["successor_request"]
                                 else None
                             ),
+                            "blocked_audit_request_id": (
+                                f"{request['handback_id']}:blocked-audit"
+                            ),
                         }
                     ),
-                    canonical(result),
+                    canonical(stored_result),
                     request["now"],
                 ),
             )
@@ -1758,6 +3163,9 @@ class Plane:
                         request["successor_request"]["task_id"]
                         if request["successor_request"]
                         else None
+                    ),
+                    "blocked_audit_request_id": (
+                        f"{request['handback_id']}:blocked-audit"
                     ),
                 },
             )
@@ -1835,12 +3243,368 @@ class Plane:
         finally:
             connection.close()
 
+    def reconcile_external_task(self, raw: Any) -> dict[str, Any]:
+        request = validate_external_task(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            task = connection.execute(
+                """SELECT * FROM tasks
+                   WHERE source_event_key=? AND outcome_key=?""",
+                (
+                    request["source_event_key"],
+                    request["outcome_key"],
+                ),
+            ).fetchone()
+            if not task:
+                fail(
+                    "TASK_IDENTITY_MISMATCH",
+                    "external task does not match a canonical reservation",
+                    exit_status=EXIT_CONFLICT,
+                )
+            launch = connection.execute(
+                "SELECT receipt_json FROM launches WHERE task_id=?",
+                (task["task_id"],),
+            ).fetchone()
+            canonical_external_id = (
+                None
+                if not launch or not launch["receipt_json"]
+                else json.loads(launch["receipt_json"])["external_thread_id"]
+            )
+            if (
+                request["task_id"] == task["task_id"]
+                and request["external_thread_id"] == canonical_external_id
+            ):
+                connection.commit()
+                return {
+                    "classification": "CANONICAL_RECEIPT_CONFIRMED",
+                    "canonical_task_id": task["task_id"],
+                    "canonical_external_thread_id": canonical_external_id,
+                    "mutation_allowed": True,
+                    "capacity_eligible": task["state"]
+                    in {"LAUNCH_PENDING", "RUNNING"},
+                    "required_actions": [],
+                    "zero_change_handback": None,
+                }
+            self.event(
+                connection,
+                request["now"],
+                task["task_id"],
+                request["request_id"],
+                "EXTERNAL_MIRROR_STOPPED",
+                "MISSING_CANONICAL_RECEIPT",
+                ["BR-DUP-001", "BR-LAUNCH-001", "BR-OWNER-001"],
+                None,
+                "DUPLICATE_STOP",
+                {
+                    "external_thread_id": request["external_thread_id"],
+                    "external_task_id": request["task_id"],
+                    "canonical_task_id": task["task_id"],
+                    "canonical_external_thread_id": canonical_external_id,
+                    "capacity_eligible": False,
+                },
+            )
+            connection.commit()
+            return {
+                "classification": "DUPLICATE_STOP",
+                "canonical_external_thread_id": canonical_external_id,
+                "canonical_task_id": task["task_id"],
+                "mutation_allowed": False,
+                "capacity_eligible": False,
+                "required_actions": [
+                    "STOP_READ_ONLY",
+                    "RETURN_ZERO_CHANGE_HANDBACK",
+                    "ARCHIVE_EXTERNAL_MIRROR",
+                ],
+                "zero_change_handback": {
+                    "disposition": "duplicate",
+                    "changes": 0,
+                    "evidence_refs": [
+                        f"external-mirror:{request['request_id']}"
+                    ],
+                },
+            }
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def record_setup_failure(self, raw: Any) -> dict[str, Any]:
+        request = validate_setup_failure(raw)
+        request_hash = digest(
+            {
+                "request_id": request["request_id"],
+                "task_id": request["task_id"],
+                "policy_snapshot_revision": request["policy_snapshot_revision"],
+                "lease_epoch": request["lease_epoch"],
+                "fencing_token": request["fencing_token"],
+                "reason_code": request["reason_code"],
+                "configured_capacity": request["configured_capacity"],
+                "runnable_queue_count": request["runnable_queue_count"],
+                "empty_outcome": request["empty_outcome"],
+                "candidate_task_ids": [
+                    candidate["task_id"]
+                    for candidate in request["successor_candidates"]
+                ],
+            }
+        )
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT * FROM setup_failures WHERE request_id=?",
+                (request["request_id"],),
+            ).fetchone()
+            if existing:
+                if existing["request_hash"] != request_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "setup failure request input changed",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                replay = json.loads(existing["result_json"])
+                selected_request = next(
+                    (
+                        candidate
+                        for candidate in request["successor_candidates"]
+                        if candidate["task_id"]
+                        == existing["selected_successor_task_id"]
+                    ),
+                    None,
+                )
+                if replay.get("successor") and selected_request is not None:
+                    replay["successor"]["prompt"] = (
+                        selected_request["prompt"]
+                        + "\n\n<orchestrator_launch_envelope>\n"
+                        + canonical(replay["successor"]["envelope"])
+                        + "\n</orchestrator_launch_envelope>"
+                    )
+                connection.commit()
+                return replay
+            task = self.checked_task(connection, request, {"LAUNCH_PENDING"})
+            outbox = connection.execute(
+                """SELECT * FROM outbox
+                   WHERE task_id=? AND kind='CREATE_THREAD'""",
+                (request["task_id"],),
+            ).fetchone()
+            if not outbox or outbox["state"] != "pending":
+                fail(
+                    "SETUP_OUTBOX_INVALID",
+                    "setup failure requires the current pending create outbox",
+                    exit_status=EXIT_CONFLICT,
+                )
+            saga = connection.execute(
+                "SELECT * FROM capacity_sagas WHERE successor_task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if saga and saga["configured_capacity"] != request["configured_capacity"]:
+                fail(
+                    "CAPACITY_CONFIGURATION_MISMATCH",
+                    "setup recovery cannot silently change configured capacity",
+                    exit_status=EXIT_CONFLICT,
+                )
+            audit_result = self.recycle_blocked_in_transaction(
+                connection,
+                audits=request["blocked_audits"],
+                now=request["now"],
+                request_id=f"{request['request_id']}:blocked-audit",
+            )
+            connection.execute(
+                "UPDATE tasks SET state='FAILED',updated_at=? WHERE task_id=?",
+                (request["now"], request["task_id"]),
+            )
+            connection.execute(
+                """UPDATE owner_claims SET status='released',heartbeat_at=?
+                   WHERE task_id=? AND status='active'""",
+                (request["now"], request["task_id"]),
+            )
+            connection.execute(
+                """UPDATE outbox
+                   SET state='poisoned',attempts=attempts+1,updated_at=?
+                   WHERE outbox_id=?""",
+                (request["now"], outbox["outbox_id"]),
+            )
+            selected = None
+            rejected: list[dict[str, str]] = []
+            candidates = sorted(
+                request["successor_candidates"],
+                key=lambda item: (-item["priority"], item["task_id"]),
+            )
+            for index, candidate in enumerate(candidates):
+                savepoint = f"setup_candidate_{index}"
+                connection.execute(f"SAVEPOINT {savepoint}")
+                try:
+                    selected = self.reserve_launch(
+                        connection,
+                        candidate,
+                        source="setup-failure-successor",
+                    )
+                    connection.execute(f"RELEASE {savepoint}")
+                    break
+                except ControlError as error:
+                    connection.execute(f"ROLLBACK TO {savepoint}")
+                    connection.execute(f"RELEASE {savepoint}")
+                    rejected.append(
+                        {
+                            "task_id": candidate["task_id"],
+                            "reason_code": error.code,
+                        }
+                    )
+            selected_task_id = (
+                None if selected is None else selected["envelope"]["task_id"]
+            )
+            active = self.active_or_reserved_count(connection)
+            if selected_task_id is not None and active == request["configured_capacity"]:
+                outcome = "SUCCESSOR_RESERVED"
+            elif request["runnable_queue_count"] == 0:
+                if (
+                    request["empty_outcome"] == "OWNER_GATED"
+                    and not audit_result["owner_gated_task_ids"]
+                ):
+                    fail(
+                        "OWNER_GATE_EVIDENCE_REQUIRED",
+                        "OWNER_GATED setup recovery requires a blocked audit",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                outcome = request["empty_outcome"]
+            elif active == request["configured_capacity"]:
+                outcome = "CAPACITY_FULL"
+            else:
+                outcome = "CAPACITY_DEFICIT"
+            saga_id = (
+                saga["saga_id"]
+                if saga
+                else f"setup-recovery:{request['request_id']}"
+            )
+            if saga:
+                evidence_refs = sorted(
+                    set(
+                        json.loads(saga["evidence_refs_json"])
+                        + request["evidence_refs"]
+                    )
+                )
+                connection.execute(
+                    """UPDATE capacity_sagas
+                       SET runnable_queue_count=?,outcome=?,
+                           successor_task_id=?,successor_receipted=0,
+                           evidence_refs_json=?,updated_at=?
+                       WHERE saga_id=?""",
+                    (
+                        request["runnable_queue_count"],
+                        outcome,
+                        selected_task_id,
+                        canonical(evidence_refs),
+                        request["now"],
+                        saga_id,
+                    ),
+                )
+            else:
+                evidence_refs = request["evidence_refs"]
+                connection.execute(
+                    """INSERT INTO capacity_sagas(
+                      saga_id,task_id,configured_capacity,runnable_queue_count,
+                      terminal_status,clean_handback,outcome,successor_task_id,
+                      successor_receipted,evidence_refs_json,created_at,updated_at
+                    ) VALUES(?,?,?,?,?,0,?,?,0,?,?,?)""",
+                    (
+                        saga_id,
+                        request["task_id"],
+                        request["configured_capacity"],
+                        request["runnable_queue_count"],
+                        "setup-failed",
+                        outcome,
+                        selected_task_id,
+                        canonical(evidence_refs),
+                        request["now"],
+                        request["now"],
+                    ),
+                )
+            capacity_row = connection.execute(
+                "SELECT * FROM capacity_sagas WHERE saga_id=?", (saga_id,)
+            ).fetchone()
+            result = {
+                "task_id": request["task_id"],
+                "state": "FAILED",
+                "failed_outbox_id": outbox["outbox_id"],
+                "outbox_state": "poisoned",
+                "successor": selected,
+                "rejected_candidates": rejected,
+                "capacity": self.capacity_result(connection, capacity_row),
+            }
+            stored_result = dict(result)
+            if selected is not None:
+                stored_result["successor"] = {
+                    key: value for key, value in selected.items() if key != "prompt"
+                }
+            connection.execute(
+                """INSERT INTO setup_failures(
+                  request_id,request_hash,task_id,saga_id,failed_outbox_id,
+                  selected_successor_task_id,result_json,recorded_at
+                ) VALUES(?,?,?,?,?,?,?,?)""",
+                (
+                    request["request_id"],
+                    request_hash,
+                    request["task_id"],
+                    saga_id,
+                    outbox["outbox_id"],
+                    selected_task_id,
+                    canonical(stored_result),
+                    request["now"],
+                ),
+            )
+            self.event(
+                connection,
+                request["now"],
+                request["task_id"],
+                request["request_id"],
+                "LAUNCH_SETUP_FAILED",
+                request["reason_code"],
+                ["BR-LAUNCH-001", "BR-CLOSE-001"],
+                task["state"],
+                "FAILED",
+                {
+                    "failed_outbox_id": outbox["outbox_id"],
+                    "outbox_state": "poisoned",
+                    "capacity_eligible": False,
+                    "selected_successor_task_id": selected_task_id,
+                    "rejected_candidates": rejected,
+                },
+            )
+            self.event(
+                connection,
+                request["now"],
+                request["task_id"],
+                saga_id,
+                "CAPACITY_RELEASED",
+                outcome,
+                ["BR-CLOSE-001", "BR-LAUNCH-001"],
+                "LAUNCH_PENDING",
+                "FAILED",
+                {
+                    "configured_capacity": request["configured_capacity"],
+                    "runnable_queue_count": request["runnable_queue_count"],
+                    "active_or_reserved_count": active,
+                    "successor_task_id": selected_task_id,
+                },
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def heartbeat(self, raw: Any) -> dict[str, Any]:
         request = validate_heartbeat(raw)
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
             task = self.checked_task(connection, request, {"RUNNING", "BLOCKED"})
+            canonical_external_id = self.require_external_receipt(
+                connection, request
+            )
             connection.execute(
                 """UPDATE owner_claims SET heartbeat_at=?,expires_at=?
                    WHERE task_id=? AND status='active' AND fencing_token=?""",
@@ -1861,7 +3625,10 @@ class Plane:
                 ["BR-OWNER-001"],
                 task["state"],
                 task["state"],
-                {"lease_epoch": request["lease_epoch"]},
+                {
+                    "lease_epoch": request["lease_epoch"],
+                    "external_thread_id": canonical_external_id,
+                },
             )
             connection.commit()
             return {
@@ -1901,6 +3668,28 @@ class Plane:
                 or request["fencing_token"] != task["fencing_token"]
             ):
                 fail("STALE_FENCE", "archive receipt has stale fencing")
+            saga = connection.execute(
+                "SELECT * FROM capacity_sagas WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if not saga:
+                fail(
+                    "CAPACITY_SAGA_MISSING",
+                    "archive is fenced until a durable closure/refill saga exists",
+                    exit_status=EXIT_STATE,
+                )
+            if saga["outcome"] not in {
+                "SUCCESSOR_RECEIPTED",
+                "EMPTY",
+                "OWNER_GATED",
+                "CAPACITY_FULL",
+            }:
+                fail(
+                    "CAPACITY_REFILL_PENDING",
+                    "archive is fenced until refill is receipted or a terminal empty outcome is evidenced",
+                    exit_status=EXIT_CONFLICT,
+                    details={"saga_id": saga["saga_id"], "outcome": saga["outcome"]},
+                )
             connection.execute(
                 "UPDATE tasks SET state='ARCHIVED',updated_at=? WHERE task_id=?",
                 (request["now"], request["task_id"]),
@@ -1934,101 +3723,236 @@ class Plane:
         finally:
             connection.close()
 
+    def capacity_watchdog(self, raw: Any) -> dict[str, Any]:
+        request = validate_capacity_watchdog(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM capacity_sagas WHERE saga_id=?",
+                (request["saga_id"],),
+            ).fetchone()
+            if not row:
+                fail("CAPACITY_SAGA_MISSING", "capacity saga does not exist")
+            if request["configured_capacity"] != row["configured_capacity"]:
+                fail(
+                    "CAPACITY_CONFIGURATION_MISMATCH",
+                    "watchdog cannot silently change configured capacity",
+                    exit_status=EXIT_CONFLICT,
+                )
+            audit_result = self.recycle_blocked_in_transaction(
+                connection,
+                audits=request["blocked_audits"],
+                now=request["now"],
+                request_id=f"{request['request_id']}:blocked-audit",
+            )
+            successor_result = None
+            successor_task_id = row["successor_task_id"]
+            if request["successor_request"] is not None:
+                candidate = request["successor_request"]
+                if successor_task_id and candidate["task_id"] != successor_task_id:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "capacity saga already selected another successor",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                if not successor_task_id:
+                    successor_result = self.reserve_launch(
+                        connection, candidate, source="capacity-watchdog"
+                    )
+                    successor_task_id = candidate["task_id"]
+            active = self.active_or_reserved_count(connection)
+            receipted = bool(row["successor_receipted"])
+            if successor_task_id:
+                if receipted and active == row["configured_capacity"]:
+                    outcome = "SUCCESSOR_RECEIPTED"
+                elif not receipted and active == row["configured_capacity"]:
+                    outcome = "SUCCESSOR_RESERVED"
+                else:
+                    outcome = "CAPACITY_DEFICIT"
+            elif request["runnable_queue_count"] == 0:
+                if (
+                    request["empty_outcome"] == "OWNER_GATED"
+                    and not audit_result["owner_gated_task_ids"]
+                ):
+                    fail(
+                        "OWNER_GATE_EVIDENCE_REQUIRED",
+                        "OWNER_GATED watchdog outcome requires a blocked audit",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                outcome = request["empty_outcome"]
+            elif active == row["configured_capacity"]:
+                outcome = "CAPACITY_FULL"
+            else:
+                outcome = "CAPACITY_DEFICIT"
+            evidence_refs = sorted(
+                set(json.loads(row["evidence_refs_json"]) + request["evidence_refs"])
+            )
+            connection.execute(
+                """UPDATE capacity_sagas
+                   SET runnable_queue_count=?,outcome=?,successor_task_id=?,
+                       evidence_refs_json=?,updated_at=?
+                   WHERE saga_id=?""",
+                (
+                    request["runnable_queue_count"],
+                    outcome,
+                    successor_task_id,
+                    canonical(evidence_refs),
+                    request["now"],
+                    request["saga_id"],
+                ),
+            )
+            self.event(
+                connection,
+                request["now"],
+                row["task_id"],
+                request["request_id"],
+                "CAPACITY_WATCHDOG_RECONCILED",
+                outcome,
+                ["BR-CLOSE-001", "BR-LAUNCH-001"],
+                None,
+                None,
+                {
+                    "saga_id": request["saga_id"],
+                    "configured_capacity": row["configured_capacity"],
+                    "runnable_queue_count": request["runnable_queue_count"],
+                    "active_or_reserved_count": active,
+                    "successor_task_id": successor_task_id,
+                },
+            )
+            updated = connection.execute(
+                "SELECT * FROM capacity_sagas WHERE saga_id=?",
+                (request["saga_id"],),
+            ).fetchone()
+            connection.commit()
+            return {
+                "capacity": self.capacity_result(connection, updated),
+                "successor": successor_result,
+            }
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def recycle_blocked_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        audits: list[dict[str, Any]],
+        now: str,
+        request_id: str,
+    ) -> dict[str, Any]:
+        blocked = connection.execute(
+            "SELECT * FROM tasks WHERE state='BLOCKED' ORDER BY task_id"
+        ).fetchall()
+        expected = {row["task_id"] for row in blocked}
+        provided = {item["task_id"] for item in audits}
+        if expected != provided:
+            fail(
+                "BLOCKED_AUDIT_INCOMPLETE",
+                "all blocked tasks must be reconciled in one transaction",
+                details={
+                    "missing": sorted(expected - provided),
+                    "unknown": sorted(provided - expected),
+                },
+            )
+        rows = {row["task_id"]: row for row in blocked}
+        resumable = []
+        archived = []
+        owner_gated = []
+        for audit in audits:
+            row = rows[audit["task_id"]]
+            block = {
+                **audit,
+                "audit_required": False,
+                "audited_at": now,
+            }
+            if audit["outcome"] == "resume":
+                fanout = len(json.loads(row["dependencies_json"]))
+                resumable.append((row, fanout, block))
+            elif audit["outcome"] == "archive":
+                connection.execute(
+                    "UPDATE tasks SET state='ARCHIVED',block_json=?,updated_at=? WHERE task_id=?",
+                    (canonical(block), now, row["task_id"]),
+                )
+                connection.execute(
+                    "UPDATE owner_claims SET status='released' WHERE task_id=?",
+                    (row["task_id"],),
+                )
+                archived.append(row["task_id"])
+            elif audit["outcome"] == "owner_gate":
+                connection.execute(
+                    "UPDATE tasks SET block_json=?,updated_at=? WHERE task_id=?",
+                    (canonical(block), now, row["task_id"]),
+                )
+                owner_gated.append(row["task_id"])
+            else:
+                connection.execute(
+                    "UPDATE tasks SET block_json=?,updated_at=? WHERE task_id=?",
+                    (canonical(block), now, row["task_id"]),
+                )
+        resumable.sort(
+            key=lambda item: (
+                -item[0]["priority"],
+                -item[1],
+                item[0]["created_at"],
+                item[0]["task_id"],
+            )
+        )
+        ranked = []
+        for index, (row, fanout, block) in enumerate(resumable):
+            ranked.append(
+                {
+                    "rank": index + 1,
+                    "task_id": row["task_id"],
+                    "priority": row["priority"],
+                    "dependency_fanout": fanout,
+                    "reason_code": block["classification"],
+                }
+            )
+            if index == 0:
+                connection.execute(
+                    "UPDATE tasks SET state='RUNNING',block_json=NULL,updated_at=? WHERE task_id=?",
+                    (now, row["task_id"]),
+                )
+            else:
+                connection.execute(
+                    "UPDATE tasks SET block_json=?,updated_at=? WHERE task_id=?",
+                    (canonical(block), now, row["task_id"]),
+                )
+        self.event(
+            connection,
+            now,
+            None,
+            request_id,
+            "BLOCKED_QUEUE_RECYCLED",
+            "AUDIT_COMMITTED",
+            ["BR-BLOCK-001", "BR-CI-001"],
+            "BLOCKED",
+            "RUNNING" if ranked else "BLOCKED",
+            {"ranked_task_ids": [item["task_id"] for item in ranked]},
+        )
+        return {
+            "ranked_resumable": ranked,
+            "selected_task_id": ranked[0]["task_id"] if ranked else None,
+            "archived_task_ids": sorted(archived),
+            "owner_gated_task_ids": sorted(owner_gated),
+        }
+
     def recycle(self, raw: Any) -> dict[str, Any]:
         request = validate_recycle(raw)
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            blocked = connection.execute(
-                "SELECT * FROM tasks WHERE state='BLOCKED' ORDER BY task_id"
-            ).fetchall()
-            expected = {row["task_id"] for row in blocked}
-            provided = {item["task_id"] for item in request["audits"]}
-            if expected != provided:
-                fail(
-                    "BLOCKED_AUDIT_INCOMPLETE",
-                    "all blocked tasks must be reconciled in one transaction",
-                    details={
-                        "missing": sorted(expected - provided),
-                        "unknown": sorted(provided - expected),
-                    },
-                )
-            rows = {row["task_id"]: row for row in blocked}
-            resumable = []
-            archived = []
-            owner_gated = []
-            for audit in request["audits"]:
-                row = rows[audit["task_id"]]
-                block = {
-                    **audit,
-                    "audit_required": False,
-                    "audited_at": request["now"],
-                }
-                if audit["outcome"] == "resume":
-                    fanout = len(json.loads(row["dependencies_json"]))
-                    resumable.append((row, fanout, block))
-                elif audit["outcome"] == "archive":
-                    connection.execute(
-                        "UPDATE tasks SET state='ARCHIVED',block_json=?,updated_at=? WHERE task_id=?",
-                        (canonical(block), request["now"], row["task_id"]),
-                    )
-                    connection.execute(
-                        "UPDATE owner_claims SET status='released' WHERE task_id=?",
-                        (row["task_id"],),
-                    )
-                    archived.append(row["task_id"])
-                elif audit["outcome"] == "owner_gate":
-                    connection.execute(
-                        "UPDATE tasks SET block_json=?,updated_at=? WHERE task_id=?",
-                        (canonical(block), request["now"], row["task_id"]),
-                    )
-                    owner_gated.append(row["task_id"])
-                else:
-                    connection.execute(
-                        "UPDATE tasks SET block_json=?,updated_at=? WHERE task_id=?",
-                        (canonical(block), request["now"], row["task_id"]),
-                    )
-            resumable.sort(key=lambda item: (-item[0]["priority"], -item[1], item[0]["created_at"], item[0]["task_id"]))
-            ranked = []
-            for index, (row, fanout, block) in enumerate(resumable):
-                ranked.append(
-                    {
-                        "rank": index + 1,
-                        "task_id": row["task_id"],
-                        "priority": row["priority"],
-                        "dependency_fanout": fanout,
-                        "reason_code": block["classification"],
-                    }
-                )
-                if index == 0:
-                    connection.execute(
-                        "UPDATE tasks SET state='RUNNING',block_json=NULL,updated_at=? WHERE task_id=?",
-                        (request["now"], row["task_id"]),
-                    )
-                else:
-                    connection.execute(
-                        "UPDATE tasks SET block_json=?,updated_at=? WHERE task_id=?",
-                        (canonical(block), request["now"], row["task_id"]),
-                    )
-            self.event(
+            result = self.recycle_blocked_in_transaction(
                 connection,
-                request["now"],
-                None,
-                request["request_id"],
-                "BLOCKED_QUEUE_RECYCLED",
-                "AUDIT_COMMITTED",
-                ["BR-BLOCK-001", "BR-CI-001"],
-                "BLOCKED",
-                "RUNNING" if ranked else "BLOCKED",
-                {"ranked_task_ids": [item["task_id"] for item in ranked]},
+                audits=request["audits"],
+                now=request["now"],
+                request_id=request["request_id"],
             )
             connection.commit()
-            return {
-                "ranked_resumable": ranked,
-                "selected_task_id": ranked[0]["task_id"] if ranked else None,
-                "archived_task_ids": sorted(archived),
-                "owner_gated_task_ids": sorted(owner_gated),
-            }
+            return result
         except Exception:
             connection.rollback()
             raise
@@ -2134,7 +4058,9 @@ class Plane:
         finally:
             connection.close()
 
-    def status(self) -> dict[str, Any]:
+    def status(self, now: str | None = None) -> dict[str, Any]:
+        if now is not None:
+            timestamp(now)
         connection = self.connect()
         try:
             tasks = []
@@ -2162,6 +4088,20 @@ class Plane:
                         if key in raw_block
                     }
                 )
+                timing = connection.execute(
+                    "SELECT * FROM task_timing WHERE task_id=?",
+                    (row["task_id"],),
+                ).fetchone()
+                claim = connection.execute(
+                    """SELECT expires_at FROM owner_claims
+                       WHERE task_id=? AND status='active'""",
+                    (row["task_id"],),
+                ).fetchone()
+                stale = (
+                    None
+                    if now is None or claim is None
+                    else utc_instant(claim["expires_at"]) <= utc_instant(now)
+                )
                 tasks.append(
                     {
                         "task_id": row["task_id"],
@@ -2169,8 +4109,32 @@ class Plane:
                         "priority": row["priority"],
                         "repo_alias": target["remote"].split("/", 1)[1],
                         "path": target["path"],
+                        "canonical_external_thread_id": row[
+                            "external_thread_id"
+                        ],
+                        "capacity_eligible": row["state"]
+                        in {"LAUNCH_PENDING", "RUNNING"},
                         "updated_at": row["updated_at"],
                         "block": block,
+                        "duration": (
+                            None if timing is None else self.duration_result(timing)
+                        ),
+                        "freshness": {
+                            "evaluated_at": now,
+                            "lease_expires_at": (
+                                None if claim is None else claim["expires_at"]
+                            ),
+                            "stale": stale,
+                            "state": (
+                                "UNKNOWN_CLOCK"
+                                if now is None
+                                else (
+                                    "NO_ACTIVE_CLAIM"
+                                    if claim is None
+                                    else ("STALE" if stale else "FRESH")
+                                )
+                            ),
+                        },
                     }
                 )
             rules = [
@@ -2190,12 +4154,80 @@ class Plane:
                 }
                 for rule in self.rules(connection)
             ]
+            capacity = [
+                self.capacity_result(connection, row)
+                for row in connection.execute(
+                    "SELECT * FROM capacity_sagas ORDER BY created_at,saga_id"
+                )
+            ]
+            active_lane_counts = {
+                bucket: connection.execute(
+                    """SELECT count(*) FROM task_timing AS timing
+                       JOIN tasks AS task ON task.task_id=timing.task_id
+                       WHERE timing.current_lane=?
+                         AND task.state='RUNNING'""",
+                    (bucket,),
+                ).fetchone()[0]
+                for bucket in DURATION_BUCKETS
+            }
+            reserved_setup_lane_counts = {
+                bucket: connection.execute(
+                    """SELECT count(*) FROM task_timing AS timing
+                       JOIN tasks AS task ON task.task_id=timing.task_id
+                       WHERE timing.current_lane=?
+                         AND task.state='LAUNCH_PENDING'""",
+                    (bucket,),
+                ).fetchone()[0]
+                for bucket in DURATION_BUCKETS
+            }
+            calibration_groups = [
+                {
+                    "task_family": row["task_family"],
+                    "tool_family": row["tool_family"],
+                    "environment_class": row["environment_class"],
+                    "completed_sample_count": row["sample_count"],
+                    "automatic_prior_eligible": row["sample_count"]
+                    >= MIN_CALIBRATION_SAMPLES,
+                }
+                for row in connection.execute(
+                    """SELECT task_family,tool_family,environment_class,
+                              count(*) AS sample_count
+                       FROM duration_samples
+                       GROUP BY task_family,tool_family,environment_class
+                       ORDER BY task_family,tool_family,environment_class"""
+                )
+            ]
             return {
                 "schema_version": self.metadata(connection, "schema_version"),
                 "revision": int(self.metadata(connection, "revision")),
                 "policy_revision": int(self.metadata(connection, "policy_revision")),
                 "tasks": tasks,
                 "rules": rules,
+                "capacity": capacity,
+                "capacity_failure": any(
+                    item["failure_state"] is not None for item in capacity
+                ),
+                "duration": {
+                    "bucket_order": list(DURATION_BUCKETS),
+                    "non_runtime_states": sorted(NON_RUNTIME_STATES),
+                    "root_excluded_from_worker_capacity": True,
+                    "receipt_backed_lane_counts": active_lane_counts,
+                    "reserved_setup_lane_counts": reserved_setup_lane_counts,
+                    "freshness": {
+                        "evaluated_at": now,
+                        "stale_task_count": (
+                            None
+                            if now is None
+                            else sum(
+                                item["freshness"]["stale"] is True
+                                for item in tasks
+                            )
+                        ),
+                        "state": "UNKNOWN_CLOCK" if now is None else "EVALUATED",
+                    },
+                    "calibration_groups": calibration_groups,
+                    "minimum_completed_samples": MIN_CALIBRATION_SAMPLES,
+                },
                 "outbox": [
                     dict(row)
                     for row in connection.execute(
@@ -2266,6 +4298,7 @@ def validate_prepare(value: Any) -> dict[str, Any]:
             "lease_expires_at",
             "now",
         },
+        {"duration_estimate"},
         label="prepare-launch request",
     )
     if request["interface_version"] != INTERFACE_VERSION:
@@ -2291,6 +4324,11 @@ def validate_prepare(value: Any) -> dict[str, Any]:
         "lease_expires_at": timestamp(request["lease_expires_at"], "lease_expires_at"),
         "now": timestamp(request["now"]),
     }
+    output["duration_estimate"] = validate_duration_estimate(
+        request.get("duration_estimate"),
+        task_family_fallback=output["context"]["task_kind"],
+        environment_fallback=output["context"]["environment"],
+    )
     if output["context"]["repo"] != output["target"]["remote"]:
         fail("SCHEMA_INVALID", "context.repo must equal normalized target.remote")
     if output["context"]["path"] != output["target"]["path"]:
@@ -2467,6 +4505,7 @@ def validate_handback(value: Any) -> dict[str, Any]:
             "policy_snapshot_revision",
             "lease_epoch",
             "fencing_token",
+            "external_thread_id",
             "disposition",
             "exact_refs",
             "checks",
@@ -2482,6 +4521,7 @@ def validate_handback(value: Any) -> dict[str, Any]:
             "block",
             "now",
         },
+        {"capacity"},
         label="record-handback request",
     )
     base = validate_receipt(
@@ -2582,6 +4622,89 @@ def validate_handback(value: Any) -> dict[str, Any]:
         )
     if request["disposition"] in {"completed", "superseded", "duplicate"} and not resources:
         fail("HANDBACK_INCOMPLETE", "terminal handback requires resource disposition")
+    raw_capacity = request.get("capacity")
+    if request["disposition"] != "blocked" and raw_capacity is None:
+        fail(
+            "REFILL_PROOF_REQUIRED",
+            "terminal handback requires explicit recycle/refill capacity proof",
+        )
+    if raw_capacity is None:
+        raw_capacity = {
+            "configured_capacity": 1,
+            "runnable_queue_count": 0,
+            "terminal_status": "completed",
+            "clean_handback": True,
+            "empty_outcome": "EMPTY",
+            "evidence_refs": ["blocked-nonterminal"],
+            "blocked_audits": [],
+        }
+    raw_capacity = strict(
+        raw_capacity,
+        {
+            "configured_capacity",
+            "runnable_queue_count",
+            "terminal_status",
+            "clean_handback",
+            "empty_outcome",
+            "evidence_refs",
+            "blocked_audits",
+        },
+        label="handback capacity",
+    )
+    if raw_capacity["terminal_status"] not in {
+        "completed",
+        "archived",
+        "interrupted/notLoaded",
+    }:
+        fail("SCHEMA_INVALID", "capacity terminal_status is invalid")
+    if not isinstance(raw_capacity["clean_handback"], bool):
+        fail("SCHEMA_INVALID", "capacity clean_handback must be a boolean")
+    if not raw_capacity["clean_handback"]:
+        fail(
+            "HANDBACK_INCOMPLETE",
+            "capacity release requires a valid clean handback",
+        )
+    if (
+        raw_capacity["terminal_status"] == "interrupted/notLoaded"
+        and request["disposition"] != "completed"
+    ):
+        fail(
+            "HANDBACK_INCOMPLETE",
+            "interrupted/notLoaded is terminal only with completed clean evidence",
+        )
+    if raw_capacity["empty_outcome"] not in {"EMPTY", "OWNER_GATED"}:
+        fail("SCHEMA_INVALID", "capacity empty_outcome is invalid")
+    capacity_evidence = (
+        [
+            coarse_label(reference, "capacity.evidence_refs[]")
+            for reference in raw_capacity["evidence_refs"]
+        ]
+        if isinstance(raw_capacity["evidence_refs"], list)
+        else []
+    )
+    if not capacity_evidence:
+        fail("HANDBACK_INCOMPLETE", "capacity outcome requires evidence")
+    capacity = {
+        "configured_capacity": bounded_int(
+            raw_capacity["configured_capacity"],
+            "capacity.configured_capacity",
+            1,
+            64,
+        ),
+        "runnable_queue_count": bounded_int(
+            raw_capacity["runnable_queue_count"],
+            "capacity.runnable_queue_count",
+            0,
+            1_000_000,
+        ),
+        "terminal_status": raw_capacity["terminal_status"],
+        "clean_handback": raw_capacity["clean_handback"],
+        "empty_outcome": raw_capacity["empty_outcome"],
+        "evidence_refs": capacity_evidence,
+        "blocked_audits": validate_blocked_audits(
+            raw_capacity["blocked_audits"], "capacity.blocked_audits"
+        ),
+    }
     output = {
         **base,
         "handback_id": identifier(request["handback_id"], "handback_id"),
@@ -2607,6 +4730,10 @@ def validate_handback(value: Any) -> dict[str, Any]:
         "next_action": text(request["next_action"], "next_action", 2000, single_line=True),
         "successor_request": request["successor_request"],
         "block": request["block"],
+        "capacity": capacity,
+        "external_thread_id": identifier(
+            request["external_thread_id"], "external_thread_id"
+        ),
     }
     if output["deployment_state"] not in {
         "not_performed",
@@ -2646,10 +4773,9 @@ def validate_handback(value: Any) -> dict[str, Any]:
     return output
 
 
-def validate_recycle(value: Any) -> dict[str, Any]:
-    request = strict(value, {"interface_version", "request_id", "audits", "now"}, label="recycle request")
-    if request["interface_version"] != INTERFACE_VERSION or not isinstance(request["audits"], list):
-        fail("SCHEMA_INVALID", "recycle interface or audits is invalid")
+def validate_blocked_audits(value: Any, label: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        fail("SCHEMA_INVALID", f"{label} must be a list")
     classifications = {
         "owner_gate",
         "dependency",
@@ -2662,8 +4788,18 @@ def validate_recycle(value: Any) -> dict[str, Any]:
         "unknown",
     }
     audits = []
-    for item in request["audits"]:
-        item = strict(item, {"task_id", "classification", "outcome", "reason_code", "evidence_refs"}, label="audit")
+    for item in value:
+        item = strict(
+            item,
+            {
+                "task_id",
+                "classification",
+                "outcome",
+                "reason_code",
+                "evidence_refs",
+            },
+            label=f"{label} item",
+        )
         if item["classification"] not in classifications or item["outcome"] not in {
             "resume",
             "archive",
@@ -2679,15 +4815,558 @@ def validate_recycle(value: Any) -> dict[str, Any]:
                 "classification": item["classification"],
                 "outcome": item["outcome"],
                 "reason_code": identifier(item["reason_code"], "audit.reason_code"),
-                "evidence_refs": string_list(item["evidence_refs"], "audit.evidence_refs"),
+                "evidence_refs": (
+                    [
+                        coarse_label(reference, "audit.evidence_refs[]")
+                        for reference in item["evidence_refs"]
+                    ]
+                    if isinstance(item["evidence_refs"], list)
+                    else []
+                ),
             }
         )
+    return audits
+
+
+def validate_recycle(value: Any) -> dict[str, Any]:
+    request = strict(value, {"interface_version", "request_id", "audits", "now"}, label="recycle request")
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "recycle interface version is unsupported")
     return {
         "interface_version": INTERFACE_VERSION,
         "request_id": identifier(request["request_id"], "request_id"),
-        "audits": audits,
+        "audits": validate_blocked_audits(request["audits"], "recycle audits"),
         "now": timestamp(request["now"]),
     }
+
+
+def validate_capacity_watchdog(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "saga_id",
+            "configured_capacity",
+            "runnable_queue_count",
+            "empty_outcome",
+            "evidence_refs",
+            "successor_request",
+            "now",
+        },
+        {"blocked_audits"},
+        label="capacity-watchdog request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    if request["empty_outcome"] not in {"EMPTY", "OWNER_GATED"}:
+        fail("SCHEMA_INVALID", "capacity watchdog empty_outcome is invalid")
+    evidence_refs = string_list(
+        request["evidence_refs"], "capacity-watchdog.evidence_refs"
+    )
+    if not evidence_refs:
+        fail("SCHEMA_INVALID", "capacity watchdog requires evidence")
+    successor = request["successor_request"]
+    if successor is not None:
+        successor = validate_prepare(successor)
+    output = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "saga_id": identifier(request["saga_id"], "saga_id"),
+        "configured_capacity": bounded_int(
+            request["configured_capacity"], "configured_capacity", 1, 64
+        ),
+        "runnable_queue_count": bounded_int(
+            request["runnable_queue_count"], "runnable_queue_count", 0, 1_000_000
+        ),
+        "empty_outcome": request["empty_outcome"],
+        "evidence_refs": evidence_refs,
+        "successor_request": successor,
+        "blocked_audits": validate_blocked_audits(
+            request.get("blocked_audits", []),
+            "capacity watchdog blocked_audits",
+        ),
+        "now": timestamp(request["now"]),
+    }
+    reject_sensitive(output, "capacity watchdog")
+    return output
+
+
+def validate_external_task(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "task_id",
+            "source_event_key",
+            "outcome_key",
+            "external_thread_id",
+            "now",
+        },
+        label="reconcile-external-task request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    return {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "task_id": identifier(request["task_id"], "task_id"),
+        "source_event_key": identifier(
+            request["source_event_key"], "source_event_key"
+        ),
+        "outcome_key": identifier(request["outcome_key"], "outcome_key"),
+        "external_thread_id": identifier(
+            request["external_thread_id"], "external_thread_id"
+        ),
+        "now": timestamp(request["now"]),
+    }
+
+
+def validate_setup_failure(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "task_id",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "reason_code",
+            "evidence_refs",
+            "configured_capacity",
+            "runnable_queue_count",
+            "empty_outcome",
+            "blocked_audits",
+            "successor_candidates",
+            "now",
+        },
+        label="record-setup-failure request",
+    )
+    base = validate_receipt(
+        {
+            key: request[key]
+            for key in (
+                "interface_version",
+                "request_id",
+                "task_id",
+                "policy_snapshot_revision",
+                "lease_epoch",
+                "fencing_token",
+                "now",
+            )
+        },
+        "archive",
+    )
+    if request["empty_outcome"] not in {"EMPTY", "OWNER_GATED"}:
+        fail("SCHEMA_INVALID", "setup failure empty_outcome is invalid")
+    if not isinstance(request["successor_candidates"], list):
+        fail("SCHEMA_INVALID", "successor_candidates must be a list")
+    candidates = [
+        validate_prepare(candidate) for candidate in request["successor_candidates"]
+    ]
+    task_ids = [candidate["task_id"] for candidate in candidates]
+    if len(task_ids) != len(set(task_ids)):
+        fail("SCHEMA_INVALID", "successor candidate task ids must be unique")
+    evidence_refs = [
+        coarse_label(item, "setup failure evidence_refs[]")
+        for item in request["evidence_refs"]
+    ] if isinstance(request["evidence_refs"], list) else []
+    if not evidence_refs:
+        fail("SCHEMA_INVALID", "setup failure requires evidence references")
+    output = {
+        **base,
+        "reason_code": identifier(request["reason_code"], "reason_code"),
+        "evidence_refs": evidence_refs,
+        "configured_capacity": bounded_int(
+            request["configured_capacity"], "configured_capacity", 1, 64
+        ),
+        "runnable_queue_count": bounded_int(
+            request["runnable_queue_count"],
+            "runnable_queue_count",
+            0,
+            1_000_000,
+        ),
+        "empty_outcome": request["empty_outcome"],
+        "blocked_audits": validate_blocked_audits(
+            request["blocked_audits"], "setup failure blocked_audits"
+        ),
+        "successor_candidates": candidates,
+    }
+    reject_sensitive(output, "setup failure")
+    return output
+
+
+def validate_actual_timing(value: Any, label: str) -> dict[str, int | None]:
+    actual = strict(
+        value,
+        {
+            "active_seconds",
+            "queue_seconds",
+            "setup_seconds",
+            "tool_wait_seconds",
+            "external_wait_seconds",
+            "total_wall_seconds",
+            "first_evidence_seconds",
+            "safe_close_seconds",
+        },
+        label=label,
+    )
+    result: dict[str, int | None] = {
+        "active_seconds": bounded_int(
+            actual["active_seconds"], f"{label}.active_seconds", 0, 2_147_483_647
+        ),
+        "queue_seconds": optional_seconds(
+            actual["queue_seconds"], f"{label}.queue_seconds"
+        ),
+        "setup_seconds": optional_seconds(
+            actual["setup_seconds"], f"{label}.setup_seconds"
+        ),
+        "tool_wait_seconds": optional_seconds(
+            actual["tool_wait_seconds"], f"{label}.tool_wait_seconds"
+        ),
+        "external_wait_seconds": optional_seconds(
+            actual["external_wait_seconds"], f"{label}.external_wait_seconds"
+        ),
+        "total_wall_seconds": optional_seconds(
+            actual["total_wall_seconds"], f"{label}.total_wall_seconds"
+        ),
+        "first_evidence_seconds": optional_seconds(
+            actual["first_evidence_seconds"], f"{label}.first_evidence_seconds"
+        ),
+        "safe_close_seconds": optional_seconds(
+            actual["safe_close_seconds"], f"{label}.safe_close_seconds"
+        ),
+    }
+    wall = result["total_wall_seconds"]
+    if wall is not None:
+        for key, measured in result.items():
+            if key != "total_wall_seconds" and measured is not None and measured > wall:
+                fail(
+                    "SCHEMA_INVALID",
+                    f"{label}.{key} cannot exceed total wall time",
+                )
+    return result
+
+
+def duration_fenced_base(
+    request: dict[str, Any], label: str
+) -> dict[str, Any]:
+    base = validate_receipt(
+        {
+            key: request[key]
+            for key in (
+                "interface_version",
+                "request_id",
+                "task_id",
+                "policy_snapshot_revision",
+                "lease_epoch",
+                "fencing_token",
+                "now",
+            )
+        },
+        "archive",
+    )
+    return {
+        **base,
+        "external_thread_id": identifier(
+            request["external_thread_id"], f"{label}.external_thread_id"
+        ),
+    }
+
+
+def validate_duration_progress(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "task_id",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "external_thread_id",
+            "runtime_state",
+            "actual",
+            "successor_request",
+            "now",
+        },
+        label="record-duration-progress request",
+    )
+    base = duration_fenced_base(request, "duration progress")
+    if request["runtime_state"] not in {"active", *NON_RUNTIME_STATES}:
+        fail("SCHEMA_INVALID", "duration runtime_state is invalid")
+    actual = validate_actual_timing(request["actual"], "duration progress.actual")
+    successor = request["successor_request"]
+    if successor is not None:
+        successor = validate_prepare(successor)
+    output = {
+        **base,
+        "runtime_state": request["runtime_state"],
+        **actual,
+        "actual": actual,
+        "successor_request": successor,
+    }
+    reject_sensitive(output, "duration progress")
+    return output
+
+
+def validate_duration_observation(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "sample_id",
+            "task_id",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "external_thread_id",
+            "completed",
+            "actual",
+            "evidence_refs",
+            "now",
+        },
+        label="record-duration-observation request",
+    )
+    if request["completed"] is not True:
+        fail(
+            "CENSORED_SAMPLE_REJECTED",
+            "only completed observations may enter calibration evidence",
+        )
+    base = duration_fenced_base(request, "duration observation")
+    actual = validate_actual_timing(
+        request["actual"], "duration observation.actual"
+    )
+    evidence = request["evidence_refs"]
+    if not isinstance(evidence, list) or not 1 <= len(evidence) <= 20:
+        fail("SCHEMA_INVALID", "duration observation requires bounded evidence")
+    safe_evidence = [
+        coarse_label(item, "duration observation.evidence_refs[]")
+        for item in evidence
+    ]
+    output = {
+        **base,
+        "sample_id": identifier(request["sample_id"], "sample_id"),
+        "completed": True,
+        **actual,
+        "actual": actual,
+        "evidence_refs": safe_evidence,
+    }
+    reject_sensitive(output, "duration observation")
+    return output
+
+
+def validate_duration_estimate_query(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "task_family",
+            "tool_family",
+            "environment_class",
+            "minimum_estimate_version",
+            "now",
+        },
+        label="duration-estimate request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    output = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "task_family": coarse_label(
+            request["task_family"], "duration-estimate.task_family"
+        ),
+        "tool_family": coarse_label(
+            request["tool_family"], "duration-estimate.tool_family"
+        ),
+        "environment_class": coarse_label(
+            request["environment_class"], "duration-estimate.environment_class"
+        ),
+        "minimum_estimate_version": bounded_int(
+            request["minimum_estimate_version"],
+            "duration-estimate.minimum_estimate_version",
+            1,
+            1_000_000,
+        ),
+        "now": timestamp(request["now"]),
+    }
+    reject_sensitive(output, "duration estimate query")
+    return output
+
+
+def validate_resource_profile(value: Any, label: str) -> dict[str, Any]:
+    profile = strict(
+        value,
+        {"resource_class", "exclusive_group", "weight", "cap"},
+        label=label,
+    )
+    if profile["resource_class"] not in {"light", "heavy"}:
+        fail("SCHEMA_INVALID", f"{label}.resource_class is invalid")
+    exclusive_group = profile["exclusive_group"]
+    if exclusive_group is not None:
+        if (
+            not isinstance(exclusive_group, str)
+            or "/" in exclusive_group
+            or "\\" in exclusive_group
+            or "@" in exclusive_group
+            or ":" in exclusive_group
+        ):
+            fail(
+                "PRIVACY_REJECTED",
+                f"{label}.exclusive_group must be a coarse non-path alias",
+            )
+        exclusive_group = coarse_label(
+            exclusive_group, f"{label}.exclusive_group"
+        )
+    weight = bounded_int(profile["weight"], f"{label}.weight", 1, 64)
+    cap = bounded_int(profile["cap"], f"{label}.cap", 1, 64)
+    if weight > cap:
+        fail("SCHEMA_INVALID", f"{label}.weight cannot exceed cap")
+    return {
+        "resource_class": profile["resource_class"],
+        "exclusive_group": exclusive_group,
+        "weight": weight,
+        "cap": cap,
+    }
+
+
+def validate_duration_schedule(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "active_heavyweight",
+            "heavyweight_concurrency_cap",
+            "short_lane_available",
+            "capacity_deficit",
+            "candidates",
+            "now",
+        },
+        {"resource_holds"},
+        label="duration-schedule request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    if not isinstance(request["short_lane_available"], bool):
+        fail("SCHEMA_INVALID", "short_lane_available must be boolean")
+    if not isinstance(request["capacity_deficit"], bool):
+        fail("SCHEMA_INVALID", "capacity_deficit must be boolean")
+    if not isinstance(request["candidates"], list) or len(request["candidates"]) > 1000:
+        fail("SCHEMA_INVALID", "duration candidates must be a bounded list")
+    raw_holds = request.get("resource_holds", [])
+    if not isinstance(raw_holds, list) or len(raw_holds) > 64:
+        fail("SCHEMA_INVALID", "resource_holds must be a bounded list")
+    resource_holds = []
+    hold_ids: set[str] = set()
+    for item in raw_holds:
+        item = strict(
+            item,
+            {"holder_id", "state", "resource_profile"},
+            label="resource hold",
+        )
+        holder_id = coarse_label(item["holder_id"], "resource hold.holder_id")
+        if holder_id in hold_ids:
+            fail("SCHEMA_INVALID", "resource hold ids must be unique")
+        hold_ids.add(holder_id)
+        if item["state"] not in {"active", "queued_setup"}:
+            fail("SCHEMA_INVALID", "resource hold state is invalid")
+        resource_holds.append(
+            {
+                "holder_id": holder_id,
+                "state": item["state"],
+                "resource_profile": validate_resource_profile(
+                    item["resource_profile"], "resource hold.resource_profile"
+                ),
+            }
+        )
+    candidates = []
+    seen: set[str] = set()
+    for item in request["candidates"]:
+        item = strict(
+            item,
+            {
+                "candidate_id",
+                "bucket",
+                "runtime_state",
+                "setup_state",
+                "priority",
+                "queue_seconds",
+            },
+            {"resource_profile"},
+            label="duration candidate",
+        )
+        candidate_id = coarse_label(
+            item["candidate_id"], "duration candidate.candidate_id"
+        )
+        if candidate_id in seen:
+            fail("SCHEMA_INVALID", "duration candidate ids must be unique")
+        if candidate_id in hold_ids:
+            fail(
+                "SCHEMA_INVALID",
+                "duration candidate cannot duplicate an existing resource holder",
+            )
+        seen.add(candidate_id)
+        if item["bucket"] not in DURATION_BUCKETS:
+            fail("SCHEMA_INVALID", "duration candidate bucket is invalid")
+        if item["runtime_state"] not in {"active", *NON_RUNTIME_STATES}:
+            fail("SCHEMA_INVALID", "duration candidate runtime_state is invalid")
+        if item["setup_state"] not in {"ready", "queued_setup", "failed"}:
+            fail("SCHEMA_INVALID", "duration candidate setup_state is invalid")
+        candidates.append(
+            {
+                "candidate_id": candidate_id,
+                "bucket": item["bucket"],
+                "runtime_state": item["runtime_state"],
+                "setup_state": item["setup_state"],
+                "priority": bounded_int(
+                    item["priority"], "duration candidate.priority", 0, 1000
+                ),
+                "queue_seconds": bounded_int(
+                    item["queue_seconds"],
+                    "duration candidate.queue_seconds",
+                    0,
+                    2_147_483_647,
+                ),
+                "resource_profile": validate_resource_profile(
+                    item.get(
+                        "resource_profile",
+                        {
+                            "resource_class": "light",
+                            "exclusive_group": None,
+                            "weight": 1,
+                            "cap": 64,
+                        },
+                    ),
+                    "duration candidate.resource_profile",
+                ),
+            }
+        )
+    output = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "active_heavyweight": bounded_int(
+            request["active_heavyweight"], "active_heavyweight", 0, 64
+        ),
+        "heavyweight_concurrency_cap": bounded_int(
+            request["heavyweight_concurrency_cap"],
+            "heavyweight_concurrency_cap",
+            1,
+            64,
+        ),
+        "short_lane_available": request["short_lane_available"],
+        "capacity_deficit": request["capacity_deficit"],
+        "resource_holds": resource_holds,
+        "candidates": candidates,
+        "now": timestamp(request["now"]),
+    }
+    reject_sensitive(output, "duration schedule")
+    return output
 
 
 def validate_takeover(value: Any) -> dict[str, Any]:
@@ -2738,6 +5417,7 @@ def validate_heartbeat(value: Any) -> dict[str, Any]:
             "lease_expires_at",
             "now",
         },
+        {"external_thread_id"},
         label="heartbeat request",
     )
     base = validate_receipt(
@@ -2758,7 +5438,17 @@ def validate_heartbeat(value: Any) -> dict[str, Any]:
     expires = timestamp(request["lease_expires_at"], "lease_expires_at")
     if expires <= base["now"]:
         fail("SCHEMA_INVALID", "heartbeat lease expiry must be in the future")
-    return {**base, "lease_expires_at": expires}
+    return {
+        **base,
+        "lease_expires_at": expires,
+        "external_thread_id": (
+            None
+            if request.get("external_thread_id") is None
+            else identifier(
+                request["external_thread_id"], "external_thread_id"
+            )
+        ),
+    }
 
 
 def validate_migration(value: Any) -> dict[str, Any]:
@@ -2809,17 +5499,26 @@ def parser() -> argparse.ArgumentParser:
         "prepare-launch",
         "effective-rules",
         "classify-decision",
+        "classify-root-action",
         "record-launch-receipt",
+        "reconcile-external-task",
+        "record-setup-failure",
         "record-handback",
         "record-archive-receipt",
+        "capacity-watchdog",
         "takeover-lease",
         "record-heartbeat",
+        "record-duration-progress",
+        "record-duration-observation",
+        "duration-estimate",
+        "duration-schedule",
         "recycle-queue",
         "migrate-decisions",
     ):
         command = commands.add_parser(name)
         command.add_argument("--request", required=True)
-    commands.add_parser("status")
+    status = commands.add_parser("status")
+    status.add_argument("--now")
     return result
 
 
@@ -2834,18 +5533,41 @@ def main(argv: list[str] | None = None) -> int:
             "prepare-launch": (plane.prepare_launch, "prepare-launch"),
             "effective-rules": (plane.effective_rules, "effective-rules"),
             "classify-decision": (plane.classify, "classify-decision"),
+            "classify-root-action": (
+                plane.classify_root_action,
+                "classify-root-action",
+            ),
             "record-launch-receipt": (plane.launch_receipt, "record-launch-receipt"),
+            "reconcile-external-task": (
+                plane.reconcile_external_task,
+                "reconcile-external-task",
+            ),
+            "record-setup-failure": (
+                plane.record_setup_failure,
+                "record-setup-failure",
+            ),
             "record-handback": (plane.record_handback, "record-handback"),
             "record-archive-receipt": (plane.archive_receipt, "record-archive-receipt"),
+            "capacity-watchdog": (plane.capacity_watchdog, "capacity-watchdog"),
             "takeover-lease": (plane.takeover_lease, "takeover-lease"),
             "record-heartbeat": (plane.heartbeat, "record-heartbeat"),
+            "record-duration-progress": (
+                plane.record_duration_progress,
+                "record-duration-progress",
+            ),
+            "record-duration-observation": (
+                plane.record_duration_observation,
+                "record-duration-observation",
+            ),
+            "duration-estimate": (plane.duration_estimate, "duration-estimate"),
+            "duration-schedule": (plane.duration_schedule, "duration-schedule"),
             "recycle-queue": (plane.recycle, "recycle-queue"),
             "migrate-decisions": (plane.migrate, "migrate-decisions"),
         }
         if args.command == "init":
             emit_success("init", plane.initialize(args.now))
         elif args.command == "status":
-            emit_success("status", plane.status())
+            emit_success("status", plane.status(args.now))
         else:
             function, operation = operations[args.command]
             emit_success(operation, function(read_json(args.request)))

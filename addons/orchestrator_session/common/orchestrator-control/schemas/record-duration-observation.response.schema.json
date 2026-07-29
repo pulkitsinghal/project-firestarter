@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/record-duration-observation-response-1.0.schema.json",
+  "title": "record-duration-observation response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "record-duration-observation"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "sample_id", "actual_bucket", "early_finish", "duration"],
+      "properties": {
+        "task_id": {"type": "string"},
+        "sample_id": {"type": "string"},
+        "actual_bucket": {"type": "string"},
+        "early_finish": {"type": "boolean"},
+        "duration": {"type": "object"}
+      }
+    }
+  }
+}

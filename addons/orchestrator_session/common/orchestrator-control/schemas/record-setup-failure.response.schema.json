@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/record-setup-failure-response-1.0.schema.json",
+  "title": "record-setup-failure success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "record-setup-failure"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "state", "failed_outbox_id", "outbox_state", "successor", "rejected_candidates", "capacity"],
+      "properties": {
+        "task_id": {"type": "string"},
+        "state": {"const": "FAILED"},
+        "failed_outbox_id": {"type": "string"},
+        "outbox_state": {"const": "poisoned"},
+        "successor": {"type": ["object", "null"]},
+        "rejected_candidates": {"type": "array", "items": {"type": "object"}},
+        "capacity": {"type": "object"}
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Covered-path ROOT_ORCHESTRATOR_ROLE pre-dispatch guardrail.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/pre_tool_use_root_guard.py\"",
+            "statusMessage": "Checking root-orchestrator tool policy",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

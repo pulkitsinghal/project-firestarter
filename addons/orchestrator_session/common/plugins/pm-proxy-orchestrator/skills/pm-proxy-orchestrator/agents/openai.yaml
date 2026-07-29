@@ -1,0 +1,4 @@
+interface:
+  display_name: "PM Proxy Orchestrator"
+  short_description: "Fail-closed cross-task control plane"
+  default_prompt: "Use $pm-proxy-orchestrator to prepare, launch, and hand back this task safely."

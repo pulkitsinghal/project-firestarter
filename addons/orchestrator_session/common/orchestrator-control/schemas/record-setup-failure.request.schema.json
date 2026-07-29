@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/record-setup-failure-request-1.0.schema.json",
+  "title": "record-setup-failure request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "request_id", "task_id", "policy_snapshot_revision", "lease_epoch", "fencing_token", "reason_code", "evidence_refs", "configured_capacity", "runnable_queue_count", "empty_outcome", "blocked_audits", "successor_candidates", "now"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "policy_snapshot_revision": {"type": "integer", "minimum": 1},
+    "lease_epoch": {"type": "integer", "minimum": 1},
+    "fencing_token": {"type": "integer", "minimum": 1},
+    "reason_code": {"type": "string"},
+    "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "configured_capacity": {"type": "integer", "minimum": 1, "maximum": 64},
+    "runnable_queue_count": {"type": "integer", "minimum": 0},
+    "empty_outcome": {"enum": ["EMPTY", "OWNER_GATED"]},
+    "blocked_audits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task_id", "classification", "outcome", "reason_code", "evidence_refs"],
+        "properties": {
+          "task_id": {"type": "string"},
+          "classification": {"enum": ["owner_gate", "dependency", "resource_budget", "transient_tool", "zero_step_ci", "stale_dashboard", "completed_external", "policy_conflict", "unknown"]},
+          "outcome": {"enum": ["resume", "archive", "remain_blocked", "owner_gate"]},
+          "reason_code": {"type": "string"},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "successor_candidates": {
+      "type": "array",
+      "items": {"$ref": "prepare-launch.request.schema.json"}
+    },
+    "now": {"type": "string"}
+  }
+}

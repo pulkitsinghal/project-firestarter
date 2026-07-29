@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/reconcile-external-task-request-1.0.schema.json",
+  "title": "reconcile-external-task request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "request_id", "task_id", "source_event_key", "outcome_key", "external_thread_id", "now"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "source_event_key": {"type": "string"},
+    "outcome_key": {"type": "string"},
+    "external_thread_id": {"type": "string"},
+    "now": {"type": "string"}
+  }
+}

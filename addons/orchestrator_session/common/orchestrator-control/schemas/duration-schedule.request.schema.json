@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/duration-schedule-request-1.0.schema.json",
+  "title": "duration-schedule request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "request_id", "active_heavyweight", "heavyweight_concurrency_cap", "short_lane_available", "capacity_deficit", "candidates", "now"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "active_heavyweight": {"type": "integer", "minimum": 0},
+    "heavyweight_concurrency_cap": {"type": "integer", "minimum": 1},
+    "short_lane_available": {"type": "boolean"},
+    "capacity_deficit": {"type": "boolean"},
+    "resource_holds": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["holder_id", "state", "resource_profile"],
+        "properties": {
+          "holder_id": {"type": "string"},
+          "state": {"enum": ["active", "queued_setup"]},
+          "resource_profile": {"$ref": "#/$defs/resource_profile"}
+        }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["candidate_id", "bucket", "runtime_state", "setup_state", "priority", "queue_seconds"],
+        "properties": {
+          "candidate_id": {"type": "string"},
+          "bucket": {"enum": ["seconds", "5m", "10m", "15m", "20m", "30m", "45m", "60m+"]},
+          "runtime_state": {"enum": ["active", "blocked", "waiting"]},
+          "setup_state": {"enum": ["ready", "queued_setup", "failed"]},
+          "priority": {"type": "integer", "minimum": 0, "maximum": 1000},
+          "queue_seconds": {"type": "integer", "minimum": 0},
+          "resource_profile": {"$ref": "#/$defs/resource_profile"}
+        }
+      }
+    },
+    "now": {"type": "string"}
+  },
+  "$defs": {
+    "resource_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_class", "exclusive_group", "weight", "cap"],
+      "properties": {
+        "resource_class": {"enum": ["light", "heavy"]},
+        "exclusive_group": {"type": ["string", "null"]},
+        "weight": {"type": "integer", "minimum": 1, "maximum": 64},
+        "cap": {"type": "integer", "minimum": 1, "maximum": 64}
+      }
+    }
+  }
+}
