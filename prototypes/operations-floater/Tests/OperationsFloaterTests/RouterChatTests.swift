@@ -832,6 +832,132 @@ struct RouterChatSessionTests {
         #expect(probe.removeMonitorCount == 1)
     }
 
+    @Test("Recorder startup revokes floor when recording cannot start")
+    func recorderStartupRollsBackRecordingFailure() async {
+        var calls: [String] = []
+
+        let result = await RecorderActivationTransaction.run(
+            grantFloor: {
+                calls.append("grant floor")
+                return nil
+            },
+            startRecording: {
+                calls.append("start recording")
+                return "Input Monitoring is unavailable."
+            },
+            startVoice: {
+                calls.append("start voice")
+                return nil
+            },
+            stopVoice: {
+                calls.append("stop voice")
+            },
+            revokeRecording: { _ in
+                calls.append("revoke recording")
+            },
+            revokeFloor: {
+                calls.append("revoke floor")
+            }
+        )
+
+        #expect(
+            result
+                == .failed(
+                    reason: "Input Monitoring is unavailable.",
+                    changedConversationControl: true
+                )
+        )
+        #expect(
+            calls
+                == [
+                    "grant floor",
+                    "start recording",
+                    "revoke recording",
+                    "revoke floor"
+                ]
+        )
+    }
+
+    @Test("Recorder startup stops voice and revokes recording on voice failure")
+    func recorderStartupRollsBackVoiceFailure() async {
+        var calls: [String] = []
+
+        let result = await RecorderActivationTransaction.run(
+            grantFloor: {
+                calls.append("grant floor")
+                return nil
+            },
+            startRecording: {
+                calls.append("start recording")
+                return nil
+            },
+            startVoice: {
+                calls.append("start voice")
+                return "Voice is unavailable."
+            },
+            stopVoice: {
+                calls.append("stop voice")
+            },
+            revokeRecording: { _ in
+                calls.append("revoke recording")
+            },
+            revokeFloor: {
+                calls.append("revoke floor")
+            }
+        )
+
+        #expect(
+            result
+                == .failed(
+                    reason: "Voice is unavailable.",
+                    changedConversationControl: true
+                )
+        )
+        #expect(
+            calls
+                == [
+                    "grant floor",
+                    "start recording",
+                    "start voice",
+                    "stop voice",
+                    "revoke recording",
+                    "revoke floor"
+                ]
+        )
+    }
+
+    @Test("Recorder startup keeps all resources after complete activation")
+    func recorderStartupCommitsOnlyAfterEveryStepSucceeds() async {
+        var calls: [String] = []
+
+        let result = await RecorderActivationTransaction.run(
+            grantFloor: {
+                calls.append("grant floor")
+                return nil
+            },
+            startRecording: {
+                calls.append("start recording")
+                return nil
+            },
+            startVoice: {
+                calls.append("start voice")
+                return nil
+            },
+            stopVoice: {
+                calls.append("stop voice")
+            },
+            revokeRecording: { _ in
+                calls.append("revoke recording")
+            },
+            revokeFloor: {
+                calls.append("revoke floor")
+            }
+        )
+
+        #expect(result == .activated)
+        #expect(calls == ["grant floor", "start recording", "start voice"])
+    }
+
     @Test("Collapsing chat suspends and clears its ephemeral lifecycle")
     func collapsedChatIsInactive() async {
         let session = RouterChatSession(
