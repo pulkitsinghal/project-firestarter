@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/adaptive-capacity-audit-response-1.0.schema.json",
+  "title": "adaptive capacity audit response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "evaluate-capacity-snapshot"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "snapshot_id",
+        "snapshot_digest",
+        "observed_at",
+        "evaluated_at",
+        "age_seconds",
+        "visible_cap",
+        "internal_sublane_cap",
+        "heavy_local_cap",
+        "minimum_shipping_slots",
+        "conservative",
+        "reason",
+        "policy_version",
+        "mode",
+        "enforcement_applied",
+        "reservation_created",
+        "source_authority_verified",
+        "service_actions_authorized"
+      ],
+      "properties": {
+        "request_id": {"type": "string"},
+        "snapshot_id": {"type": "string"},
+        "snapshot_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_at": {"type": "string"},
+        "evaluated_at": {"type": "string"},
+        "age_seconds": {"type": "integer", "minimum": 0},
+        "visible_cap": {"type": "integer", "minimum": 1, "maximum": 4},
+        "internal_sublane_cap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "heavy_local_cap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "minimum_shipping_slots": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "conservative": {"type": "boolean"},
+        "reason": {
+          "enum": [
+            "stale metrics",
+            "memory or swap pressure",
+            "high load; serialize heavy work",
+            "healthy local headroom"
+          ]
+        },
+        "policy_version": {"const": "0.1.0"},
+        "mode": {"const": "audit"},
+        "enforcement_applied": {"const": false},
+        "reservation_created": {"const": false},
+        "source_authority_verified": {"const": false},
+        "service_actions_authorized": {"const": false}
+      }
+    }
+  }
+}

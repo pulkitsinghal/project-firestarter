@@ -48,6 +48,15 @@ contract in
 [`docs/PHASE2_PLUGIN_INTEGRATION.md`](docs/PHASE2_PLUGIN_INTEGRATION.md) define
 the stable `1.0` wrapper boundary.
 
+## Audit-only adaptive capacity
+
+[`adaptive_capacity_policy.py`](adaptive_capacity_policy.py) evaluates one
+closed, caller-supplied metrics snapshot and returns a deterministic advisory
+cap. It creates no reservation, performs no enforcement, collects no host
+metrics, and authorizes no service action. Its closed schemas and the
+service-supervisor inventory boundary are documented in
+[`docs/ADAPTIVE_CAPACITY_AUDIT.md`](docs/ADAPTIVE_CAPACITY_AUDIT.md).
+
 ## Receipt-feed 1.1 operational bootstrap
 
 Receipt-feed 1.1 is a one-way, review-only dashboard projection. Each canonical
