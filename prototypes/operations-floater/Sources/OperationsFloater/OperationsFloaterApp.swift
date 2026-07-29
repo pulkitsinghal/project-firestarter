@@ -1,6 +1,7 @@
 // The executable entry point is intentionally not named main.swift: SwiftPM
 // reserves that filename for top-level program code, which conflicts with @main.
 import AppKit
+import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -60,12 +61,55 @@ struct DashboardLaunchConfiguration: Equatable {
     }
 }
 
+/// Holds a process-scoped advisory lock for the lifetime of the application.
+///
+/// Launch Services normally reopens an existing application instance, but a
+/// direct executable launch or `open -n` can bypass that behavior. The lock
+/// keeps those alternate launch paths from creating a second recorder host.
+final class SingleInstanceLease {
+    private let descriptor: Int32
+
+    private init(descriptor: Int32) {
+        self.descriptor = descriptor
+    }
+
+    static func acquire(at lockURL: URL) throws -> SingleInstanceLease? {
+        try FileManager.default.createDirectory(
+            at: lockURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let descriptor = lockURL.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
+            return Darwin.open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        }
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            let lockError = errno
+            Darwin.close(descriptor)
+            if lockError == EWOULDBLOCK || lockError == EAGAIN {
+                return nil
+            }
+            throw POSIXError(POSIXErrorCode(rawValue: lockError) ?? .EIO)
+        }
+        return SingleInstanceLease(descriptor: descriptor)
+    }
+
+    deinit {
+        flock(descriptor, LOCK_UN)
+        Darwin.close(descriptor)
+    }
+}
+
 @main
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let shared = AppDelegate()
     private let launchConfiguration: DashboardLaunchConfiguration
     private let dashboardState: DashboardState
+    private var instanceLease: SingleInstanceLease?
     private lazy var windowController = DashboardWindowController(
         state: dashboardState,
         activatesApplication: launchConfiguration.activatesApplication,
@@ -98,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard claimSingleInstance() else { return }
         configureMainMenu()
         showDashboard(nil)
     }
@@ -158,6 +203,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    private func claimSingleInstance() -> Bool {
+        let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        let lockURL = applicationSupport
+            .appendingPathComponent("OperationsFloater", isDirectory: true)
+            .appendingPathComponent("application.instance.lock")
+        do {
+            guard let lease = try SingleInstanceLease.acquire(at: lockURL) else {
+                if let bundleIdentifier = Bundle.main.bundleIdentifier {
+                    NSRunningApplication.runningApplications(
+                        withBundleIdentifier: bundleIdentifier
+                    )
+                    .first(where: {
+                        $0.processIdentifier
+                            != ProcessInfo.processInfo.processIdentifier
+                    })?
+                    .activate(options: [.activateAllWindows])
+                }
+                NSApplication.shared.terminate(nil)
+                return false
+            }
+            instanceLease = lease
+            return true
+        } catch {
+            showAdapterError(
+                title: "Operations Floater Did Not Start",
+                message:
+                    "The app could not establish its single-instance lock. "
+                    + "No recorder or helper was started."
+            )
+            NSApplication.shared.terminate(nil)
+            return false
+        }
     }
 
     private func configureMainMenu() {

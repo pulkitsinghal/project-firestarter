@@ -3,6 +3,35 @@
 Operations Floater has no network updater. Application replacement and snapshot
 updates are explicit local operations with a retained rollback artifact.
 
+## Permission-bearing identity
+
+Input Monitoring, microphone, and Speech Recognition are privacy-protected
+resources associated with the app's macOS code identity. Apple documents that
+macOS records a signed app's designated requirement (DR) and uses it to
+recognize later versions. An unsigned app has no DR; an ad-hoc signed app's DR
+is tied to that exact code version. Routine unsigned or ad-hoc builds therefore
+must remain disposable and must never replace or launch as the installed,
+permission-bearing app.
+
+The release app must keep all of these stable:
+
+- one owner-controlled bundle identifier, supplied outside Git;
+- one Developer ID team and the Xcode-produced designated requirement;
+- one installed path, normally `/Applications/Operations Floater.app`; and
+- one main application process as the Input Monitoring client.
+
+Do not hand-author a custom DR. If a future Mac App Store variant must share
+privacy grants with a Developer ID variant, follow Apple's mutually compatible
+DR procedure and test both directions before shipping. A change of signing
+channel, development certificate, team, or bundle identifier is a permission
+migration and must not be presented as a routine update.
+
+References:
+
+- [Apple TN3127: Inside Code Signing — Requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements)
+- [Apple: Creating distribution-signed code for macOS](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac)
+- [Apple: CGPreflightListenEventAccess](https://developer.apple.com/documentation/coregraphics/cgpreflightlisteneventaccess%28%29)
+
 ## Release inputs
 
 Keep these outside Git and set them to operator-controlled locations:
@@ -18,6 +47,15 @@ owner's bundle identifier and signing configuration. Do not place certificates,
 profiles, account identifiers, runtime snapshots, or application backups in this
 repository.
 
+The checked-in `com.example.operationsfloater` identifier is only for unsigned,
+disposable builds. A release archive must override it with the stable value.
+
+Operations Floater currently has no login item, launch agent, daemon, privileged
+helper, or updater. Do not add one to work around TCC. If a future helper is
+actually needed, it must live inside the signed app bundle, use its own unique
+code-signing identifier, and follow `SMAppService`; that is a separate design
+and owner gate.
+
 ## Preflight
 
 Before replacing an installed copy:
@@ -30,11 +68,24 @@ Before replacing an installed copy:
    spctl --assess --type execute --verbose=2 "$CANDIDATE_APP"
    ```
 
-3. Confirm the built metadata contains the productivity category and expected
-   encryption declaration.
-4. Run the native unit/lifecycle tests and unsigned Release build from the same
-   commit.
-5. Export or retain the current local snapshot only in its private local
+3. For an update, prove that the installed app and candidate have mutually
+   compatible DRs and that the build number increases:
+
+   ```bash
+   prototypes/operations-floater/scripts/verify-permission-identity.sh \
+     --candidate "$CANDIDATE_APP" \
+     --installed "$INSTALLED_APP" \
+     --expected-bundle-id "$OPERATIONS_FLOATER_BUNDLE_ID"
+   ```
+
+   For a first install, omit `--installed`. The preflight is read-only: it does
+   not sign, copy, launch, quit, grant/reset TCC, or open System Settings.
+4. Confirm the built metadata contains the Dock icon, productivity category,
+   expected encryption declaration, regular app activation, and no unexpected
+   embedded helper.
+5. Run the native unit/lifecycle tests, synthetic identity-preflight test, and
+   unsigned Release build from the same commit.
+6. Export or retain the current local snapshot only in its private local
    storage. Never copy it into Git or a web publication directory.
 
 Stop if identity, signature, metadata, or tests do not match the intended
@@ -44,16 +95,19 @@ release.
 
 1. Quit any running copy.
 2. Copy the candidate to `INSTALLED_APP` using a metadata-preserving local copy.
-3. Launch it and verify one visible dashboard window, default frontmost state,
+3. Launch only the installed path. Grant Input Monitoring once from the app's
+   explicit toggle if the user approves. Never grant permission to a DerivedData
+   product, SwiftPM executable, or disposable copy.
+4. Verify one visible dashboard window and one app process, default frontmost state,
    unpin behavior, Command-W close, Dock reopen, and Reduce Motion.
    At the default size, confirm queue and supporting panels use two columns.
    Resize to the minimum and confirm they collapse to one column without
    clipping the guide summary or four queue counters.
-4. Confirm each queue race shows a bounded progress chip, hover detail, and
+5. Confirm each queue race shows a bounded progress chip, hover detail, and
    click-to-expand detail. Exercise last-active, completion, memory, CPU, and
    needs-attention sorting. Confirm an increased total-step count can move a
    chip backward and Reduce Motion replaces animation with a stable frame.
-5. Confirm assistant chat initially reports **OFF** and performs no availability
+6. Confirm assistant chat initially reports **OFF** and performs no availability
    probe. Enable it explicitly, use only a synthetic prompt, and verify a
    response. Use **Shift-Return** to create a two-line draft and confirm it
    remains unsent; then press **Return** and confirm one two-line message is
@@ -61,10 +115,10 @@ release.
    **Review** and confirm **CHECKING** becomes **CHECKED** or an actionable
    **IMPROVE** card. Stop if the client contacts anything other than
    `127.0.0.1:11500`, follows a redirect, or silently sends dashboard state.
-6. Choose **Import Local Snapshot…** only if a canonical `local` version `1.0`
+7. Choose **Import Local Snapshot…** only if a canonical `local` version `1.0`
    snapshot is ready. The app validates before writing and gives the stored file
    private permissions.
-7. Confirm the header reports a locally verified snapshot rather than the
+8. Confirm the header reports a locally verified snapshot rather than the
    generic sample.
 
 ## Update
@@ -73,10 +127,17 @@ release.
 2. Quit the installed app.
 3. Copy the existing installed app to `BACKUP_APP`.
 4. Replace `INSTALLED_APP` with the candidate using a metadata-preserving copy.
-5. Launch and repeat the lifecycle smoke checks.
-6. Import the new local snapshot, if needed. A valid current snapshot is saved
+5. Launch only the stable installed path and repeat the lifecycle smoke checks.
+   Do not remove/re-add Input Monitoring. If preflight passed but the existing
+   grant is not recognized, stop and restore the backup; do not mutate TCC as a
+   troubleshooting shortcut.
+6. Press **Give floor** with a selected synthetic window. It must reach floor
+   granted + recording + listening together. Denied Input Monitoring or failed
+   audio startup must leave the floor revoked, voice off, and the event monitor
+   removed with an actionable error.
+7. Import the new local snapshot, if needed. A valid current snapshot is saved
    as the previous snapshot before the update is committed.
-7. Leave `BACKUP_APP` and the previous snapshot intact through the acceptance
+8. Leave `BACKUP_APP` and the previous snapshot intact through the acceptance
    period.
 
 An invalid snapshot cannot replace the active snapshot. No selected source path
@@ -87,7 +148,9 @@ is retained, and no import data is transmitted.
 Rollback triggers include failure to launch, signature or Gatekeeper rejection,
 missing window lifecycle behavior, an unreadable compact layout, motion that
 continues with Reduce Motion enabled, unreadable canonical state, chat egress
-beyond the fixed loopback Router, or a material display regression.
+beyond the fixed loopback Router, loss of the prior Input Monitoring grant
+despite mutually compatible DRs, a duplicate app process, a leaked event
+monitor after failed voice startup, or a material display regression.
 
 1. Quit the app.
 2. Replace `INSTALLED_APP` with the verified `BACKUP_APP`.
@@ -99,6 +162,10 @@ beyond the fixed loopback Router, or a material display regression.
 
 Do not delete the candidate, backup, or previous snapshot until the restored
 state has passed the same acceptance checks.
+
+Do not run `tccutil reset`, remove/re-add the app in System Settings, or alter
+the TCC database during rollback. Those actions destroy the evidence needed to
+distinguish an identity regression from a permission-state problem.
 
 ## Cleanup
 

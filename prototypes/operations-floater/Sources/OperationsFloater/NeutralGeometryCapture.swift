@@ -187,6 +187,34 @@ enum NeutralGeometryWindowCatalog {
 
 @MainActor
 final class NeutralGeometryCaptureSession: ObservableObject {
+    @MainActor
+    struct SystemInterface {
+        let preflightListenAccess: () -> Bool
+        let requestListenAccess: () -> Bool
+        let visibleWindows: () -> [NeutralGeometryWindow]
+        let currentWindow: (NeutralGeometryWindow) -> NeutralGeometryWindow?
+        let isActive: (NeutralGeometryWindow) -> Bool
+        let isTopmostAtPoint: (NeutralGeometryWindow, CGPoint) -> Bool
+        let addGlobalMonitor:
+            (NSEvent.EventTypeMask, @escaping (NSEvent) -> Void) -> Any?
+        let removeMonitor: (Any) -> Void
+
+        static let live = SystemInterface(
+            preflightListenAccess: { CGPreflightListenEventAccess() },
+            requestListenAccess: { CGRequestListenEventAccess() },
+            visibleWindows: { NeutralGeometryWindowCatalog.visibleWindows() },
+            currentWindow: { NeutralGeometryWindowCatalog.currentWindow(matching: $0) },
+            isActive: { NeutralGeometryWindowCatalog.isActive($0) },
+            isTopmostAtPoint: {
+                NeutralGeometryWindowCatalog.isTopmostAtPoint($0, point: $1)
+            },
+            addGlobalMonitor: {
+                NSEvent.addGlobalMonitorForEvents(matching: $0, handler: $1)
+            },
+            removeMonitor: { NSEvent.removeMonitor($0) }
+        )
+    }
+
     static let moduleID = "auggie.verbal-orders.relative-xy-recorder"
     static let bindingID = "verbal-orders.neutral.selected-window"
     static let maximumSessionEvents = 4_096
@@ -204,6 +232,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
     private var monitor: Any?
     private var startNanoseconds: UInt64?
     private var nextEventOrdinal = 1
+    private let system: SystemInterface
 
     var pendingEventCount: Int {
         max(0, capturedEvents.count - deliveredEventCount)
@@ -213,13 +242,14 @@ final class NeutralGeometryCaptureSession: ObservableObject {
         mode == .review && !capturedEvents.isEmpty
     }
 
-    init() {
+    init(system: SystemInterface = .live) {
+        self.system = system
         refreshWindows()
-        inputMonitoringAvailable = CGPreflightListenEventAccess()
+        inputMonitoringAvailable = system.preflightListenAccess()
     }
 
     func refreshWindows() {
-        availableWindows = NeutralGeometryWindowCatalog.visibleWindows()
+        availableWindows = system.visibleWindows()
         if let selectedWindow,
            let refreshed = availableWindows.first(where: {
                $0.id == selectedWindow.id && $0.ownerPID == selectedWindow.ownerPID
@@ -247,7 +277,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
 
     func requestInputMonitoring() {
         inputMonitoringAvailable =
-            CGPreflightListenEventAccess() || CGRequestListenEventAccess()
+            system.preflightListenAccess() || system.requestListenAccess()
         if !inputMonitoringAvailable {
             lastError =
                 NeutralGeometryCaptureError.inputMonitoringRequired.localizedDescription
@@ -262,7 +292,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
 
         // macOS does not let an app revoke its own Input Monitoring grant. Keep
         // the switch truthful and direct the user to the system permission pane.
-        inputMonitoringAvailable = CGPreflightListenEventAccess()
+        inputMonitoringAvailable = system.preflightListenAccess()
         if inputMonitoringAvailable {
             lastError =
                 "To turn off Input Monitoring, remove Operations Floater in "
@@ -275,7 +305,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
             lastError = NeutralGeometryCaptureError.noWindow.localizedDescription
             return
         }
-        inputMonitoringAvailable = CGPreflightListenEventAccess()
+        inputMonitoringAvailable = system.preflightListenAccess()
         guard inputMonitoringAvailable else {
             lastError =
                 NeutralGeometryCaptureError.inputMonitoringRequired.localizedDescription
@@ -323,9 +353,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
 
     func snapshot() throws -> NeutralGeometryCaptureSnapshot {
         guard let selected = selectedWindow,
-              let current = NeutralGeometryWindowCatalog.currentWindow(
-                  matching: selected
-              ) else {
+              let current = system.currentWindow(selected) else {
             throw NeutralGeometryCaptureError.windowChanged
         }
         let pending = Array(capturedEvents.dropFirst(deliveredEventCount))
@@ -490,7 +518,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
             .scrollWheel,
             .keyDown, .keyUp, .flagsChanged,
         ]
-        monitor = NSEvent.addGlobalMonitorForEvents(matching: mask) {
+        monitor = system.addGlobalMonitor(mask) {
             [weak self] event in
             let raw = Self.rawEvent(from: event)
             guard let raw else { return }
@@ -503,7 +531,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
 
     private func stopMonitor() {
         if let monitor {
-            NSEvent.removeMonitor(monitor)
+            system.removeMonitor(monitor)
             self.monitor = nil
         }
     }
@@ -579,9 +607,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
     private func ingest(_ raw: NeutralGeometryRawEvent) {
         guard mode == .recording,
               let selected = selectedWindow,
-              let current = NeutralGeometryWindowCatalog.currentWindow(
-                  matching: selected
-              ) else {
+              let current = system.currentWindow(selected) else {
             if mode == .recording {
                 revoke(reason: NeutralGeometryCaptureError.windowChanged.localizedDescription)
             }
@@ -590,13 +616,13 @@ final class NeutralGeometryCaptureSession: ObservableObject {
         selectedWindow = current
         let elapsed = elapsedMilliseconds(raw.timestampNanoseconds)
         let pointerAccepted = raw.location.map {
-            NeutralGeometryWindowCatalog.isTopmostAtPoint(current, point: $0)
+            system.isTopmostAtPoint(current, $0)
         } ?? false
         guard let event = Self.makeEvent(
             from: raw,
             bounds: current.bounds,
             pointerIsTopmost: pointerAccepted,
-            keyWindowIsActive: NeutralGeometryWindowCatalog.isActive(current),
+            keyWindowIsActive: system.isActive(current),
             eventID: nextEventID(),
             elapsedMilliseconds: elapsed
         ) else {

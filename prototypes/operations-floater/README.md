@@ -58,6 +58,9 @@ snapshot remains schema version `1.0`.
 - An explicit user launch opens visibly in front but defaults **Keep in front**
   to off and stays on one macOS Desktop. Pinning and showing the same window on
   every Desktop are never implicit.
+- The app holds one process-scoped lease in its sandboxed Application Support
+  directory. A direct second launch activates the existing bundle instance and
+  exits before starting another recorder host.
 - A deliberate `--background-ui-test` launch mode leaves **Keep in front** off,
   stays on one macOS Desktop, and neither activates the app nor force-orders its
   window above unrelated work. Normal user launches retain the foreground
@@ -154,6 +157,11 @@ snapshot remains schema version `1.0`.
   remains usable down to a 380-by-480 compact single-column layout.
 - The application target is sandboxed, uses hardened runtime, and includes a
   macOS app icon, encryption declaration, and productivity category.
+- The supported release shape is one signed main app with no login item,
+  launch agent, daemon, privileged helper, or updater. Input Monitoring belongs
+  to that app's stable code identity; unsigned and ad-hoc routine builds are
+  disposable test artifacts and must not replace or launch as the permission-
+  bearing installed copy.
 
 See [INSTALL_UPDATE_ROLLBACK.md](INSTALL_UPDATE_ROLLBACK.md) for the release
 preflight, local update procedure, acceptance checks, and rollback path.
@@ -174,6 +182,7 @@ privacy, and lifecycle tests:
 
 ```bash
 swift test
+bash Tests/permission-identity-preflight.test.sh
 ```
 
 Run an unsigned bounded application build:
