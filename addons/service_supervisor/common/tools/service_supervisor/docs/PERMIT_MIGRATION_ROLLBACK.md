@@ -29,8 +29,12 @@ Before using the new API:
    nonce in its own durable ledger. No executor or broker is supplied by this
    release.
 
-The PM permit state schema starts at SQLite `user_version=1`. Unknown future versions
-fail closed; there is no automatic downgrade or lossy migration.
+New PM permit ledgers use SQLite `user_version=2`. Opening a version 1 ledger
+atomically preserves its consumed nonce fingerprints and revocations while
+removing the obsolete generation-wide uniqueness constraint; legacy rows have
+no recoverable permit ID, so their nonce replay protection remains the durable
+authority. Unknown future versions fail closed. There is no automatic
+downgrade or lossy migration.
 
 ## Rollback
 

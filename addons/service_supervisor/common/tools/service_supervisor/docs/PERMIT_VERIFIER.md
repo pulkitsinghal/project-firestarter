@@ -128,12 +128,20 @@ revocations. Symlinks, non-regular files, oversized state, unsupported schema
 versions, and failed integrity checks refuse.
 
 The authorization record commits before the signed handoff receipt is returned.
-Concurrent copies therefore produce one winner and replay refusals. If the
-process fails before commit, SQLite rolls the insertion back and a fresh
-verifier can retry. Restarting does not make a consumed nonce reusable.
-The exact plan/phase/catalog/executor/state generation is also single-use:
-issuing a second nonce for an already consumed generation is a conflicting
-permit, not a retry. A retry requires a newly reviewed state generation.
+Concurrent copies of the same signed permit therefore produce one winner and
+replay refusals. If the process fails before commit, SQLite rolls back both the
+nonce consumption and permit-ID binding so a fresh verifier can retry.
+Restarting does not make a consumed nonce reusable.
+
+Distinct correctly signed permits may authorize the same deterministic
+plan/phase/catalog/executor/state generation. Each must have its own permit ID
+and nonce, and each produces its own independently consumable handoff receipt.
+This permits genuine multi-client singleflight at the broker without weakening
+the verifier boundary. A permit ID is durably bound to its exact signed permit
+fingerprint; reusing a permit ID for a different payload is conflicting.
+State schema 1 ledgers migrate atomically to schema 2, preserving prior nonce
+consumption and revocations while removing the obsolete generation-wide
+uniqueness constraint.
 
 The deterministic snapshot is an audit/testing surface, not an executor input.
 It excludes raw nonces, signatures, keys, commands, paths, URLs, models, and
