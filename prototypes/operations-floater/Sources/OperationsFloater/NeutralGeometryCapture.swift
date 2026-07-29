@@ -254,6 +254,22 @@ final class NeutralGeometryCaptureSession: ObservableObject {
         }
     }
 
+    func setInputMonitoringToggle(_ enabled: Bool) {
+        if enabled {
+            requestInputMonitoring()
+            return
+        }
+
+        // macOS does not let an app revoke its own Input Monitoring grant. Keep
+        // the switch truthful and direct the user to the system permission pane.
+        inputMonitoringAvailable = CGPreflightListenEventAccess()
+        if inputMonitoringAvailable {
+            lastError =
+                "To turn off Input Monitoring, remove Operations Floater in "
+                    + "System Settings → Privacy & Security → Input Monitoring."
+        }
+    }
+
     func start() {
         guard selectedWindow != nil else {
             lastError = NeutralGeometryCaptureError.noWindow.localizedDescription
@@ -824,12 +840,20 @@ struct NeutralGeometryCapturePanel: View {
                     }
                     .controlSize(.mini)
                 }
-                if !capture.inputMonitoringAvailable {
-                    Button("Enable input monitoring") {
-                        capture.requestInputMonitoring()
-                    }
-                    .controlSize(.mini)
-                }
+                Toggle(
+                    "Input monitoring",
+                    isOn: Binding(
+                        get: { capture.inputMonitoringAvailable },
+                        set: { capture.setInputMonitoringToggle($0) }
+                    )
+                )
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .help(
+                    capture.inputMonitoringAvailable
+                        ? "Input Monitoring is enabled for this app."
+                        : "Turn on to request macOS Input Monitoring permission."
+                )
             }
 
             Text(

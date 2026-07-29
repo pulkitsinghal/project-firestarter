@@ -640,6 +640,30 @@ struct RouterChatSessionTests {
         #expect(session.messages.isEmpty)
     }
 
+    @Test("Giving the recorder floor without a selected window stays actionable")
+    func recorderFloorRequiresSelectedWindow() async {
+        let session = RouterChatSession(
+            transport: StubRouterTransport(
+                available: true,
+                result: .success(localReply(text: "Unused"))
+            )
+        )
+        await session.enable()
+        session.selectConversationTarget(
+            ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
+        )
+        let voice = VoiceConversationSession()
+
+        await session.activateSelectedRecorder(with: voice)
+
+        #expect(session.modules.activeFloor == nil)
+        #expect(voice.state == .off)
+        #expect(
+            session.lastError
+                == "Choose a visible window before giving the recorder the floor."
+        )
+    }
+
     @Test("Collapsing chat suspends and clears its ephemeral lifecycle")
     func collapsedChatIsInactive() async {
         let session = RouterChatSession(

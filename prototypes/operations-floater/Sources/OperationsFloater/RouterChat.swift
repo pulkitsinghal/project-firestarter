@@ -1083,6 +1083,48 @@ final class RouterChatSession: ObservableObject {
         await modules.revokeFloor()
     }
 
+    func activateSelectedRecorder(with voice: VoiceConversationSession) async {
+        guard modules.selectedModuleID
+                == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID else {
+            await modules.grantSelectedFloor()
+            return
+        }
+
+        geometryCapture.refreshWindows()
+        guard geometryCapture.selectedWindow != nil else {
+            lastError = "Choose a visible window before giving the recorder the floor."
+            return
+        }
+
+        await modules.grantSelectedFloor()
+        guard modules.activeFloor != nil else {
+            lastError = modules.lastError
+                ?? "The selected recorder could not receive the floor."
+            return
+        }
+
+        geometryCapture.start()
+        guard geometryCapture.mode == .recording else {
+            let reason = geometryCapture.lastError
+                ?? "Input monitoring is required before recording can start."
+            geometryCapture.revoke(reason: reason)
+            await modules.revokeFloor()
+            lastError = reason
+            onConversationControlChanged?()
+            return
+        }
+
+        await voice.start()
+        guard voice.state == .listening else {
+            let reason = voice.lastError ?? "Voice could not start."
+            geometryCapture.revoke(reason: reason)
+            await modules.revokeFloor()
+            lastError = reason
+            onConversationControlChanged?()
+            return
+        }
+    }
+
     func selectConversationTarget(_ moduleID: String?) {
         guard modules.activeFloor == nil,
               modules.selectedModuleID != moduleID else {
@@ -1549,17 +1591,23 @@ struct RouterChatPanel: View {
                 .disabled(session.modules.activeFloor != nil)
 
                 if session.modules.activeFloor == nil {
-                    Button("Give floor") {
+                    Button(
+                        session.modules.selectedModuleID
+                            == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
+                            ? "Give floor · start voice + recording"
+                            : "Give floor"
+                    ) {
                         Task {
-                            if session.modules.selectedModuleID
-                                == ConversationModuleAllowlist
-                                    .relativeXYRecorderManifest.moduleID {
-                                session.geometryCapture.refreshWindows()
-                            }
-                            await session.modules.grantSelectedFloor()
+                            await session.activateSelectedRecorder(with: voice)
                         }
                     }
                     .controlSize(.mini)
+                    .help(
+                        session.modules.selectedModuleID
+                            == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
+                            ? "Give the Relative XY recorder the floor to start voice and recording together."
+                            : "Give the selected conversation module the floor."
+                    )
                     .disabled(
                         session.modules.selectedModuleID == nil
                             || session.modules.isWorking
@@ -1567,6 +1615,7 @@ struct RouterChatPanel: View {
                 } else {
                     Button("Return to dashboard") {
                         voice.cancelPendingSubmission()
+                        voice.stop()
                         Task {
                             await session.revokeModuleFloor()
                         }
@@ -1757,12 +1806,20 @@ struct RouterChatPanel: View {
 
             switch voice.state {
             case .off, .unavailable:
-                Button("Start voice") {
-                    Task {
-                        await voice.start()
+                if session.modules.activeFloor == nil,
+                   session.modules.selectedModuleID
+                        == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID {
+                    Text("Give floor starts voice + recording")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button("Start voice") {
+                        Task {
+                            await voice.start()
+                        }
                     }
+                    .controlSize(.mini)
                 }
-                .controlSize(.mini)
             case .listening:
                 Button("Pause") {
                     voice.pause()
