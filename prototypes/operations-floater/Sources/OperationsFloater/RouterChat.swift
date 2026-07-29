@@ -2,6 +2,42 @@ import Combine
 import Foundation
 import SwiftUI
 
+enum RecorderActivationResult: Equatable {
+    case activated
+    case failed(reason: String, changedConversationControl: Bool)
+}
+
+@MainActor
+enum RecorderActivationTransaction {
+    static func run(
+        grantFloor: () async -> String?,
+        startRecording: () -> String?,
+        startVoice: () async -> String?,
+        stopVoice: () -> Void,
+        revokeRecording: (String) -> Void,
+        revokeFloor: () async -> Void
+    ) async -> RecorderActivationResult {
+        if let reason = await grantFloor() {
+            return .failed(reason: reason, changedConversationControl: false)
+        }
+
+        if let reason = startRecording() {
+            revokeRecording(reason)
+            await revokeFloor()
+            return .failed(reason: reason, changedConversationControl: true)
+        }
+
+        if let reason = await startVoice() {
+            stopVoice()
+            revokeRecording(reason)
+            await revokeFloor()
+            return .failed(reason: reason, changedConversationControl: true)
+        }
+
+        return .activated
+    }
+}
+
 enum RouterAvailability: Equatable, Sendable {
     case disabled
     case checking
@@ -1096,33 +1132,45 @@ final class RouterChatSession: ObservableObject {
             return
         }
 
-        await modules.grantSelectedFloor()
-        guard modules.activeFloor != nil else {
-            lastError = modules.lastError
-                ?? "The selected recorder could not receive the floor."
-            return
-        }
-
-        geometryCapture.start()
-        guard geometryCapture.mode == .recording else {
-            let reason = geometryCapture.lastError
-                ?? "Input monitoring is required before recording can start."
-            geometryCapture.revoke(reason: reason)
-            await modules.revokeFloor()
+        let result = await RecorderActivationTransaction.run(
+            grantFloor: {
+                await self.modules.grantSelectedFloor()
+                return self.modules.activeFloor == nil
+                    ? self.modules.lastError
+                        ?? "The selected recorder could not receive the floor."
+                    : nil
+            },
+            startRecording: {
+                self.geometryCapture.start()
+                return self.geometryCapture.mode == .recording
+                    ? nil
+                    : self.geometryCapture.lastError
+                        ?? "Input monitoring is required before recording can start."
+            },
+            startVoice: {
+                await voice.start()
+                return voice.state == .listening
+                    ? nil
+                    : voice.lastError ?? "Voice could not start."
+            },
+            stopVoice: {
+                voice.stop()
+            },
+            revokeRecording: { reason in
+                self.geometryCapture.revoke(reason: reason)
+            },
+            revokeFloor: {
+                await self.modules.revokeFloor()
+            }
+        )
+        switch result {
+        case .activated:
+            lastError = nil
+        case .failed(let reason, let changedConversationControl):
             lastError = reason
-            onConversationControlChanged?()
-            return
-        }
-
-        await voice.start()
-        guard voice.state == .listening else {
-            let reason = voice.lastError ?? "Voice could not start."
-            voice.stop()
-            geometryCapture.revoke(reason: reason)
-            await modules.revokeFloor()
-            lastError = reason
-            onConversationControlChanged?()
-            return
+            if changedConversationControl {
+                onConversationControlChanged?()
+            }
         }
     }
 
