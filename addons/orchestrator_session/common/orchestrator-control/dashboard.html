@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>Local Orchestrator Receipt Feed</h1>
-  <p class="muted">Load a sanitized receipt-feed 1.0 export. This review-only browser never reads SQLite, calls a network, executes stored HTML, or performs a control-plane action.</p>
+  <p class="muted">Load a sanitized receipt-feed 1.1 export. This review-only browser never reads SQLite, calls a network, executes stored HTML, or performs a control-plane action.</p>
   <input id="file" type="file" accept="application/json,.json">
   <main id="app"><p>No receipt feed loaded.</p></main>
   <script>
@@ -53,7 +53,7 @@
       app.appendChild(result);
     }
     function validFeed(payload) {
-      return payload && payload.schemaVersion === "1.0" &&
+      return payload && payload.schemaVersion === "1.1" &&
         payload.source && payload.capacity && payload.counts &&
         Array.isArray(payload.receipts) && Array.isArray(payload.ownerGates) &&
         Array.isArray(payload.quarantine) &&
@@ -62,7 +62,7 @@
     function render(payload) {
       app.replaceChildren();
       if (!validFeed(payload)) {
-        app.appendChild(node("p", "Rejected: expected receipt-feed 1.0 with rootExcluded=true."));
+        app.appendChild(node("p", "Rejected: expected receipt-feed 1.1 with rootExcluded=true."));
         return;
       }
       const freshness = payload.source.freshness || {};
@@ -76,7 +76,8 @@
         ageSeconds: freshness.ageSeconds == null ? "Unknown" : freshness.ageSeconds,
         thresholdSeconds: freshness.thresholdSeconds,
         revision: payload.source.sourceRevision == null ? "Unavailable" : payload.source.sourceRevision,
-        discrepancies: (payload.source.discrepancies || []).join(", ") || "None"
+        discrepancies: (payload.source.discrepancies || []).join(", ") || "None",
+        provenance: payload.source.provenance ? `${payload.source.provenance.sourceClass} · ${payload.source.provenance.sanitization}` : "Unavailable"
       }], [
         {label: "generatedAt", value: row => row.generatedAt},
         {label: "servedAt", value: row => row.servedAt},
@@ -85,7 +86,8 @@
         {label: "ageSeconds", value: row => row.ageSeconds},
         {label: "thresholdSeconds", value: row => row.thresholdSeconds},
         {label: "revision", value: row => row.revision},
-        {label: "discrepancies", value: row => row.discrepancies}
+        {label: "discrepancies", value: row => row.discrepancies},
+        {label: "provenance", value: row => row.provenance}
       ], sourceClass);
       section("Receipt-derived capacity", [{
         configuredWorkers: payload.capacity.configuredWorkers == null ? "Unavailable" : payload.capacity.configuredWorkers,
@@ -115,12 +117,16 @@
         {label: "quarantined", value: row => row.quarantined}
       ]);
       section("Canonical receipt-backed tasks and lifecycle", payload.receipts, [
+        {label: "publicLabel", value: row => row.publicLabel},
+        {label: "ownerClass", value: row => row.ownerClass},
+        {label: "laneClass", value: row => row.laneClass},
         {label: "fingerprint", value: row => row.fingerprint},
         {label: "revision", value: row => row.revision},
         {label: "lifecycle", value: row => row.lifecycle},
         {label: "gateKind", value: row => row.gateKind},
         {label: "runnable", value: row => row.runnable === null ? "Unknown" : row.runnable},
         {label: "nextSafeMove", value: row => row.nextSafeMove},
+        {label: "evidenceAgeSeconds", value: row => row.evidenceAge.availability === "unavailable" ? "Unavailable" : row.evidenceAge.ageSeconds},
         {label: "dependsOn", value: row => row.dependsOn.join(", ") || "None"},
         {label: "acceptanceReceipts", value: row => row.acceptanceReceipts.join(", ") || "None"},
         {label: "successorReceipts", value: row => row.successorReceipts.join(", ") || "None"},

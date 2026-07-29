@@ -6,6 +6,15 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Receipt-feed 1.1 operational bootstrap: optional bounded sanitized
+  launch/handback `public_metadata`, readable `publicLabel` plus coarse
+  `ownerClass`/`laneClass`, lifecycle-derived safe actions, evidence-age
+  availability, explicit 1.0 migration, and a privacy-safe synthetic
+  current-task manifest. A locked idempotent reconcile command now creates the
+  canonical local state directory without Codex API scraping or raw payload
+  persistence; a one-way atomic publisher emits deterministic content-addressed
+  dashboard bytes plus current/LKG/previous pointers with rollback and
+  concurrent-writer coverage. No hosted-to-Mac control bridge is introduced.
 - `include_service_supervisor` (default `no`), a stack-agnostic, source-only
   supervisor contract for explicitly allowlisted loopback services. It ships a
   strict synthetic adapter, dependency DAG, deterministic wake/idle plans,

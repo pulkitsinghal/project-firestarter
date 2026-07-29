@@ -72,6 +72,21 @@
     },
     "dependencies": {"type": "array", "items": {"type": "string"}},
     "next_action": {"type": "string"},
+    "public_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publicLabel", "ownerClass", "laneClass"],
+      "properties": {
+        "publicLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 .,&()'’+-]{0,79}$"
+        },
+        "ownerClass": {"enum": ["pm-proxy", "worker", "owner", "external"]},
+        "laneClass": {"enum": ["running", "next", "waiting", "owner-gated", "complete"]}
+      }
+    },
     "successor_request": {
       "oneOf": [
         {"$ref": "prepare-launch.request.schema.json"},
