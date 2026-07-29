@@ -19,6 +19,12 @@ Canonical producer artifacts are:
 - `docs/service-inventory-1.0.schema.json`
 - `docs/SERVICE_INVENTORY.md`
 
+Representative downstream fixtures are:
+
+- `tests/fixtures/service-catalog-1.0.synthetic.json`
+- `tests/fixtures/service-metrics-1.0.synthetic.json`
+- `tests/fixtures/service-inventory-1.0.synthetic.json`
+
 ## Producer shape
 
 The inventory root is exactly:
@@ -43,8 +49,11 @@ Every observed runtime fact is exactly:
 }
 ```
 
-When unavailable, `value` must remain `null`; it never becomes `0`, `false`,
-`[]`, `idle`, `stopped`, or `healthy`.
+When `available` is `false`, `value` must remain `null` and `reason` must be
+non-null; unknown never becomes `0`, `false`, `[]`, `idle`, `stopped`, or
+`healthy`. When `available` is `true`, `value` must be non-null and `reason`
+must be `null`. The schema constrains contextual values instead of accepting
+arbitrary status strings.
 
 Each service is exactly:
 
@@ -56,6 +65,16 @@ Each service is exactly:
 - `ownership { owner, retainPolicy, managed:false }`
 - `dependencies`
 - `resourceClass`
+
+`manager.state` is one of `loaded`, `not-loaded`, or `reachable`.
+`listener.observed.value`, when available, is exactly
+`{addresses: [], exposure: ...}`. `health.status` is either `healthy` or
+`unavailable`; it is not a supervisor lifecycle state.
+
+`ollama.models.value`, when available, is a list of exact
+`{name, resident:true, sizeGb}` records. `sizeGb` is itself an
+availability-wrapped observation, so an unknown model size remains
+`value:null, available:false` rather than becoming zero.
 
 ## Fail-closed mapping
 
@@ -72,8 +91,9 @@ Each service is exactly:
 | `ownership.managed` | execution authority | Must be exactly `false` for this producer and is never promoted to permission. |
 
 Docker Compose stays unavailable unless an exact approved project declaration
-exists. Generic container names are not ownership evidence. Ollama resident
-models remain observe-only facts and never authorize load, unload, or pull.
+exists. Declared and current Compose status are separate observations; generic
+container names are not ownership evidence. Ollama resident models remain
+observe-only facts and never authorize load, unload, or pull.
 
 ## Current source-only findings
 
@@ -81,6 +101,17 @@ The producer currently classifies Caddy, the Ollama host, and Relay as
 never-stop. Router, Recall, and Triage have desired loopback declarations, but
 source hardening is not proof of a live binding change. All other lifecycle
 policy remains manual or scheduled.
+
+The reviewed dependency observations are:
+
+- `router -> [ollama-host]`
+- `recall`, `triage`, and `browse -> []`
+- `stream-ingest -> [ollama-host]`
+- `pm-loop -> [relay]`
+
+Browse declares a fixed `GET /health` probe. These edges and the probe remain
+inventory inputs only; observed manager/listener/health facts must never be
+promoted into a Firestarter supervisor lifecycle state.
 
 No Caddy reload, listener change, launchd action, Docker action, Ollama action,
 or other host mutation follows from this document.
