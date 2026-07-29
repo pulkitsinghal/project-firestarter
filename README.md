@@ -86,8 +86,9 @@ gh secret set ANTHROPIC_API_KEY   # turn on the AI reviewer
   - `supabase-flutter` — Postgres/PostGIS + PostgREST + GoTrue · Flutter · React.
   - `chrome-extension` — Manifest V3 · TypeScript/esbuild · Vitest · Playwright.
   - `node-notifier` — Express · BullMQ · Redis · Socket.IO · OIDC resource-server starter.
-- **Optional add-ons** (`addons/`) — e.g. `k8s` Kustomize (opt in with
-  `include_k8s=yes`).
+- **Optional add-ons** (`addons/`) — e.g. `k8s` Kustomize or the
+  stack-agnostic canonical Orchestrator Bill of Rights (opt in with
+  `include_k8s=yes` or `include_orchestrator_session=yes`).
 - **Reference prototypes** (`prototypes/`) — an opt-in unified operations
   dashboard: a native macOS floater, a static sanitized web renderer, a strict
   shared contract, and an offline immutable publication workflow. These are

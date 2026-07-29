@@ -104,7 +104,7 @@ for values in examples/*.answers.json; do
     python /gen/bin/generate.py --values "/gen/$values" --output "/out/$ex"
 done
 # No unsubstituted tokens (JSX style={{ }} is the only allowed match):
-grep -rn '{{' "$SB" | grep -vE '\$\{\{|style=\{\{' || echo "✓ no leaks"
+grep -rIn '{{' "$SB" | grep -vE '\$\{\{|style=\{\{' || echo "✓ no leaks"
 # GitHub expressions preserved:
 grep -c '\${{' "$SB/fastapi-next/.github/workflows/auto-merge.yml"
 ```
