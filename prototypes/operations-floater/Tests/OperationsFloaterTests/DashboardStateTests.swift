@@ -75,6 +75,21 @@ struct DashboardStateTests {
         #expect(!state.pinned)
     }
 
+    @Test("The application instance lease excludes a second process host")
+    func singleInstanceLeaseIsExclusive() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lockURL = directory.appendingPathComponent("application.instance.lock")
+
+        var firstLease = try SingleInstanceLease.acquire(at: lockURL)
+        #expect(firstLease != nil)
+        #expect(try SingleInstanceLease.acquire(at: lockURL) == nil)
+
+        firstLease = nil
+        let replacementLease = try SingleInstanceLease.acquire(at: lockURL)
+        #expect(replacementLease != nil)
+    }
+
     @Test("Missing local state renders every lane empty")
     func missingLocalStateUsesEmptySnapshot() {
         let state = DashboardState(snapshotURL: missingFixtureURL(), liveClient: nil)

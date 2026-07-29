@@ -19,6 +19,8 @@ targets:
       properties:
         ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: public.app-category.productivity
+        CFBundleShortVersionString: "1.1.0"
+        CFBundleVersion: "2"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSMicrophoneUsageDescription: Start Voice Conversation uses the microphone only while you explicitly listen.

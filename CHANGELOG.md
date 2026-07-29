@@ -6,6 +6,13 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Operations Floater 1.1.0 (build 2) permission/install lifecycle: a read-only
+  designated-requirement compatibility preflight, helper-free bundle audit,
+  one-instance recorder host, transactional **Give floor** rollback, and
+  synthetic tests that never sign, install, launch, or request TCC access.
+  Routine validation is bundle-free on the active macOS profile because Xcode
+  26.5 still invokes `lsregister` despite
+  `REGISTER_WITH_LAUNCH_SERVICES=NO`.
 - Unified operations-dashboard reference sources under `prototypes/`: a strict
   privacy-neutral contract, native macOS floater with validated local snapshot
   import/rollback, sanitized static web renderer, and offline content-addressed
