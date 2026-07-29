@@ -1001,5 +1001,14 @@ class ListenerAndSourceSafetyTests(unittest.TestCase):
             self.assertNotIn(forbidden, source)
 
 
+def load_tests(loader, tests, _pattern):
+    """Keep the existing hosted/generated test entrypoint as the full 0.2 gate."""
+
+    from tools.service_supervisor.tests import test_permits
+
+    tests.addTests(loader.loadTestsFromModule(test_permits))
+    return tests
+
+
 if __name__ == "__main__":
     unittest.main()

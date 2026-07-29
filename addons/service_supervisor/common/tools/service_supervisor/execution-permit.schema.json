@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.local/schemas/pm-execution-permit-1.json",
+  "title": "Firestarter PM execution permit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "policy_version",
+    "permit_id",
+    "authorization_phase",
+    "issued_at",
+    "expires_at",
+    "nonce",
+    "key_id",
+    "plan_digest",
+    "target_service_id",
+    "intent",
+    "actions",
+    "adapter_set",
+    "producer_schema_digest",
+    "catalog_digest",
+    "executor_generation",
+    "state_generation",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "execution-permit"
+    },
+    "policy_version": {
+      "const": "pm-execution-permit/1"
+    },
+    "permit_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$"
+    },
+    "authorization_phase": {
+      "enum": [
+        "apply",
+        "rollback"
+      ]
+    },
+    "issued_at": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4102444800
+    },
+    "expires_at": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4102444800
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22,128}$"
+    },
+    "key_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,62}$"
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "target_service_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,62}$"
+    },
+    "intent": {
+      "enum": [
+        "ensure-ready",
+        "complete-stop",
+        "restart"
+      ]
+    },
+    "actions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "bootstrap",
+          "bootout",
+          "kickstart",
+          "start",
+          "stop",
+          "load",
+          "unload",
+          "check-readiness"
+        ]
+      }
+    },
+    "adapter_set": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "launchd",
+          "docker-compose",
+          "ollama"
+        ]
+      }
+    },
+    "producer_schema_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "catalog_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "executor_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

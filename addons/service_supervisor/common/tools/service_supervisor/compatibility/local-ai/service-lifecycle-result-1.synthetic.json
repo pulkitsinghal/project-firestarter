@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "kind": "local-ai-adapter-result",
+  "plan_digest": "9099a1ad8f5d19a261243a29e13f0719f9663af3d7a28201adef99e76d7d3796",
+  "status": "dry-run",
+  "completed_steps": [],
+  "failed_step": null,
+  "readiness_proved": false,
+  "rollback_status": "not-run",
+  "error": null
+}

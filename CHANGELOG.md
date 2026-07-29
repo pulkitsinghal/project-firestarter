@@ -25,6 +25,15 @@ All notable changes to the firestarter template. See
   plane, listener, Docker socket, host executor, install step, or live service
   action; the GET/HEAD wake-before-forward contract exists only as a synthetic
   test fixture.
+- Service-supervisor 0.2 typed permit verification: exact merged local-ai
+  lifecycle-v1 plan/result and fixture pins; closed launchd/Compose/Ollama data
+  shapes; deterministic plan hashing; signed, scope/generation/time-bound PM
+  permits; durable atomic nonce consumption/revocation; and separately signed,
+  short-lived broker handoff receipts with verifier/pin provenance and an
+  independent broker-consumed nonce. Apply and rollback require distinct
+  permits and receipts. The add-on remains default-off and contains no broker,
+  listener, OS executor, subprocess, Docker socket, network client, or host
+  service action.
 - `pm-proxy-orchestrator` 0.2.0 as a repo-local source plugin and marketplace:
   fail-closed Firestarter interface checks, mandatory recycle/preflight,
   prompt-free launch tickets, exact receipt/fence enforcement, typed decision

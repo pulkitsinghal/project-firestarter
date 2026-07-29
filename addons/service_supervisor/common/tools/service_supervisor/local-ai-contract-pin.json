@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "status": "pinned",
+  "source_repository": "local-ai",
+  "source_ref": "3986befb06106b66795444d54f8513ead83f76b0",
+  "plan_schema_path": "docs/service-lifecycle-1.0.schema.json",
+  "plan_schema_sha256": "a424f6a5b73641bdc6bdafc3411d49f7a239c663cbb0dd62eea665cfb6d76d97",
+  "catalog_fixture_path": "tests/fixtures/service-lifecycle-catalog-1.synthetic.json",
+  "catalog_fixture_sha256": "6d0b7a440c2f6758b0b01482a5a508dba12b8c191938949854ad1189718fa5f1",
+  "observations_fixture_path": "tests/fixtures/service-lifecycle-observations-1.synthetic.json",
+  "observations_fixture_sha256": "1ecbdbb75571f353469120bfd53c4be7a82ae03802d0bde33013a0c1bcf6edda",
+  "plan_fixture_path": "tests/fixtures/service-lifecycle-plan-1.synthetic.json",
+  "plan_fixture_sha256": "deca956500d797e1d956692b120f082b4f6f417cd6f0a65c00bef342545962b7",
+  "result_fixture_path": "tests/fixtures/service-lifecycle-result-1.synthetic.json",
+  "result_fixture_sha256": "ee8a33252684ab9adb420b61f9ab4b3cd2f0c9d4b992df7e94f682d49c6abecb",
+  "untrusted_permit_fixture_path": "tests/fixtures/service-lifecycle-permit-1.untrusted.synthetic.json",
+  "untrusted_permit_fixture_sha256": "82d77161f1dfa3fbb448d80f5dd3baa8cba755e54bc516a82fa0c744734fa526",
+  "canonical_plan_digest": "9099a1ad8f5d19a261243a29e13f0719f9663af3d7a28201adef99e76d7d3796"
+}

@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.local/schemas/local-ai-adapter-plan-1.json",
+  "title": "Pinned local-ai adapter plan compatibility surface",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "supervisor_contract_version",
+    "target_service_id",
+    "intent",
+    "dry_run",
+    "steps",
+    "plan_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "local-ai-adapter-plan"
+    },
+    "supervisor_contract_version": {
+      "const": "0.1.0"
+    },
+    "target_service_id": {
+      "$ref": "#/$defs/service_id"
+    },
+    "intent": {
+      "enum": [
+        "ensure-ready",
+        "complete-stop",
+        "restart"
+      ]
+    },
+    "dry_run": {
+      "const": true
+    },
+    "steps": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "plan_digest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "service_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,62}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "service_id",
+        "adapter",
+        "operation",
+        "resource_key",
+        "argv",
+        "http_request",
+        "readiness",
+        "rollback"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "service_id": {
+          "$ref": "#/$defs/service_id"
+        },
+        "adapter": {
+          "enum": [
+            "launchd",
+            "docker-compose",
+            "ollama"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "bootstrap",
+            "bootout",
+            "kickstart",
+            "start",
+            "stop",
+            "load",
+            "unload",
+            "check-readiness"
+          ]
+        },
+        "resource_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "argv": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            }
+          ]
+        },
+        "http_request": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/http_request"
+            }
+          ]
+        },
+        "readiness": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/readiness"
+            }
+          ]
+        },
+        "rollback": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/rollback"
+            }
+          ]
+        }
+      }
+    },
+    "http_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "url",
+        "json"
+      ],
+      "properties": {
+        "method": {
+          "const": "POST"
+        },
+        "url": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "method",
+        "url",
+        "expect",
+        "timeout_ms",
+        "interval_ms"
+      ],
+      "properties": {
+        "kind": {
+          "const": "http"
+        },
+        "method": {
+          "const": "GET"
+        },
+        "url": {
+          "type": "string"
+        },
+        "expect": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "status-2xx"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "model"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "ollama-model-resident"
+                },
+                "model": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300000
+        },
+        "interval_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "argv",
+        "http_request"
+      ],
+      "properties": {
+        "operation": {
+          "enum": [
+            "bootstrap",
+            "bootout",
+            "start",
+            "stop",
+            "load",
+            "unload"
+          ]
+        },
+        "argv": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 8,
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "http_request": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/http_request"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
