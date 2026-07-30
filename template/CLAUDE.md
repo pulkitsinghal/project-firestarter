@@ -53,6 +53,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   `ANTHROPIC_API_KEY` repo secret) and posts a verdict comment. Auto-merge
   triggers on LGTM/NON-BLOCKING. **Never paste secret values into chat/PRs/commits**
   — set them via `gh secret set`; see [docs/ci-secrets.md](docs/ci-secrets.md).
+- **The quality gate is code review + the test pyramid.** unit → integration →
+  API → e2e, run locally at high intensity in Docker. That gate is sufficient to
+  validate code quality — no extra human sign-off is needed to merge. It is a
+  code-quality gate only, never a licence for owner-gated side-effects (deploy,
+  credentials, prod migrations, spend). See
+  [docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md).
 - **Conventional commits, required.** `type(scope): subject`. Types:
   `feat fix refactor chore docs test ci build`. Subject ≤ 100 chars.
 - **Forward-only migrations.** Never edit an applied migration except for
@@ -117,5 +123,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
 | `docs/OPEN_QUESTIONS.md` | Deferred decisions and known gaps |
 | `docs/ci-secrets.md` | How to provide CI secrets without leaking them |
 | `docs/FEATURE_HANDOFF.md` | Evidence bundle for user/dev feature review |
+| `docs/ENGINEERING_CONVENTIONS.md` | Quality gate (review + test pyramid), stacked-PR merge order, forking work, decision briefs |
 | `Makefile` | All common dev commands (`make help`) |
 | `backend/migrations/` | Forward-only SQL migrations |

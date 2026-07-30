@@ -101,6 +101,11 @@ carry the full contract and the tooling.
 - One feature/fix per branch; short-lived (≤ 2 days).
 - Name: `<type>/<scope>-<slug>` — e.g. `feat/backend-prayer-session`,
   `fix/state-seq-guard`.
+- **Fork discrete work into its own branch/PR.** When a self-contained unit of
+  work can stand on its own — a refactor you noticed, an independent fix, a
+  follow-up — split it out rather than growing the current diff. Keep each change
+  small, reviewable, and independently mergeable/revertable, and don't wait to be
+  asked. See [docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md).
 - **Parallel sessions → use a git worktree (disk permitting).** When more than
   one session/agent may touch this repo at once, give each its own worktree on
   its own branch instead of sharing one checkout. Each worktree is an isolated
@@ -167,6 +172,11 @@ Use **Conventional Commits**:
   trunk commit.
 - Rebase, never merge, when pulling `master` into a feature branch.
 - Delete the branch after merge.
+- **Stacked PRs — mind the merge order.** When PR B is stacked on PR A (B's base
+  is A's head branch), merging A with `--delete-branch` deletes B's base branch
+  and auto-closes B. Retarget the child onto `master` *before* merging the base
+  (`gh pr edit <B> --base master`), or merge the base without `--delete-branch`.
+  Full mechanics + recovery: [docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md).
 
 ### End-to-end completion loop
 Unless the user explicitly narrows the task, completion means the whole safe
@@ -219,6 +229,28 @@ commit. One-shot local equivalent — run before staging:
 make precommit
 ```
 which runs every lint / type-check / test gate, all inside Docker.
+
+### The quality gate is code review + the test pyramid (a precept)
+
+Merge-readiness has exactly two ingredients, and together they are sufficient:
+
+1. **Code review is complete** — the automated PR review below, plus your own
+   read-back of the staged diff.
+2. **The test pyramid is green, in order:** unit → integration → API →
+   end-to-end (each layer the stack actually has).
+
+Run the pyramid **locally at high intensity, in Docker, mirroring CI** — `make
+precommit` plus the stack's integration/API/e2e targets. A green local gate is
+authoritative: if the hosted CI run is unavailable or flaky for reasons
+unrelated to your change, it still stands as the merge signal. That never
+licenses ignoring a *genuinely* failing check or a BLOCKING review verdict.
+Nothing beyond review + the pyramid is required to validate code quality — don't
+hold merge-ready work for a review layer the gate already covers, and name which
+layers exist and ran rather than skipping one silently. This is a **quality**
+gate, not a **side-effect** gate: it authorizes merging code, never the
+owner-only actions in [docs/DEPLOY_POLICY.md](docs/DEPLOY_POLICY.md) (deploy,
+credentials, prod-DB migrations, spend, destructive history). Full rationale:
+[docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md).
 
 ### Hermetic unit tests (a precept)
 
@@ -296,6 +328,17 @@ log, migration, build/output, or state-transition evidence. Use synthetic/test
 fixtures; never put credentials, secrets, private records, or production data
 in handoff screenshots, captions, recordings, fixtures, or logs.
 
+## Ask for decisions visually, not as a wall of text (a precept)
+
+When you need a maintainer or owner to *decide* something, don't hand them a
+paragraph to parse. Present it visually — annotated storyboard frames and/or a
+short narrated, captioned walkthrough with on-screen pointers — structured as
+**the question → the motivation → what you propose → the ask**. Reuse the media
+conventions in [docs/FEATURE_HANDOFF.md](docs/FEATURE_HANDOFF.md); keep it short
+and understandable both muted (captions) and with sound. A watchable brief lets a
+busy decider decide fast, and is the expected format for a decision request. See
+[docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md).
+
 ## AI code review
 
 1. **Pre-commit self-review** — the gates above + read your staged diff back.
@@ -331,3 +374,5 @@ Adding a toolchain means: add a profiled Compose service, pin the image, add
 - CI secrets: `docs/ci-secrets.md`
 - Storyboard harness: `docs/storyboard-harness.md` → `docs/STORYBOARD.md`
 - Feature handoff evidence: `docs/FEATURE_HANDOFF.md`
+- Engineering conventions (quality gate, stacked PRs, forking work, decision
+  briefs): `docs/ENGINEERING_CONVENTIONS.md`
