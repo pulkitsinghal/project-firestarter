@@ -14,6 +14,44 @@
     "fencing_token": {"type": "integer", "minimum": 1},
     "external_thread_id": {"type": "string"},
     "applicable_rule_ids": {"type": "array", "items": {"type": "string"}},
+    "runtime_attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root_model",
+        "root_reasoning_effort",
+        "root_service_tier",
+        "root_fast_mode",
+        "worker_model",
+        "worker_reasoning_effort",
+        "worker_service_tier",
+        "worker_fast_mode",
+        "service_tier_attestation",
+        "tier_provenance",
+        "auth_mode",
+        "history_mode",
+        "parent_attestation_present"
+      ],
+      "properties": {
+        "root_model": {"const": "gpt-5.6-sol"},
+        "root_reasoning_effort": {"const": "xhigh"},
+        "root_service_tier": {"const": "fast"},
+        "root_fast_mode": {"const": true},
+        "worker_model": {"const": "gpt-5.6-sol"},
+        "worker_reasoning_effort": {"const": "xhigh"},
+        "worker_service_tier": {"const": "fast"},
+        "worker_fast_mode": {"const": true},
+        "service_tier_attestation": {
+          "enum": ["runtime", "config-verified", "unattested"]
+        },
+        "tier_provenance": {
+          "enum": ["platform-runtime", "trusted-project-and-user-config", "none"]
+        },
+        "auth_mode": {"enum": ["chatgpt", "api-key"]},
+        "history_mode": {"enum": ["none", "bounded", "full-history"]},
+        "parent_attestation_present": {"type": "boolean"}
+      }
+    },
     "now": {"type": "string"}
   }
 }

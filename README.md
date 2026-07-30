@@ -93,11 +93,16 @@ gh secret set ANTHROPIC_API_KEY   # turn on the AI reviewer
   `include_service_supervisor=yes`, or
   `include_browser_automation_policy=yes`). The
   orchestrator add-on includes a repo-local, source-only
-  `pm-proxy-orchestrator` Codex plugin marketplace plus schema-1.2
-  receipt-backed capacity and duration-lane contracts. The supervisor add-on
-  contributes only an allowlisted synthetic catalog, dependency/lifecycle
-  planner, leases, and fail-closed policy—no listener, proxy, Docker socket, OS
-  executor, installation, or live service mutation. The browser policy ships
+  `pm-proxy-orchestrator` Codex plugin marketplace plus schema-1.3
+  receipt-backed capacity, lifecycle-watchdog, and duration-lane contracts.
+  It also stamps exact root/spawn `.codex` defaults and a read-only startup
+  verifier that distinguishes platform-reported Fast tier from ChatGPT desktop
+  config verification. The root remains coordination-only: no internal
+  subagents, only visible peer tasks, with root excluded from worker capacity.
+  The supervisor add-on contributes only an allowlisted synthetic catalog,
+  dependency/lifecycle planner, leases, and fail-closed policy—no listener,
+  proxy, Docker socket, OS executor, installation, or live service mutation.
+  The browser policy ships
   closed typed contracts, lifecycle/confirmation/ledger gates, semantic DOM,
   bounded Relative XY, separate Citrix/remote, and voice-intent adapters, plus
   hermetic adversarial fixtures; it includes no browser observer or executor.

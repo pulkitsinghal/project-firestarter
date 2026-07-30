@@ -10,6 +10,7 @@ from pathlib import Path
 
 from tests.support import (
     BRIDGE,
+    config_verified_runtime_attestation,
     handback_request,
     iso,
     launch_request,
@@ -31,7 +32,7 @@ REFILL = (
 
 
 class CurrentFirestarterIntegrationTest(unittest.TestCase):
-    def test_schema_12_native_closure_and_external_mirror_boundary(self):
+    def test_schema_13_native_closure_and_external_mirror_boundary(self):
         cli_value = os.environ.get("FIRESTARTER_CURRENT_CLI")
         repo_value = os.environ.get("FIRESTARTER_CURRENT_REPO")
         if not cli_value or not repo_value:
@@ -72,7 +73,7 @@ class CurrentFirestarterIntegrationTest(unittest.TestCase):
         doctor = run(BRIDGE, "doctor")
         self.assertEqual(0, doctor.returncode, doctor.stderr)
         self.assertEqual(
-            "1.2",
+            "1.3",
             json.loads(doctor.stdout)["result"]["schema_version"],
         )
         root_request = write_json(
@@ -219,6 +220,10 @@ class CurrentFirestarterIntegrationTest(unittest.TestCase):
         recycle = write_json(root / "recycle.json", recycle_request())
         launch = write_json(root / "launch.json", predecessor)
         ticket = state / "current-faq.ticket.json"
+        runtime_attestation = write_json(
+            root / "runtime-attestation.json",
+            config_verified_runtime_attestation(),
+        )
         prepared = run(
             BRIDGE,
             "prepare-launch",
@@ -239,6 +244,8 @@ class CurrentFirestarterIntegrationTest(unittest.TestCase):
             str(ticket),
             "--external-thread-id",
             "019fabce-d109-canonical",
+            "--runtime-attestation",
+            str(runtime_attestation),
             "--request-id",
             "current-faq-receipt",
             "--now",
@@ -372,6 +379,8 @@ class CurrentFirestarterIntegrationTest(unittest.TestCase):
             "current-faq-successor",
             "--external-thread-id",
             "current-successor-thread",
+            "--runtime-attestation",
+            str(runtime_attestation),
             "--request-id",
             "current-successor-receipt",
             "--now",

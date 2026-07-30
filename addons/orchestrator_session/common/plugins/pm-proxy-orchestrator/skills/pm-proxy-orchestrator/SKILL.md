@@ -24,7 +24,9 @@ or receipt fails.
    must remain zero and a worker handoff is required. The bundled `PreToolUse`
    hook adds a `COVERED_PATH_GUARDRAIL` after trusted installation, but hosted
    paths, opt-outs, write-stdin reauthorization, and non-spoofable caller
-   identity remain unproved. Never claim universal enforcement.
+   identity remain unproved. Never claim universal enforcement. Root must not
+   spawn internal subagents; create only visible peer worker tasks, and never
+   count root as worker capacity.
 2. Run `doctor`. Stop on any failure, including missing CLI, unsupported version
    or schemas, inaccessible/corrupt/locked state, or any quarantined rule.
 3. Before filling capacity, reconcile live task facts and prepare a complete
@@ -36,9 +38,14 @@ or receipt fails.
 5. Pass the returned `prompt` to the visible task-creation tool verbatim. Do not
    save, hash, summarize, or reconstruct it. Call the tool once for the returned
    `CREATE_THREAD` outbox action.
-6. Immediately call `record-launch-receipt` with the external task ID and the
-   generated ticket. If receipt recording fails, instruct the new task to remain
-   read-only and reconcile/archive it; never allow mutation.
+6. Immediately call `record-launch-receipt` with the external task ID, generated
+   ticket, and bounded runtime-attestation file. Model and reasoning effort must
+   reflect the launch surface. Use Fast-tier source `runtime` only when the
+   platform reports it; for ChatGPT desktop config verification use
+   `config-verified`, never runtime. API-key Fast claims and unattested or
+   conflicting runtime policy fail closed. If receipt recording fails, instruct
+   the new task to remain read-only and reconcile/archive it; never allow
+   mutation.
 7. Reconcile every externally surfaced copy through `reconcile-external-task`.
    Only the external task ID in the canonical ticket receipt may proceed. A
    mirror without that receipt receives `STOP_READ_ONLY`, a zero-change
@@ -59,14 +66,20 @@ or receipt fails.
    `CAPACITY_RELEASED`, recycles blocked work, and reserves the highest-value
    eligible successor before predecessor archive may complete.
 11. Create each returned successor exactly once with its verbatim prompt, then
-   call `refill_saga.py record-refill-receipt`. Archive is forbidden until every
-   reserved successor has an exact receipt or the saga durably records
-   `EMPTY`, `OWNER_GATED`, or `CAPACITY_FULL` with evidence.
+   call `refill_saga.py record-refill-receipt` with the same truthful runtime
+   attestation boundary. Archive is forbidden until every reserved successor
+   has an exact receipt or the saga durably records `EMPTY`, `OWNER_GATED`, or
+   `CAPACITY_FULL` with evidence.
 12. Run `refill_saga.py slot-status` for dashboard truth and
     `watchdog-refill` on periodic heartbeat/startup fallback. A positive runnable
     count with active-or-reserved below configured capacity is a failure state
     requiring immediate reconciliation.
-13. For schema 1.2 duration state, use the receipt-fenced duration operations.
+13. For schema 1.3, call `lifecycle-watchdog` after every worker message, wait
+    timeout, and before any status claim. Objective completion evidence cannot
+    be overridden by a stale `running` label. Follow only the fenced
+    terminalization result and exact interrupt receipt; release, blocked re-audit,
+    successor receipt or terminal proof, and archive stay in that order.
+14. For schema 1.2 duration state, use the receipt-fenced duration operations.
     A mirrored external task cannot heartbeat, hand back, or reclassify. Treat a
     failed setup row from `duration-schedule` as rolled back for selection and
     call `record-setup-failure` with the exact unreceipted ticket so Firestarter
@@ -75,12 +88,12 @@ or receipt fails.
     once. The plugin cannot mutate a reservation created outside Firestarter;
     absent adopted rollback/dispatch integration for that external reservation,
     fail closed and leave the candidate deferred.
-14. Pass a privacy-safe resource profile to
+15. Pass a privacy-safe resource profile to
     `resource_scheduler.py` when host contention matters. Logical task lanes are
     not CPU processes: light work may run in parallel, while heavyweight work
     sharing one coarse contention group must serialize. Never put paths,
     identities, prompts, or secrets in a resource profile.
-15. Run `recycle-queue` again on capacity, startup, dependency, evidence, or
+16. Run `recycle-queue` again on capacity, startup, dependency, evidence, or
     policy changes before launching lower-value work.
 
 ## Policy recording

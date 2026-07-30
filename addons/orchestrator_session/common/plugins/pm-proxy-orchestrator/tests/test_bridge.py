@@ -11,6 +11,7 @@ from pathlib import Path
 from tests.support import (
     BRIDGE,
     classify_request,
+    config_verified_runtime_attestation,
     handback_request,
     iso,
     launch_request,
@@ -29,6 +30,10 @@ class BridgeTestCase(unittest.TestCase):
         self.cli = make_fake_install(self.root)
         self.state = self.root / "state"
         self.state.mkdir(mode=0o700)
+        self.runtime_attestation = write_json(
+            self.root / "runtime-attestation.json",
+            config_verified_runtime_attestation(),
+        )
 
     def run_bridge(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         command = [
@@ -71,6 +76,8 @@ class BridgeTestCase(unittest.TestCase):
             str(ticket),
             "--external-thread-id",
             external_id,
+            "--runtime-attestation",
+            str(self.runtime_attestation),
             "--request-id",
             "receipt-1",
             "--now",
@@ -168,7 +175,49 @@ class BridgeTestCase(unittest.TestCase):
         self.assertEqual(mismatch.returncode, 4)
         self.assertEqual(self.parsed(mismatch)["error"]["code"], "INTERFACE_INCOMPATIBLE")
 
-    def test_legacy_ticket_migrates_to_12_on_safe_mutation(self):
+    def test_launch_attestation_denies_unattested_api_key_and_model_drift(self):
+        prepared, ticket = self.prepare(task_id="runtime-policy")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+
+        cases = [
+            (
+                {
+                    **config_verified_runtime_attestation(),
+                    "service_tier_attestation": "unattested",
+                    "tier_provenance": "none",
+                },
+                "SERVICE_TIER_UNATTESTED",
+            ),
+            (
+                {
+                    **config_verified_runtime_attestation(),
+                    "auth_mode": "api-key",
+                },
+                "FAST_AUTH_MODE_UNSUPPORTED",
+            ),
+            (
+                {
+                    **config_verified_runtime_attestation(),
+                    "root_model": "gpt-5.6-terra",
+                },
+                "RUNTIME_ATTESTATION_INVALID",
+            ),
+        ]
+        for value, code in cases:
+            with self.subTest(code=code):
+                write_json(self.runtime_attestation, value)
+                denied = self.receipt(ticket)
+                self.assertEqual(2, denied.returncode)
+                self.assertEqual(code, self.parsed(denied)["error"]["code"])
+
+        write_json(
+            self.runtime_attestation,
+            config_verified_runtime_attestation(),
+        )
+        accepted = self.receipt(ticket)
+        self.assertEqual(0, accepted.returncode, accepted.stderr)
+
+    def test_legacy_ticket_migrates_to_13_on_safe_mutation(self):
         prepared, ticket = self.prepare(task_id="ticket-migration")
         self.assertEqual(0, prepared.returncode, prepared.stderr)
         value = json.loads(ticket.read_text(encoding="utf-8"))
@@ -176,13 +225,18 @@ class BridgeTestCase(unittest.TestCase):
         value.pop("control_schema_version")
         value.pop("duration_estimate")
         value.pop("owner_claim_id")
+        value.pop("runtime_policy")
         ticket.write_text(json.dumps(value), encoding="utf-8")
         migrated = self.receipt(ticket, external_id="ticket-migration-thread")
         self.assertEqual(0, migrated.returncode, migrated.stderr)
         stored = json.loads(ticket.read_text(encoding="utf-8"))
-        self.assertEqual("1.2", stored["ticket_version"])
+        self.assertEqual("1.3", stored["ticket_version"])
         self.assertEqual("1.0", stored["control_schema_version"])
         self.assertIsNone(stored["duration_estimate"])
+        self.assertEqual(
+            "gpt-5.6-sol",
+            stored["runtime_policy"]["root_model"],
+        )
 
     def test_external_mirror_is_stopped_zero_change_and_excluded_from_capacity(self):
         prepared, ticket = self.prepare(

@@ -42,6 +42,7 @@
             "duration_protocol",
             "heartbeat_protocol",
             "closure_protocol",
+            "runtime_policy",
             "receipt_required"
           ],
           "properties": {
@@ -79,6 +80,7 @@
             },
             "heartbeat_protocol": {"type": "object"},
             "closure_protocol": {"type": "object"},
+            "runtime_policy": {"type": "object"},
             "receipt_required": {"type": "object"}
           }
         },

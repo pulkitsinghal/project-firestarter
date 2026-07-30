@@ -21,8 +21,14 @@ from urllib.parse import urlsplit
 
 
 INTERFACE_VERSION = "1.0"
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 POLICY_SCHEMA_VERSION = "1.0"
+REQUIRED_ROOT_MODEL = "gpt-5.6-sol"
+REQUIRED_ROOT_REASONING_EFFORT = "xhigh"
+REQUIRED_SERVICE_TIER = "fast"
+REQUIRED_FAST_MODE = True
+FAST_PERFORMANCE_MULTIPLIER = 1.5
+GPT56_STANDARD_CREDIT_MULTIPLIER = 2.5
 EXIT_INVALID = 2
 EXIT_CONFLICT = 3
 EXIT_STATE = 4
@@ -157,6 +163,15 @@ HEAVY_BUCKETS = {"45m", "60m+"}
 SHORT_BUCKETS = {"seconds", "5m", "10m"}
 MIN_CALIBRATION_SAMPLES = 5
 MAX_CALIBRATION_SAMPLES = 20
+HANDBACK_DEADLINE_CHECKS = 2
+REMAINING_WORK_FRESH_SECONDS = 300
+COMPLETION_SIGNALS = {
+    "closure-signal",
+    "objective-complete",
+    "output-ready",
+    "terminal-manifest",
+    "tests-passed",
+}
 SECRET_PATTERNS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -243,6 +258,19 @@ def bounded_int(value: Any, label: str, low: int, high: int) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
         fail("SCHEMA_INVALID", f"{label} must be an integer from {low} to {high}")
     return value
+
+
+def boolean(value: Any, label: str) -> bool:
+    if not isinstance(value, bool):
+        fail("SCHEMA_INVALID", f"{label} must be a boolean")
+    return value
+
+
+def enum(value: Any, label: str, allowed: set[str]) -> str:
+    result = text(value, label, 128, single_line=True)
+    if result not in allowed:
+        fail("SCHEMA_INVALID", f"{label} is not an allowed value")
+    return result
 
 
 def reject_sensitive(value: Any, label: str = "value") -> None:
@@ -467,12 +495,23 @@ def validate_duration_estimate(
     return result
 
 
+def trusted_system_path_alias(path: Path) -> bool:
+    return (
+        sys.platform == "darwin"
+        and str(path) in {"/tmp", "/var"}
+        and path.resolve() == Path(f"/private{path}").resolve()
+        and path.lstat().st_uid == 0
+    )
+
+
 def safe_state_dir(raw: str) -> Path:
     path = Path(raw).absolute()
     current = Path(path.anchor)
     for part in path.parts[1:]:
         current = current / part
         if current.exists() and current.is_symlink():
+            if trusted_system_path_alias(current):
+                continue
             fail(
                 "STATE_UNSAFE",
                 "state directory path cannot contain a symlink",
@@ -494,6 +533,8 @@ def no_symlink_components(path: Path) -> None:
     for part in path.parts[1:]:
         current = current / part
         if current.exists() and current.is_symlink():
+            if trusted_system_path_alias(current):
+                continue
             fail("SYMLINK_ESCAPE", "repository target contains a symlink")
 
 
@@ -1018,6 +1059,28 @@ CREATE TABLE IF NOT EXISTS capacity_sagas (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS lifecycle_watchdog (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(task_id),
+  lifecycle_state TEXT NOT NULL,
+  worker_status TEXT NOT NULL,
+  completion_signals_json TEXT NOT NULL,
+  evidence_refs_json TEXT NOT NULL,
+  remaining_work_json TEXT,
+  progress_ref TEXT,
+  progress_observed_at TEXT,
+  handback_deadline_checks INTEGER NOT NULL,
+  handback_deadline_limit INTEGER NOT NULL,
+  required_action TEXT NOT NULL,
+  interrupt_receipt_id TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS lifecycle_watchdog_requests (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS setup_failures (
   request_id TEXT PRIMARY KEY,
   request_hash TEXT NOT NULL,
@@ -1157,8 +1220,14 @@ class Plane:
             os.umask(previous_umask)
         return connection
 
-    def initialize(self, now: str) -> dict[str, Any]:
+    def initialize(self, now: str, configured_capacity: int = 4) -> dict[str, Any]:
         timestamp(now)
+        bounded_int(
+            configured_capacity,
+            "configured_capacity",
+            1,
+            64,
+        )
         if self.db_path.exists() and self.db_path.is_symlink():
             fail("STATE_UNSAFE", "database cannot be a symlink", exit_status=EXIT_STATE)
         created = not self.db_path.exists()
@@ -1191,11 +1260,17 @@ class Plane:
                     "policy_revision": str(ledger["ledger_version"]),
                     "revision": "0",
                     "next_fence": "1",
+                    "configured_capacity": str(configured_capacity),
                     "created_at": now,
                 }
                 connection.executemany(
                     "INSERT INTO metadata(key,value) VALUES(?,?)", values.items()
                 )
+            connection.execute(
+                """INSERT OR IGNORE INTO metadata(key,value)
+                   VALUES('configured_capacity',?)""",
+                (str(configured_capacity),),
+            )
             connection.execute(
                 """INSERT OR IGNORE INTO task_timing(
                   task_id,estimate_version,estimated_bucket,current_lane,
@@ -1213,13 +1288,20 @@ class Plane:
                 FROM tasks""",
                 (canonical(["schema-migration-fallback"]), now),
             )
+            effective_capacity = int(
+                self.metadata(connection, "configured_capacity")
+            )
             connection.commit()
         except Exception:
             connection.rollback()
             raise
         finally:
             connection.close()
-        return {"created": created, "schema_version": SCHEMA_VERSION}
+        return {
+            "created": created,
+            "schema_version": SCHEMA_VERSION,
+            "configured_capacity": effective_capacity,
+        }
 
     @staticmethod
     def metadata(connection: sqlite3.Connection, key: str) -> str:
@@ -1450,6 +1532,20 @@ class Plane:
                 exit_status=EXIT_CONFLICT,
                 details={"canonical_task_id": existing["task_id"]},
             )
+        configured_capacity = int(
+            self.metadata(connection, "configured_capacity")
+        )
+        active_or_reserved = self.active_or_reserved_count(connection)
+        if active_or_reserved >= configured_capacity:
+            fail(
+                "CAPACITY_FULL",
+                "configured worker capacity is already active or reserved",
+                exit_status=EXIT_CONFLICT,
+                details={
+                    "configured_capacity": configured_capacity,
+                    "active_or_reserved_count": active_or_reserved,
+                },
+            )
         blocked = connection.execute(
             "SELECT task_id,priority,block_json FROM tasks WHERE state='BLOCKED'"
         ).fetchall()
@@ -1548,7 +1644,40 @@ class Plane:
             "closure_protocol": {
                 "command": "record-handback",
                 "archive_receipt_command": "record-archive-receipt",
+                "lifecycle_watchdog_command": "lifecycle-watchdog",
+                "handback_deadline_checks": HANDBACK_DEADLINE_CHECKS,
+                "reconcile_after": [
+                    "worker-message",
+                    "wait-timeout",
+                    "before-status-claim",
+                ],
                 "requires_current_fence": True,
+            },
+            "runtime_policy": {
+                "root": {
+                    "model": REQUIRED_ROOT_MODEL,
+                    "reasoning_effort": REQUIRED_ROOT_REASONING_EFFORT,
+                    "service_tier": REQUIRED_SERVICE_TIER,
+                    "fast_mode": REQUIRED_FAST_MODE,
+                },
+                "worker_defaults": {
+                    "model": REQUIRED_ROOT_MODEL,
+                    "reasoning_effort": REQUIRED_ROOT_REASONING_EFFORT,
+                    "service_tier": REQUIRED_SERVICE_TIER,
+                    "fast_mode": REQUIRED_FAST_MODE,
+                },
+                "history": {
+                    "full_history_requires_verified_parent": True,
+                },
+                "tier_truth": {
+                    "accepted_attestation_sources": [
+                        "config-verified",
+                        "runtime",
+                    ],
+                    "config_verified_is_not_runtime_attested": True,
+                    "desired_performance_multiplier": FAST_PERFORMANCE_MULTIPLIER,
+                    "gpt56_standard_credit_multiplier": GPT56_STANDARD_CREDIT_MULTIPLIER,
+                },
             },
             "receipt_required": {
                 "task_id": request["task_id"],
@@ -1557,6 +1686,21 @@ class Plane:
                 "lease_epoch": lease_epoch,
                 "fencing_token": fence,
                 "duration_estimate": duration,
+                "runtime_policy": {
+                    "root_model": REQUIRED_ROOT_MODEL,
+                    "root_reasoning_effort": REQUIRED_ROOT_REASONING_EFFORT,
+                    "root_service_tier": REQUIRED_SERVICE_TIER,
+                    "root_fast_mode": REQUIRED_FAST_MODE,
+                    "worker_model": REQUIRED_ROOT_MODEL,
+                    "worker_reasoning_effort": REQUIRED_ROOT_REASONING_EFFORT,
+                    "worker_service_tier": REQUIRED_SERVICE_TIER,
+                    "worker_fast_mode": REQUIRED_FAST_MODE,
+                    "service_tier_attestation_allowed": [
+                        "config-verified",
+                        "runtime",
+                    ],
+                    "parent_attestation_required": True,
+                },
             },
         }
         stored_envelope = dict(appendix)
@@ -1983,6 +2127,7 @@ class Plane:
                 return {
                     "task_id": request["task_id"],
                     "state": "RUNNING",
+                    "runtime_attestation": request["runtime_attestation"],
                     "duration_estimate": (
                         self.duration_result(timing) if timing else None
                     ),
@@ -2031,13 +2176,17 @@ class Plane:
                 expected_ids,
                 "LAUNCH_PENDING",
                 "RUNNING",
-                {"external_thread_id": request["external_thread_id"]},
+                {
+                    "external_thread_id": request["external_thread_id"],
+                    "runtime_attestation": request["runtime_attestation"],
+                },
             )
             self.record_capacity_receipt(connection, request)
             connection.commit()
             return {
                 "task_id": request["task_id"],
                 "state": "RUNNING",
+                "runtime_attestation": request["runtime_attestation"],
                 "duration_estimate": duration_receipt,
             }
         except Exception:
@@ -2977,6 +3126,11 @@ class Plane:
                 connection.commit()
                 return result
             capacity = request["capacity"]
+            connection.execute(
+                """UPDATE owner_claims SET status='released',heartbeat_at=?
+                   WHERE task_id=? AND status='active'""",
+                (request["now"], request["task_id"]),
+            )
             audit_result = self.recycle_blocked_in_transaction(
                 connection,
                 audits=capacity["blocked_audits"],
@@ -2984,11 +3138,6 @@ class Plane:
                 request_id=f"{request['handback_id']}:blocked-audit",
             )
             successor_result = None
-            connection.execute(
-                """UPDATE owner_claims SET status='released',heartbeat_at=?
-                   WHERE task_id=? AND status='active'""",
-                (request["now"], request["task_id"]),
-            )
             if request["successor_request"] is not None:
                 successor = validate_prepare(request["successor_request"])
                 successor_result = self.reserve_launch(
@@ -3033,6 +3182,14 @@ class Plane:
             connection.execute(
                 "UPDATE tasks SET state='ARCHIVE_PENDING',closure_json=?,updated_at=? WHERE task_id=?",
                 (canonical(closure), request["now"], request["task_id"]),
+            )
+            connection.execute(
+                """UPDATE lifecycle_watchdog SET
+                   lifecycle_state='COMPLETED',worker_status='completed',
+                   required_action='ARCHIVE',remaining_work_json=NULL,
+                   progress_ref=NULL,progress_observed_at=NULL,updated_at=?
+                   WHERE task_id=?""",
+                (request["now"], request["task_id"]),
             )
             active = self.active_or_reserved_count(connection)
             if (
@@ -3774,6 +3931,448 @@ class Plane:
         finally:
             connection.close()
 
+    @staticmethod
+    def lifecycle_result(row: sqlite3.Row) -> dict[str, Any]:
+        remaining = (
+            None
+            if row["remaining_work_json"] is None
+            else json.loads(row["remaining_work_json"])
+        )
+        return {
+            "task_id": row["task_id"],
+            "lifecycle_state": row["lifecycle_state"],
+            "worker_status": row["worker_status"],
+            "completion_signals": json.loads(row["completion_signals_json"]),
+            "evidence_refs": json.loads(row["evidence_refs_json"]),
+            "remaining_work": remaining,
+            "handback_deadline_checks": row["handback_deadline_checks"],
+            "handback_deadline_limit": row["handback_deadline_limit"],
+            "required_action": row["required_action"],
+            "interrupt_receipt_id": row["interrupt_receipt_id"],
+            "status_claim_allowed": row["lifecycle_state"] == "RUNNING",
+            "updated_at": row["updated_at"],
+        }
+
+    def lifecycle_watchdog(self, raw: Any) -> dict[str, Any]:
+        request = validate_lifecycle_watchdog(raw)
+        capacity_projection = None
+        if request["capacity"] is not None:
+            successor = request["capacity"]["successor_request"]
+            capacity_projection = {
+                "configured_capacity": request["capacity"]["configured_capacity"],
+                "runnable_queue_count": request["capacity"][
+                    "runnable_queue_count"
+                ],
+                "empty_outcome": request["capacity"]["empty_outcome"],
+                "evidence_refs": request["capacity"]["evidence_refs"],
+                "blocked_audits": request["capacity"]["blocked_audits"],
+                "successor_request": (
+                    None
+                    if successor is None
+                    else {
+                        key: value
+                        for key, value in successor.items()
+                        if key != "prompt"
+                    }
+                ),
+            }
+        request_hash = digest(
+            {
+                key: request[key]
+                for key in (
+                    "request_id",
+                    "task_id",
+                    "policy_snapshot_revision",
+                    "lease_epoch",
+                    "fencing_token",
+                    "external_thread_id",
+                    "action",
+                    "trigger",
+                    "worker_status",
+                    "completion_signals",
+                    "evidence_refs",
+                    "remaining_work",
+                    "interrupt_receipt",
+                    "now",
+                )
+            }
+            | {"capacity": capacity_projection}
+        )
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            existing_request = connection.execute(
+                "SELECT * FROM lifecycle_watchdog_requests WHERE request_id=?",
+                (request["request_id"],),
+            ).fetchone()
+            if existing_request:
+                if existing_request["request_hash"] != request_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "lifecycle watchdog request input changed",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                replay = json.loads(existing_request["result_json"])
+                connection.commit()
+                return replay
+            task = self.checked_task(connection, request, {"RUNNING"})
+            self.require_external_receipt(connection, request)
+            previous = connection.execute(
+                "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            previous_signals = (
+                [] if previous is None else json.loads(previous["completion_signals_json"])
+            )
+            previous_evidence = (
+                [] if previous is None else json.loads(previous["evidence_refs_json"])
+            )
+            signals = sorted(
+                set(previous_signals) | set(request["completion_signals"])
+            )
+            evidence_refs = sorted(
+                set(previous_evidence) | set(request["evidence_refs"])
+            )
+            if request["action"] == "observe":
+                remaining = request["remaining_work"]
+                fresh_progress = False
+                progress_changed = False
+                if remaining is not None:
+                    age = (
+                        utc_instant(request["now"])
+                        - utc_instant(remaining["observed_at"])
+                    ).total_seconds()
+                    fresh_progress = 0 <= age <= REMAINING_WORK_FRESH_SECONDS
+                    progress_changed = (
+                        previous is None
+                        or previous["progress_ref"] != remaining["progress_ref"]
+                    )
+                completion_candidate = bool(signals) or request[
+                    "worker_status"
+                ] == "completed"
+                prior_state = (
+                    "RUNNING" if previous is None else previous["lifecycle_state"]
+                )
+                if (
+                    prior_state == "INTERRUPT_REQUIRED"
+                    and fresh_progress
+                    and progress_changed
+                ):
+                    lifecycle_state = "COMPLETION_CANDIDATE"
+                    deadline_checks = 0
+                    required_action = "REQUEST_HANDBACK"
+                elif prior_state == "INTERRUPT_REQUIRED":
+                    lifecycle_state = "INTERRUPT_REQUIRED"
+                    deadline_checks = previous["handback_deadline_checks"]
+                    required_action = "TERMINALIZE"
+                elif not completion_candidate:
+                    lifecycle_state = "RUNNING"
+                    deadline_checks = 0
+                    required_action = "CONTINUE"
+                else:
+                    lifecycle_state = "COMPLETION_CANDIDATE"
+                    if fresh_progress and progress_changed:
+                        deadline_checks = 0
+                    elif prior_state != "COMPLETION_CANDIDATE":
+                        deadline_checks = 0
+                    else:
+                        deadline_checks = (
+                            previous["handback_deadline_checks"] + 1
+                        )
+                    if deadline_checks >= HANDBACK_DEADLINE_CHECKS:
+                        lifecycle_state = "INTERRUPT_REQUIRED"
+                        required_action = "TERMINALIZE"
+                    else:
+                        required_action = "REQUEST_HANDBACK"
+                remaining_json = None if remaining is None else canonical(remaining)
+                progress_ref = None if remaining is None else remaining["progress_ref"]
+                progress_observed_at = (
+                    None if remaining is None else remaining["observed_at"]
+                )
+                connection.execute(
+                    """INSERT INTO lifecycle_watchdog(
+                      task_id,lifecycle_state,worker_status,
+                      completion_signals_json,evidence_refs_json,
+                      remaining_work_json,progress_ref,progress_observed_at,
+                      handback_deadline_checks,handback_deadline_limit,
+                      required_action,interrupt_receipt_id,updated_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL,?)
+                    ON CONFLICT(task_id) DO UPDATE SET
+                      lifecycle_state=excluded.lifecycle_state,
+                      worker_status=excluded.worker_status,
+                      completion_signals_json=excluded.completion_signals_json,
+                      evidence_refs_json=excluded.evidence_refs_json,
+                      remaining_work_json=excluded.remaining_work_json,
+                      progress_ref=excluded.progress_ref,
+                      progress_observed_at=excluded.progress_observed_at,
+                      handback_deadline_checks=excluded.handback_deadline_checks,
+                      handback_deadline_limit=excluded.handback_deadline_limit,
+                      required_action=excluded.required_action,
+                      updated_at=excluded.updated_at""",
+                    (
+                        request["task_id"],
+                        lifecycle_state,
+                        request["worker_status"],
+                        canonical(signals),
+                        canonical(evidence_refs),
+                        remaining_json,
+                        progress_ref,
+                        progress_observed_at,
+                        deadline_checks,
+                        HANDBACK_DEADLINE_CHECKS,
+                        required_action,
+                        request["now"],
+                    ),
+                )
+                self.event(
+                    connection,
+                    request["now"],
+                    request["task_id"],
+                    request["request_id"],
+                    "LIFECYCLE_RECONCILED",
+                    required_action,
+                    ["BR-CLOSE-001", "BR-LAUNCH-001"],
+                    prior_state,
+                    lifecycle_state,
+                    {
+                        "trigger": request["trigger"],
+                        "worker_status": request["worker_status"],
+                        "completion_signal_count": len(signals),
+                        "fresh_progress": fresh_progress and progress_changed,
+                        "handback_deadline_checks": deadline_checks,
+                        "handback_deadline_limit": HANDBACK_DEADLINE_CHECKS,
+                    },
+                )
+                updated = connection.execute(
+                    "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchone()
+                result = {
+                    "lifecycle": self.lifecycle_result(updated),
+                    "successor": None,
+                    "capacity": None,
+                }
+            else:
+                if previous is None or previous["lifecycle_state"] != "INTERRUPT_REQUIRED":
+                    fail(
+                        "INTERRUPT_NOT_REQUIRED",
+                        "interrupt receipt requires a watchdog terminalize decision",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                receipt_id = request["interrupt_receipt"]["receipt_id"]
+                if previous["interrupt_receipt_id"] is not None:
+                    fail(
+                        "INTERRUPT_RECEIPT_CONFLICT",
+                        "task already has an interrupt receipt",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                capacity = request["capacity"]
+                connection.execute(
+                    """UPDATE owner_claims SET status='released',heartbeat_at=?
+                       WHERE task_id=? AND status='active'""",
+                    (request["now"], request["task_id"]),
+                )
+                audit_result = self.recycle_blocked_in_transaction(
+                    connection,
+                    audits=capacity["blocked_audits"],
+                    now=request["now"],
+                    request_id=f"{receipt_id}:blocked-audit",
+                )
+                successor_result = None
+                successor_request = capacity["successor_request"]
+                resumed_task_id = audit_result["selected_task_id"]
+                if resumed_task_id is not None and successor_request is not None:
+                    fail(
+                        "REFILL_EVIDENCE_CONFLICT",
+                        "a resumed blocked task and a new successor cannot fill the same slot",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                if successor_request is not None:
+                    successor_result = self.reserve_launch(
+                        connection,
+                        successor_request,
+                        source="lifecycle-watchdog-successor",
+                    )
+                if (
+                    capacity["runnable_queue_count"] > 0
+                    and resumed_task_id is None
+                    and successor_request is None
+                ):
+                    fail(
+                        "REFILL_PROOF_REQUIRED",
+                        "interrupt receipt requires an exact successor while runnable work exists",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                if (
+                    capacity["runnable_queue_count"] == 0
+                    and successor_request is not None
+                ):
+                    fail(
+                        "CAPACITY_EVIDENCE_CONFLICT",
+                        "zero runnable work cannot carry a successor reservation",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                if (
+                    capacity["empty_outcome"] == "OWNER_GATED"
+                    and not audit_result["owner_gated_task_ids"]
+                ):
+                    fail(
+                        "OWNER_GATE_EVIDENCE_REQUIRED",
+                        "OWNER_GATED interrupt outcome requires a blocked audit",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                active = self.active_or_reserved_count(connection)
+                if (
+                    capacity["runnable_queue_count"] > 0
+                    and active != capacity["configured_capacity"]
+                ):
+                    fail(
+                        "REFILL_PROOF_REQUIRED",
+                        "interrupt receipt cannot release capacity without exact refill proof",
+                        exit_status=EXIT_CONFLICT,
+                        details={
+                            "configured_capacity": capacity[
+                                "configured_capacity"
+                            ],
+                            "active_or_reserved_count": active,
+                        },
+                    )
+                if successor_request is not None:
+                    capacity_outcome = "SUCCESSOR_RESERVED"
+                elif resumed_task_id is not None:
+                    capacity_outcome = "CAPACITY_FULL"
+                elif capacity["runnable_queue_count"] == 0:
+                    capacity_outcome = capacity["empty_outcome"]
+                else:
+                    capacity_outcome = "CAPACITY_FULL"
+                saga_id = f"interrupt:{receipt_id}"
+                closure = {
+                    "disposition": "interrupted/notLoaded",
+                    "interrupt_receipt_id": receipt_id,
+                    "completion_signals": signals,
+                    "evidence_refs": evidence_refs,
+                    "worker_status": "interrupted",
+                }
+                connection.execute(
+                    """UPDATE tasks SET state='ARCHIVE_PENDING',
+                       closure_json=?,updated_at=? WHERE task_id=?""",
+                    (canonical(closure), request["now"], request["task_id"]),
+                )
+                connection.execute(
+                    """INSERT INTO capacity_sagas(
+                      saga_id,task_id,configured_capacity,runnable_queue_count,
+                      terminal_status,clean_handback,outcome,successor_task_id,
+                      successor_receipted,evidence_refs_json,created_at,updated_at
+                    ) VALUES(?,?,?,?,? ,0,?,?,0,?,?,?)""",
+                    (
+                        saga_id,
+                        request["task_id"],
+                        capacity["configured_capacity"],
+                        capacity["runnable_queue_count"],
+                        "interrupted/notLoaded",
+                        capacity_outcome,
+                        (
+                            None
+                            if successor_request is None
+                            else successor_request["task_id"]
+                        ),
+                        canonical(capacity["evidence_refs"]),
+                        request["now"],
+                        request["now"],
+                    ),
+                )
+                archive_outbox = f"archive:{request['task_id']}"
+                connection.execute(
+                    """INSERT OR IGNORE INTO outbox(
+                      outbox_id,kind,idempotency_key,task_id,payload_json,state,
+                      attempts,created_at,updated_at
+                    ) VALUES(?, 'ARCHIVE_THREAD', ?, ?, ?, 'pending', 0, ?, ?)""",
+                    (
+                        archive_outbox,
+                        archive_outbox,
+                        request["task_id"],
+                        canonical(
+                            {
+                                "task_id": request["task_id"],
+                                "external_thread_id": task["external_thread_id"],
+                            }
+                        ),
+                        request["now"],
+                        request["now"],
+                    ),
+                )
+                connection.execute(
+                    """UPDATE lifecycle_watchdog SET
+                       lifecycle_state='INTERRUPTED',worker_status='interrupted',
+                       required_action='ARCHIVE',interrupt_receipt_id=?,
+                       updated_at=? WHERE task_id=?""",
+                    (receipt_id, request["now"], request["task_id"]),
+                )
+                self.event(
+                    connection,
+                    request["now"],
+                    request["task_id"],
+                    request["request_id"],
+                    "LIFECYCLE_INTERRUPT_RECEIPTED",
+                    capacity_outcome,
+                    ["BR-CLOSE-001", "BR-LAUNCH-001"],
+                    "INTERRUPT_REQUIRED",
+                    "INTERRUPTED",
+                    {
+                        "configured_capacity": capacity[
+                            "configured_capacity"
+                        ],
+                        "runnable_queue_count": capacity[
+                            "runnable_queue_count"
+                        ],
+                        "active_or_reserved_count": active,
+                        "successor_task_id": (
+                            None
+                            if successor_request is None
+                            else successor_request["task_id"]
+                        ),
+                    },
+                )
+                updated = connection.execute(
+                    "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchone()
+                capacity_row = connection.execute(
+                    "SELECT * FROM capacity_sagas WHERE saga_id=?",
+                    (saga_id,),
+                ).fetchone()
+                result = {
+                    "lifecycle": self.lifecycle_result(updated),
+                    "successor": successor_result,
+                    "capacity": self.capacity_result(connection, capacity_row),
+                }
+            stored_result = dict(result)
+            if stored_result["successor"] is not None:
+                stored_result["successor"] = {
+                    key: value
+                    for key, value in stored_result["successor"].items()
+                    if key != "prompt"
+                }
+            connection.execute(
+                """INSERT INTO lifecycle_watchdog_requests(
+                  request_id,request_hash,task_id,result_json,recorded_at
+                ) VALUES(?,?,?,?,?)""",
+                (
+                    request["request_id"],
+                    request_hash,
+                    request["task_id"],
+                    canonical(stored_result),
+                    request["now"],
+                ),
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def capacity_watchdog(self, raw: Any) -> dict[str, Any]:
         request = validate_capacity_watchdog(raw)
         connection = self.connect()
@@ -4143,6 +4742,10 @@ class Plane:
                     "SELECT * FROM task_timing WHERE task_id=?",
                     (row["task_id"],),
                 ).fetchone()
+                lifecycle = connection.execute(
+                    "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+                    (row["task_id"],),
+                ).fetchone()
                 claim = connection.execute(
                     """SELECT expires_at FROM owner_claims
                        WHERE task_id=? AND status='active'""",
@@ -4169,6 +4772,11 @@ class Plane:
                         "block": block,
                         "duration": (
                             None if timing is None else self.duration_result(timing)
+                        ),
+                        "lifecycle": (
+                            None
+                            if lifecycle is None
+                            else self.lifecycle_result(lifecycle)
                         ),
                         "freshness": {
                             "evaluated_at": now,
@@ -4248,10 +4856,28 @@ class Plane:
                        ORDER BY task_family,tool_family,environment_class"""
                 )
             ]
+            lifecycle_reconciliation_required = sorted(
+                item["task_id"]
+                for item in tasks
+                if item["state"] == "RUNNING"
+                and (
+                    item["lifecycle"] is None
+                    or not item["lifecycle"]["status_claim_allowed"]
+                )
+            )
             return {
                 "schema_version": self.metadata(connection, "schema_version"),
                 "revision": int(self.metadata(connection, "revision")),
                 "policy_revision": int(self.metadata(connection, "policy_revision")),
+                "worker_capacity": {
+                    "configured_capacity": int(
+                        self.metadata(connection, "configured_capacity")
+                    ),
+                    "active_or_reserved_count": self.active_or_reserved_count(
+                        connection
+                    ),
+                    "root_excluded": True,
+                },
                 "tasks": tasks,
                 "rules": rules,
                 "capacity": capacity,
@@ -4278,6 +4904,21 @@ class Plane:
                     },
                     "calibration_groups": calibration_groups,
                     "minimum_completed_samples": MIN_CALIBRATION_SAMPLES,
+                },
+                "lifecycle_watchdog": {
+                    "deadline_checks_default": HANDBACK_DEADLINE_CHECKS,
+                    "remaining_work_fresh_seconds": REMAINING_WORK_FRESH_SECONDS,
+                    "reconcile_after": [
+                        "worker-message",
+                        "wait-timeout",
+                        "before-status-claim",
+                    ],
+                    "reconciliation_required_task_ids": (
+                        lifecycle_reconciliation_required
+                    ),
+                    "status_claim_allowed": not lifecycle_reconciliation_required,
+                    "root_is_not_worker": True,
+                    "platform_dispatcher_enforcement": False,
                 },
                 "outbox": [
                     dict(row)
@@ -4375,6 +5016,12 @@ def validate_prepare(value: Any) -> dict[str, Any]:
         "lease_expires_at": timestamp(request["lease_expires_at"], "lease_expires_at"),
         "now": timestamp(request["now"]),
     }
+    if output["task_id"].casefold() == "root":
+        fail(
+            "ROOT_WORKER_DENIED",
+            "root is the control plane and cannot reserve worker capacity",
+            exit_status=EXIT_CONFLICT,
+        )
     output["duration_estimate"] = validate_duration_estimate(
         request.get("duration_estimate"),
         task_family_fallback=output["context"]["task_kind"],
@@ -4530,7 +5177,11 @@ def validate_receipt(value: Any, kind: str) -> dict[str, Any]:
         "now",
     }
     if kind == "launch":
-        required |= {"external_thread_id", "applicable_rule_ids"}
+        required |= {
+            "external_thread_id",
+            "applicable_rule_ids",
+            "runtime_attestation",
+        }
     request = strict(value, required, label=f"{kind} receipt")
     if request["interface_version"] != INTERFACE_VERSION:
         fail("VERSION_UNSUPPORTED", "interface version is unsupported")
@@ -4546,6 +5197,119 @@ def validate_receipt(value: Any, kind: str) -> dict[str, Any]:
     if kind == "launch":
         output["external_thread_id"] = identifier(request["external_thread_id"], "external_thread_id")
         output["applicable_rule_ids"] = string_list(request["applicable_rule_ids"], "applicable_rule_ids")
+        raw_runtime = strict(
+            request["runtime_attestation"],
+            {
+                "root_model",
+                "root_reasoning_effort",
+                "root_service_tier",
+                "root_fast_mode",
+                "worker_model",
+                "worker_reasoning_effort",
+                "worker_service_tier",
+                "worker_fast_mode",
+                "service_tier_attestation",
+                "tier_provenance",
+                "auth_mode",
+                "history_mode",
+                "parent_attestation_present",
+            },
+            label="runtime_attestation",
+        )
+        runtime = {
+            "root_model": enum(
+                raw_runtime["root_model"], "root_model", {REQUIRED_ROOT_MODEL}
+            ),
+            "root_reasoning_effort": enum(
+                raw_runtime["root_reasoning_effort"],
+                "root_reasoning_effort",
+                {REQUIRED_ROOT_REASONING_EFFORT},
+            ),
+            "root_service_tier": enum(
+                raw_runtime["root_service_tier"],
+                "root_service_tier",
+                {REQUIRED_SERVICE_TIER},
+            ),
+            "root_fast_mode": boolean(
+                raw_runtime["root_fast_mode"], "root_fast_mode"
+            ),
+            "worker_model": enum(
+                raw_runtime["worker_model"], "worker_model", {REQUIRED_ROOT_MODEL}
+            ),
+            "worker_reasoning_effort": enum(
+                raw_runtime["worker_reasoning_effort"],
+                "worker_reasoning_effort",
+                {REQUIRED_ROOT_REASONING_EFFORT},
+            ),
+            "worker_service_tier": enum(
+                raw_runtime["worker_service_tier"],
+                "worker_service_tier",
+                {REQUIRED_SERVICE_TIER},
+            ),
+            "worker_fast_mode": boolean(
+                raw_runtime["worker_fast_mode"], "worker_fast_mode"
+            ),
+            "service_tier_attestation": enum(
+                raw_runtime["service_tier_attestation"],
+                "service_tier_attestation",
+                {"runtime", "config-verified", "unattested"},
+            ),
+            "tier_provenance": enum(
+                raw_runtime["tier_provenance"],
+                "tier_provenance",
+                {"platform-runtime", "trusted-project-and-user-config", "none"},
+            ),
+            "auth_mode": enum(
+                raw_runtime["auth_mode"],
+                "auth_mode",
+                {"chatgpt", "api-key"},
+            ),
+            "history_mode": enum(
+                raw_runtime["history_mode"],
+                "history_mode",
+                {"none", "bounded", "full-history"},
+            ),
+            "parent_attestation_present": boolean(
+                raw_runtime["parent_attestation_present"],
+                "parent_attestation_present",
+            ),
+        }
+        if not runtime["root_fast_mode"] or not runtime["worker_fast_mode"]:
+            fail("FAST_MODE_DRIFT", "root and worker fast mode must be enabled")
+        if runtime["service_tier_attestation"] == "unattested":
+            fail(
+                "SERVICE_TIER_UNATTESTED",
+                "launch surface did not verify the effective fast service tier",
+            )
+        expected_provenance = (
+            "platform-runtime"
+            if runtime["service_tier_attestation"] == "runtime"
+            else "trusted-project-and-user-config"
+        )
+        if runtime["tier_provenance"] != expected_provenance:
+            fail(
+                "SERVICE_TIER_PROVENANCE_INVALID",
+                "service-tier verification provenance contradicts its source",
+            )
+        if runtime["auth_mode"] != "chatgpt":
+            fail(
+                "FAST_AUTH_MODE_UNSUPPORTED",
+                "ChatGPT Fast semantics cannot be claimed for API-key auth",
+            )
+        if not runtime["parent_attestation_present"]:
+            fail(
+                "PARENT_RUNTIME_UNATTESTED",
+                "worker launch requires a verified root runtime attestation",
+            )
+        if (
+            runtime["history_mode"] == "full-history"
+            and not runtime["parent_attestation_present"]
+        ):
+            fail(
+                "FULL_HISTORY_PARENT_UNVERIFIED",
+                "full-history inheritance requires a verified parent",
+            )
+        output["runtime_attestation"] = runtime
     return output
 
 
@@ -4948,6 +5712,212 @@ def validate_capacity_watchdog(value: Any) -> dict[str, Any]:
         "now": timestamp(request["now"]),
     }
     reject_sensitive(output, "capacity watchdog")
+    return output
+
+
+def validate_lifecycle_watchdog(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "task_id",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "external_thread_id",
+            "action",
+            "trigger",
+            "worker_status",
+            "completion_signals",
+            "evidence_refs",
+            "remaining_work",
+            "interrupt_receipt",
+            "capacity",
+            "now",
+        },
+        label="lifecycle-watchdog request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    if request["action"] not in {"observe", "interrupt-receipt"}:
+        fail("SCHEMA_INVALID", "lifecycle watchdog action is invalid")
+    if request["trigger"] not in {
+        "before-status-claim",
+        "interrupt-receipt",
+        "wait-timeout",
+        "worker-message",
+    }:
+        fail("SCHEMA_INVALID", "lifecycle watchdog trigger is invalid")
+    if request["worker_status"] not in {
+        "completed",
+        "interrupted",
+        "running",
+        "unknown",
+        "waiting",
+    }:
+        fail("SCHEMA_INVALID", "worker_status is invalid")
+    raw_signals = string_list(
+        request["completion_signals"],
+        "lifecycle-watchdog.completion_signals",
+        maximum=10,
+    )
+    if len(raw_signals) != len(set(raw_signals)):
+        fail("SCHEMA_INVALID", "completion_signals must be unique")
+    unknown_signals = set(raw_signals) - COMPLETION_SIGNALS
+    if unknown_signals:
+        fail(
+            "SCHEMA_INVALID",
+            "completion_signals contains an unsupported value",
+            details={"signals": sorted(unknown_signals)},
+        )
+    evidence_refs = string_list(
+        request["evidence_refs"],
+        "lifecycle-watchdog.evidence_refs",
+        maximum=50,
+    )
+    if not evidence_refs:
+        fail("SCHEMA_INVALID", "lifecycle watchdog requires evidence")
+    remaining_work = request["remaining_work"]
+    if remaining_work is not None:
+        remaining_work = strict(
+            remaining_work,
+            {"summary_code", "progress_ref", "observed_at", "eta_seconds"},
+            label="lifecycle-watchdog remaining_work",
+        )
+        remaining_work = {
+            "summary_code": identifier(
+                remaining_work["summary_code"], "remaining_work.summary_code"
+            ),
+            "progress_ref": identifier(
+                remaining_work["progress_ref"], "remaining_work.progress_ref"
+            ),
+            "observed_at": timestamp(
+                remaining_work["observed_at"], "remaining_work.observed_at"
+            ),
+            "eta_seconds": bounded_int(
+                remaining_work["eta_seconds"],
+                "remaining_work.eta_seconds",
+                1,
+                86_400,
+            ),
+        }
+    interrupt_receipt = request["interrupt_receipt"]
+    if interrupt_receipt is not None:
+        interrupt_receipt = strict(
+            interrupt_receipt,
+            {"receipt_id", "external_thread_id"},
+            label="lifecycle-watchdog interrupt_receipt",
+        )
+        interrupt_receipt = {
+            "receipt_id": identifier(
+                interrupt_receipt["receipt_id"], "interrupt_receipt.receipt_id"
+            ),
+            "external_thread_id": identifier(
+                interrupt_receipt["external_thread_id"],
+                "interrupt_receipt.external_thread_id",
+            ),
+        }
+    capacity = request["capacity"]
+    if capacity is not None:
+        capacity = strict(
+            capacity,
+            {
+                "configured_capacity",
+                "runnable_queue_count",
+                "empty_outcome",
+                "evidence_refs",
+                "blocked_audits",
+                "successor_request",
+            },
+            label="lifecycle-watchdog capacity",
+        )
+        capacity_evidence = string_list(
+            capacity["evidence_refs"],
+            "lifecycle-watchdog.capacity.evidence_refs",
+        )
+        if not capacity_evidence:
+            fail("SCHEMA_INVALID", "interrupt receipt capacity requires evidence")
+        successor = capacity["successor_request"]
+        if successor is not None:
+            successor = validate_prepare(successor)
+        capacity = {
+            "configured_capacity": bounded_int(
+                capacity["configured_capacity"], "configured_capacity", 1, 64
+            ),
+            "runnable_queue_count": bounded_int(
+                capacity["runnable_queue_count"],
+                "runnable_queue_count",
+                0,
+                1_000_000,
+            ),
+            "empty_outcome": capacity["empty_outcome"],
+            "evidence_refs": capacity_evidence,
+            "blocked_audits": validate_blocked_audits(
+                capacity["blocked_audits"],
+                "lifecycle-watchdog capacity blocked_audits",
+            ),
+            "successor_request": successor,
+        }
+        if capacity["empty_outcome"] not in {"EMPTY", "OWNER_GATED"}:
+            fail("SCHEMA_INVALID", "interrupt receipt empty_outcome is invalid")
+    if request["action"] == "observe":
+        if (
+            request["trigger"] == "interrupt-receipt"
+            or interrupt_receipt is not None
+            or capacity is not None
+            or request["worker_status"] == "interrupted"
+        ):
+            fail("SCHEMA_INVALID", "observe request carries interrupt-only fields")
+    else:
+        if (
+            request["trigger"] != "interrupt-receipt"
+            or request["worker_status"] != "interrupted"
+            or remaining_work is not None
+            or interrupt_receipt is None
+            or capacity is None
+        ):
+            fail("SCHEMA_INVALID", "interrupt receipt request is incomplete")
+        if interrupt_receipt["external_thread_id"] != request["external_thread_id"]:
+            fail(
+                "SCHEMA_INVALID",
+                "interrupt receipt external thread does not match the request",
+            )
+    output = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "task_id": identifier(request["task_id"], "task_id"),
+        "policy_snapshot_revision": bounded_int(
+            request["policy_snapshot_revision"],
+            "policy_snapshot_revision",
+            1,
+            1_000_000,
+        ),
+        "lease_epoch": bounded_int(
+            request["lease_epoch"], "lease_epoch", 1, 1_000_000
+        ),
+        "fencing_token": bounded_int(
+            request["fencing_token"], "fencing_token", 1, 2_147_483_647
+        ),
+        "external_thread_id": identifier(
+            request["external_thread_id"], "external_thread_id"
+        ),
+        "action": request["action"],
+        "trigger": request["trigger"],
+        "worker_status": request["worker_status"],
+        "completion_signals": sorted(raw_signals),
+        "evidence_refs": sorted(set(evidence_refs)),
+        "remaining_work": remaining_work,
+        "interrupt_receipt": interrupt_receipt,
+        "capacity": capacity,
+        "now": timestamp(request["now"]),
+    }
+    if remaining_work is not None:
+        observed = utc_instant(remaining_work["observed_at"])
+        current = utc_instant(output["now"])
+        if observed > current:
+            fail("SCHEMA_INVALID", "remaining work observation cannot be future-dated")
+    reject_sensitive(output, "lifecycle watchdog")
     return output
 
 
@@ -5553,6 +6523,7 @@ def parser() -> argparse.ArgumentParser:
     commands = result.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init")
     init.add_argument("--now", required=True)
+    init.add_argument("--configured-capacity", type=int, default=4)
     for name in (
         "record-policy-rule",
         "prepare-launch",
@@ -5565,6 +6536,7 @@ def parser() -> argparse.ArgumentParser:
         "record-handback",
         "record-archive-receipt",
         "capacity-watchdog",
+        "lifecycle-watchdog",
         "takeover-lease",
         "record-heartbeat",
         "record-duration-progress",
@@ -5608,6 +6580,7 @@ def main(argv: list[str] | None = None) -> int:
             "record-handback": (plane.record_handback, "record-handback"),
             "record-archive-receipt": (plane.archive_receipt, "record-archive-receipt"),
             "capacity-watchdog": (plane.capacity_watchdog, "capacity-watchdog"),
+            "lifecycle-watchdog": (plane.lifecycle_watchdog, "lifecycle-watchdog"),
             "takeover-lease": (plane.takeover_lease, "takeover-lease"),
             "record-heartbeat": (plane.heartbeat, "record-heartbeat"),
             "record-duration-progress": (
@@ -5624,7 +6597,10 @@ def main(argv: list[str] | None = None) -> int:
             "migrate-decisions": (plane.migrate, "migrate-decisions"),
         }
         if args.command == "init":
-            emit_success("init", plane.initialize(args.now))
+            emit_success(
+                "init",
+                plane.initialize(args.now, args.configured_capacity),
+            )
         elif args.command == "status":
             emit_success("status", plane.status(args.now))
         else:

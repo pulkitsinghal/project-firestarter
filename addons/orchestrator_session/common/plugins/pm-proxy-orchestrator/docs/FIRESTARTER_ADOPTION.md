@@ -8,7 +8,8 @@ The integration was then rebased onto post-Router `master`
 `a32741d7958eeff7fd49ccd979c44acccdc69d91`. The source artifact remains
 independently usable with Firestarter interface 1.0. Schema 1.1 adds native
 capacity sagas; schema 1.2 adds duration control and the root-role guard
-contract.
+contract; schema 1.3 adds runtime-policy receipts and lifecycle-watchdog
+terminalization/refill fencing.
 
 Integration procedure:
 
