@@ -144,7 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let previewOutputPath = CompanionPreviewRenderer.requestedOutputPath() {
             NSApplication.shared.setActivationPolicy(.accessory)
-            _ = CompanionPreviewRenderer.render(to: previewOutputPath)
+            _ = CompanionPreviewRenderer.render(
+                to: previewOutputPath,
+                style: CompanionPreviewRenderer.requestedStyle()
+            )
             NSApplication.shared.terminate(nil)
             return
         }
@@ -199,6 +202,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 title: "Snapshot Not Restored",
                 message: error.localizedDescription
             )
+        }
+    }
+
+    /// Persists the chosen companion style. The dashboard's `@AppStorage` observes
+    /// the same key and re-renders the companion live; no restart is needed.
+    @objc private func changeCompanionStyle(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String else { return }
+        UserDefaults.standard.set(rawValue, forKey: CompanionStyle.storageKey)
+        sender.menu?.items.forEach { item in
+            item.state = (item.representedObject as? String == rawValue) ? .on : .off
         }
     }
 
@@ -281,6 +294,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         restoreItem.target = self
+        applicationMenu.addItem(.separator())
+
+        let companionMenuItem = applicationMenu.addItem(
+            withTitle: "Companion Style",
+            action: nil,
+            keyEquivalent: ""
+        )
+        let companionMenu = NSMenu(title: "Companion Style")
+        let storedStyle = CompanionStyle(
+            storedRawValue: UserDefaults.standard.string(forKey: CompanionStyle.storageKey)
+        )
+        for style in CompanionStyle.allCases {
+            let item = companionMenu.addItem(
+                withTitle: style.displayName,
+                action: #selector(changeCompanionStyle(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = style.rawValue
+            item.state = (style == storedStyle) ? .on : .off
+        }
+        companionMenuItem.submenu = companionMenu
         applicationMenu.addItem(.separator())
 
         let quitItem = applicationMenu.addItem(
@@ -542,6 +577,8 @@ private struct DashboardView: View {
     private var signalsCollapsed = false
     @AppStorage("OperationsFloater.CompanionDismissedV1")
     private var companionDismissed = false
+    @AppStorage(CompanionStyle.storageKey)
+    private var companionStyleRawValue = CompanionStyle.default.rawValue
     private let conversationFixtureModuleID: String?
     private let conversationFixtureUsesRecorderNormalizer: Bool
 
@@ -590,9 +627,13 @@ private struct DashboardView: View {
         )
         .background(.regularMaterial)
         .overlay(alignment: .bottomTrailing) {
-            CompanionView(controller: companion, dismissed: $companionDismissed)
-                .padding(.trailing, 14)
-                .padding(.bottom, 12)
+            CompanionView(
+                controller: companion,
+                dismissed: $companionDismissed,
+                style: CompanionStyle(storedRawValue: companionStyleRawValue)
+            )
+            .padding(.trailing, 14)
+            .padding(.bottom, 12)
         }
         .task {
             await state.refreshPreferredSource()

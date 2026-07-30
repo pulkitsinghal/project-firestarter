@@ -9,6 +9,48 @@ import Foundation
 /// already-tested ``DashboardSnapshot/guideCue``) plus one time-boxed transient:
 /// a short celebration when work newly reaches the finished lane. No mood is
 /// derived from any image, camera, microphone, network, or personal source.
+/// Which rendered form the companion takes. Both styles are driven by the *same*
+/// mood/pose/motion state machine below; only the drawing differs, so switching
+/// is a pure presentation choice with no behavioral change.
+enum CompanionStyle: String, Equatable, Sendable, CaseIterable, Identifiable {
+    /// Ember, the vector-drawn fox-kit.
+    case pet
+    /// Nova, a warm, stylized human assistant.
+    case human
+
+    var id: String { rawValue }
+
+    /// The style used on a fresh install.
+    static let `default`: CompanionStyle = .pet
+
+    /// The spoken name for this style, used in the status bubble's accessibility
+    /// label and the wake affordance.
+    var companionName: String {
+        switch self {
+        case .pet: return "Ember"
+        case .human: return "Nova"
+        }
+    }
+
+    /// A short, human-readable label for menus and settings (name + form).
+    var displayName: String {
+        switch self {
+        case .pet: return "Ember (pet)"
+        case .human: return "Nova (human)"
+        }
+    }
+
+    /// The key both SwiftUI (`@AppStorage`) and the AppKit menu use to persist
+    /// and observe the selection.
+    static let storageKey = "OperationsFloater.CompanionStyleV1"
+
+    /// Resolves a persisted raw value back to a style, tolerating anything
+    /// unexpected by falling back to the default.
+    init(storedRawValue: String?) {
+        self = storedRawValue.flatMap(CompanionStyle.init(rawValue:)) ?? .default
+    }
+}
+
 enum CompanionMood: String, Equatable, Sendable, CaseIterable {
     /// No operational records at all — the companion naps.
     case sleeping
@@ -424,5 +466,11 @@ enum CompanionChatter {
     }
 
     /// A short, human name used in accessibility labels and the wake affordance.
+    /// Defaults to the pet's name; ``name(for:)`` resolves the active style.
     static let name = "Ember"
+
+    /// The companion's name for a given style.
+    static func name(for style: CompanionStyle) -> String {
+        style.companionName
+    }
 }
