@@ -15,13 +15,13 @@ from typing import Any
 
 MAX_BYTES = 1_048_576
 EXPECTED = {
-    "model": "gpt-5.6-sol",
-    "model_reasoning_effort": "xhigh",
-    "service_tier": "fast",
+    "model": "coordinator-model",
+    "model_reasoning_effort": "high",
+    "service_tier": "priority",
     "fast_mode": True,
     "multi_agent": True,
-    "default_subagent_model": "gpt-5.6-sol",
-    "default_subagent_reasoning_effort": "xhigh",
+    "default_subagent_model": "coordinator-model",
+    "default_subagent_reasoning_effort": "high",
 }
 RUNTIME_KEYS = {
     "model",
@@ -154,10 +154,10 @@ def verify_runtime(value: dict[str, Any]) -> dict[str, Any]:
             "SERVICE_TIER_PROVENANCE_INVALID",
             "service-tier provenance contradicts its verification source",
         )
-    if value["auth_mode"] != "chatgpt":
+    if value["auth_mode"] != "subscription":
         fail(
             "FAST_AUTH_MODE_UNSUPPORTED",
-            "ChatGPT Fast semantics cannot be claimed for API-key auth",
+            "Subscription priority-tier semantics cannot be claimed for API-key auth",
         )
     expected_runtime = {
         "model": EXPECTED["model"],
@@ -166,7 +166,7 @@ def verify_runtime(value: dict[str, Any]) -> dict[str, Any]:
         "fast_mode": EXPECTED["fast_mode"],
         "service_tier_attestation": source,
         "tier_provenance": expected_provenance,
-        "auth_mode": "chatgpt",
+        "auth_mode": "subscription",
     }
     if value != expected_runtime:
         fail("EFFECTIVE_RUNTIME_DRIFT", "effective root runtime does not match policy")
@@ -179,7 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--user-config",
         default=str(Path.home() / ".codex" / "config.toml"),
-        help="User Codex config used only to verify the project trust record.",
+        help="User agent-CLI config used only to verify the project trust record.",
     )
     parser.add_argument(
         "--runtime-attestation",

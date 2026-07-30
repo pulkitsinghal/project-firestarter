@@ -6,13 +6,13 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
-- Checked-in orchestrator root/spawn defaults for `gpt-5.6-sol`, `xhigh`, and
-  ChatGPT Fast, plus a read-only machine/project startup verifier. It rejects
-  untrusted projects, config or launch drift, API-key Fast claims, and
-  unattested/contradictory tier provenance; ChatGPT desktop config proof is
-  reported as `config-verified`, never runtime-attested. PM bridge ticket 1.3
-  carries the required runtime policy and launch attestation into the exact
-  receipt boundary.
+- Checked-in orchestrator root/spawn runtime defaults (a coordinator model,
+  reasoning effort, and priority service tier), plus a read-only machine/project
+  startup verifier. It rejects untrusted projects, config or launch drift,
+  API-key priority-tier claims, and unattested/contradictory tier provenance;
+  desktop-app config proof is reported as `config-verified`, never
+  runtime-attested. PM bridge ticket 1.3 carries the required runtime policy and
+  launch attestation into the exact receipt boundary.
 - Orchestrator-control schema 1.3 lifecycle watchdog: objective
   tests/output/closure evidence creates a durable `COMPLETION_CANDIDATE`
   independent of worker self-report; fresh typed remaining-work progress is
@@ -46,7 +46,7 @@ All notable changes to the firestarter template. See
   `ownerClass`/`laneClass`, lifecycle-derived safe actions, evidence-age
   availability, explicit 1.0 migration, and a privacy-safe synthetic
   current-task manifest. A locked idempotent reconcile command now creates the
-  canonical local state directory without Codex API scraping or raw payload
+  canonical local state directory without agent-API scraping or raw payload
   persistence; a one-way atomic publisher emits deterministic content-addressed
   dashboard bytes plus current/LKG/previous pointers with rollback and
   concurrent-writer coverage. No hosted-to-Mac control bridge is introduced.
@@ -149,7 +149,7 @@ All notable changes to the firestarter template. See
   create/archive outbox, monotonic fencing and launch receipts, typed PM-proxy/
   owner-gate classification, atomic handback/successor intent, blocked-queue
   recycling, privacy-safe legacy migration, effective-rule/status visibility,
-  and a Phase-2 Codex skill/plugin integration contract. Process tests repeat
+  and a Phase-2 agent-CLI skill/plugin integration contract. Process tests repeat
   the duplicate reservation race 100 times and cover crash rollback/recovery,
   stale-worker rejection, scoped precedence/conflict quarantine, literal
   zero-step CI, non-owner legacy import, local-state privacy, and unsafe-link

@@ -87,17 +87,17 @@ def iso(minutes: int = 0, seconds: int = 0) -> str:
 
 def config_verified_runtime_attestation() -> dict[str, Any]:
     return {
-        "root_model": "gpt-5.6-sol",
-        "root_reasoning_effort": "xhigh",
-        "root_service_tier": "fast",
+        "root_model": "coordinator-model",
+        "root_reasoning_effort": "high",
+        "root_service_tier": "priority",
         "root_fast_mode": True,
-        "worker_model": "gpt-5.6-sol",
-        "worker_reasoning_effort": "xhigh",
-        "worker_service_tier": "fast",
+        "worker_model": "coordinator-model",
+        "worker_reasoning_effort": "high",
+        "worker_service_tier": "priority",
         "worker_fast_mode": True,
         "service_tier_attestation": "config-verified",
         "tier_provenance": "trusted-project-and-user-config",
-        "auth_mode": "chatgpt",
+        "auth_mode": "subscription",
         "history_mode": "bounded",
         "parent_attestation_present": True,
     }

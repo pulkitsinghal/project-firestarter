@@ -1,7 +1,7 @@
-# Phase-2 Codex skill/plugin integration contract
+# Phase-2 agent-CLI skill/plugin integration contract
 
 The local SQLite authority is the mandatory preflight for future visible task
-creation. Until a Codex skill/plugin wrapper adopts this interface, the shipped
+creation. Until an agent-CLI skill/plugin wrapper adopts this interface, the shipped
 CLI cannot intercept unrelated live `create_thread` calls and must not be
 described as globally enforced. Once adopted, the wrapper must never call
 `create_thread` and then check ownership.
@@ -78,7 +78,7 @@ The standalone guard is source-only and cannot intercept tools. Runtime
 enforcement remains unproven until the actual dispatcher evaluates it before
 every filesystem, execution, browser, Sites, and task-management call, then
 denies the underlying call on any non-`ALLOW` result or guard failure. A
-source-only Codex skill may require an application/platform wrapper for this
+source-only agent-CLI skill may require an application/platform wrapper for this
 interposition.
 
 Acceptance records three separate facts: merged exact-master source tests;
@@ -94,25 +94,25 @@ not authority.
 ## Mandatory startup/runtime attestation
 
 The project and packaged orchestrator template both check in `.codex/config.toml`
-with these exact root and spawn defaults: `gpt-5.6-sol`, `xhigh`,
-`service_tier = "fast"`, `fast_mode = true`, and `multi_agent = true`.
+with these exact root and spawn defaults: a coordinator model, a reasoning
+effort, `service_tier = "priority"`, `fast_mode = true`, and `multi_agent = true`.
 Startup must run `bin/verify-orchestrator-runtime` against the exact trusted
-project and the current user's Codex configuration before any worker launch.
+project and the current user's agent-CLI configuration before any worker launch.
 An untrusted project, missing value, drift, or conflicting override is a hard
 denial.
 
 Every launch envelope and receipt carries the effective model, effort, service
 tier, fast-mode state, authentication mode, attestation source, and provenance.
-The only accepted Fast-tier provenance values are:
+The only accepted priority-tier provenance values are:
 
 - `runtime` with `platform-runtime` provenance when the launch/runtime surface
   genuinely reports the effective tier; or
 - `config-verified` with `trusted-project-and-user-config` provenance when the
   exact trusted project and user configuration were verified.
 
-ChatGPT desktop task/thread/spawn APIs do not report effective service tier.
-Their Fast claim is therefore `config-verified`, never `runtime`. An API-key
-claim, unattested tier, model/effort drift, disabled fast or multi-agent
+Some desktop-app task/thread/spawn APIs do not report effective service tier.
+Their priority-tier claim is therefore `config-verified`, never `runtime`. An
+API-key claim, unattested tier, model/effort drift, disabled fast or multi-agent
 features, conflicting root/spawn defaults, mismatched source/provenance, or
 unknown attestation value fails closed. Configuration evidence must never be
 relabeled as runtime evidence.
@@ -266,7 +266,7 @@ output.
     capacity, and the configured worker cap is enforced before any successor
     reservation.
 
-The wrapper owns Codex API calls; the repository control plane owns policy,
+The wrapper owns agent-CLI task API calls; the repository control plane owns policy,
 reservation, fencing, idempotency, evidence acceptance, queue ordering, and the
 crash-recoverable outbox. Literal cross-system atomicity is not claimed:
 convergent exactly-once logical behavior comes from the durable saga and receipts.
@@ -318,7 +318,7 @@ The wrapper is ready to become mandatory only after its integration suite proves
   worker capacity, and cannot reach notification without a typed `OWNER_GATE`.
 - project and user configuration drift, untrusted project state, API-key
   claims, unattested service tier, and source/provenance mismatches all fail
-  closed, while config-derived Fast evidence is never reported as runtime;
+  closed, while config-derived priority-tier evidence is never reported as runtime;
 - root cannot spawn an internal orchestrator subagent, and all capacity-bearing
   workers are visible peer tasks with exact launch receipts;
 - terminal lifecycle observation, two-miss stale-progress interruption,
@@ -350,7 +350,7 @@ The wrapper is ready to become mandatory only after its integration suite proves
 The repo-local marketplace at `../../.agents/plugins/marketplace.json` exposes
 `pm-proxy-orchestrator` from `../../plugins/pm-proxy-orchestrator/`. The plugin is a
 source artifact only: generation and validation do not install it into a
-personal marketplace or mutate live Codex configuration. Its bridge uses a
+personal marketplace or mutate live agent-CLI configuration. Its bridge uses a
 fixed command allowlist, validates the Firestarter executable/version/schema,
 runs `recycle-queue` before launch and closure, persists prompt-free tickets,
 requires the schema-1.3 runtime attestation on launch and refill receipts, and

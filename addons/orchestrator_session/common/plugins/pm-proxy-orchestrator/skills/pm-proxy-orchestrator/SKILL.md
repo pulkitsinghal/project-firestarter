@@ -1,6 +1,6 @@
 ---
 name: pm-proxy-orchestrator
-description: Enforce Firestarter's fail-closed cross-task control plane for Codex task launches, PM-proxy approval routing, fenced worker receipts, typed handbacks, successor creation, and blocked-queue recycling. Use whenever Codex creates or replenishes a visible task, records a durable scoped policy correction, asks an approval question, mutates under an orchestrated task, closes or archives a task, hands work to a successor, or reconciles duplicate repo/path ownership.
+description: Enforce Firestarter's fail-closed cross-task control plane for agent-CLI task launches, PM-proxy approval routing, fenced worker receipts, typed handbacks, successor creation, and blocked-queue recycling. Use whenever the agent CLI creates or replenishes a visible task, records a durable scoped policy correction, asks an approval question, mutates under an orchestrated task, closes or archives a task, hands work to a successor, or reconciles duplicate repo/path ownership.
 ---
 
 # PM Proxy Orchestrator
@@ -40,9 +40,9 @@ or receipt fails.
    `CREATE_THREAD` outbox action.
 6. Immediately call `record-launch-receipt` with the external task ID, generated
    ticket, and bounded runtime-attestation file. Model and reasoning effort must
-   reflect the launch surface. Use Fast-tier source `runtime` only when the
-   platform reports it; for ChatGPT desktop config verification use
-   `config-verified`, never runtime. API-key Fast claims and unattested or
+   reflect the launch surface. Use priority-tier source `runtime` only when the
+   platform reports it; for desktop-app config verification use
+   `config-verified`, never runtime. API-key priority-tier claims and unattested or
    conflicting runtime policy fail closed. If receipt recording fails, instruct
    the new task to remain read-only and reconcile/archive it; never allow
    mutation.
@@ -106,7 +106,7 @@ patient text, credential-bearing URLs, or arbitrary expressions.
 
 ## Fail-closed rules
 
-- Never install or update a marketplace, personal plugin, or live Codex config
+- Never install or update a marketplace, personal plugin, or live agent-CLI config
   while operating this source artifact.
 - Never infer compatibility. A major-version or required-schema mismatch fails.
 - Never bypass duplicate/ownership exit `3`, quarantine, fence, lease, receipt,

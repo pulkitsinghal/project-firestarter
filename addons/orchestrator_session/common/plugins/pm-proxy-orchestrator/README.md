@@ -1,6 +1,6 @@
 # PM Proxy Orchestrator
 
-Version `0.3.0` is a source-only Codex plugin for Firestarter control-plane
+Version `0.3.0` is a source-only agent-CLI plugin for Firestarter control-plane
 interface `1.0`. It makes task reservation, policy receipts, approval routing,
 fenced handback, successor creation, and queue recycling operational without
 installing anything globally.
@@ -19,7 +19,7 @@ and non-spoofable root identity remain unresolved. See
 
 Bridge/ticket `1.3` accepts control schema `1.3`, requires the exact root and
 worker runtime policy plus a truthful launch attestation before receipt, and
-adds lifecycle-watchdog reconciliation. ChatGPT desktop Fast tier is
+adds lifecycle-watchdog reconciliation. A desktop-app priority tier is
 `config-verified` because its task/thread and spawn APIs do not report service
 tier; only a genuinely surfaced platform tier is `runtime`. Root never creates
 internal subagents: workers are visible peer tasks, root is excluded from worker

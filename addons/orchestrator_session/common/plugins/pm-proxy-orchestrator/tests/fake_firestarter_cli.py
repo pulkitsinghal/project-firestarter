@@ -17,28 +17,28 @@ from typing import Any
 
 INTERFACE = "1.0"
 RUNTIME_POLICY_RECEIPT = {
-    "root_model": "gpt-5.6-sol",
-    "root_reasoning_effort": "xhigh",
-    "root_service_tier": "fast",
+    "root_model": "coordinator-model",
+    "root_reasoning_effort": "high",
+    "root_service_tier": "priority",
     "root_fast_mode": True,
-    "worker_model": "gpt-5.6-sol",
-    "worker_reasoning_effort": "xhigh",
-    "worker_service_tier": "fast",
+    "worker_model": "coordinator-model",
+    "worker_reasoning_effort": "high",
+    "worker_service_tier": "priority",
     "worker_fast_mode": True,
     "service_tier_attestation_allowed": ["config-verified", "runtime"],
     "parent_attestation_required": True,
 }
 RUNTIME_POLICY_ENVELOPE = {
     "root": {
-        "model": "gpt-5.6-sol",
-        "reasoning_effort": "xhigh",
-        "service_tier": "fast",
+        "model": "coordinator-model",
+        "reasoning_effort": "high",
+        "service_tier": "priority",
         "fast_mode": True,
     },
     "worker_defaults": {
-        "model": "gpt-5.6-sol",
-        "reasoning_effort": "xhigh",
-        "service_tier": "fast",
+        "model": "coordinator-model",
+        "reasoning_effort": "high",
+        "service_tier": "priority",
         "fast_mode": True,
     },
 }
