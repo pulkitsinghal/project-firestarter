@@ -168,6 +168,7 @@ def create_ticket(
         "handback": None,
         "duration_estimate": envelope.get("duration_estimate"),
         "owner_claim_id": envelope.get("owner_claim_id"),
+        "runtime_policy": envelope["receipt_required"]["runtime_policy"],
     }
     bridge.write_ticket_new(path, ticket)
     return ticket
@@ -273,6 +274,7 @@ def build_parser() -> argparse.ArgumentParser:
     receipt.add_argument("--saga-id", required=True)
     receipt.add_argument("--task-id", required=True)
     receipt.add_argument("--external-thread-id", required=True)
+    receipt.add_argument("--runtime-attestation", required=True)
     receipt.add_argument("--request-id", required=True)
     receipt.add_argument("--now", required=True)
     watchdog = sub.add_parser("watchdog-refill")
@@ -485,6 +487,12 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
 
     if operation == "record-refill-receipt":
         bridge.parse_time(args.now)
+        runtime_attestation = bridge.validate_runtime_attestation(
+            bridge.load_json_file(
+                args.runtime_attestation,
+                "runtime attestation",
+            )
+        )
         with SagaLedger(state_dir) as ledger:
             saga = ledger.value["sagas"].get(args.saga_id)
             if not isinstance(saga, dict):
@@ -522,10 +530,15 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "fencing_token": ticket["fencing_token"],
                 "external_thread_id": args.external_thread_id,
                 "applicable_rule_ids": ticket["applicable_rule_ids"],
+                "runtime_attestation": runtime_attestation,
                 "now": args.now,
             }
             result = bridge.run_cli(cli, state_dir, "record-launch-receipt", request=request)
-            ticket["receipt"] = {"external_thread_id": args.external_thread_id, "recorded_at": args.now}
+            ticket["receipt"] = {
+                "external_thread_id": args.external_thread_id,
+                "recorded_at": args.now,
+                "runtime_attestation": runtime_attestation,
+            }
             bridge.replace_ticket(path, ticket)
             saga["receipted_task_ids"].append(args.task_id)
             saga["events"].append(

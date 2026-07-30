@@ -85,6 +85,24 @@ def iso(minutes: int = 0, seconds: int = 0) -> str:
     return (base + dt.timedelta(minutes=minutes, seconds=seconds)).isoformat().replace("+00:00", "Z")
 
 
+def config_verified_runtime_attestation() -> dict[str, Any]:
+    return {
+        "root_model": "gpt-5.6-sol",
+        "root_reasoning_effort": "xhigh",
+        "root_service_tier": "fast",
+        "root_fast_mode": True,
+        "worker_model": "gpt-5.6-sol",
+        "worker_reasoning_effort": "xhigh",
+        "worker_service_tier": "fast",
+        "worker_fast_mode": True,
+        "service_tier_attestation": "config-verified",
+        "tier_provenance": "trusted-project-and-user-config",
+        "auth_mode": "chatgpt",
+        "history_mode": "bounded",
+        "parent_attestation_present": True,
+    }
+
+
 def write_json(path: Path, value: dict[str, Any]) -> Path:
     path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
     return path

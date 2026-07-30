@@ -8,6 +8,7 @@ import unittest
 
 from tests.support import (
     BRIDGE,
+    config_verified_runtime_attestation,
     handback_request,
     iso,
     launch_request,
@@ -24,6 +25,10 @@ class CrashRecoveryTestCase(unittest.TestCase):
         self.cli = make_fake_install(self.root)
         self.state = self.root / "state"
         self.state.mkdir(mode=0o700)
+        self.runtime_attestation = write_json(
+            self.root / "runtime-attestation.json",
+            config_verified_runtime_attestation(),
+        )
 
     def run_bridge(self, *args: str, mode: str | None = None):
         environment = os.environ.copy()
@@ -65,6 +70,8 @@ class CrashRecoveryTestCase(unittest.TestCase):
             str(ticket),
             "--external-thread-id",
             "thread-1",
+            "--runtime-attestation",
+            str(self.runtime_attestation),
             "--request-id",
             "receipt-1",
             "--now",

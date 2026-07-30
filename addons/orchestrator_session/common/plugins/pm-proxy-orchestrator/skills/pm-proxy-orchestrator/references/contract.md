@@ -6,7 +6,7 @@ Pinned source contract:
 - Current-master integration base:
   `a32741d7958eeff7fd49ccd979c44acccdc69d91`
 - Compatible CLI versions: `1.x`
-- Compatible ledger schemas: `1.0`, `1.1`, `1.2`
+- Compatible ledger schemas: `1.0`, `1.1`, `1.2`, `1.3`
 - Machine interface: `1.0`
 - Canonical document:
   `addons/orchestrator_session/common/orchestrator-control/docs/PHASE2_PLUGIN_INTEGRATION.md`
@@ -22,7 +22,8 @@ The wrapper permits these commands: `init`, `status`, `record-policy-rule`,
 `effective-rules`, `prepare-launch`, `record-launch-receipt`,
 `classify-decision`, `record-heartbeat`, `takeover-lease`,
 `record-handback`, `record-archive-receipt`, `recycle-queue`, capacity
-reconciliation, schema 1.2 duration commands, and `record-setup-failure`.
+reconciliation, schema 1.2 duration commands, `record-setup-failure`, and
+schema 1.3 `lifecycle-watchdog`.
 `root-action` invokes the
 fixed adjacent `root_role_guard.py`, not an arbitrary caller command.
 
@@ -41,12 +42,13 @@ object result. A failed command must produce one error JSON object on stderr and
 no success output.
 
 The launch ticket is a private local transport receipt, not authority. Ticket
-1.2 includes the task/claim identity, control schema, privacy-safe duration
-estimate, policy revision, applicable rule IDs, lease epoch, fencing token,
-outbox ID, timestamps, and external receipt state. Legacy 1.0 tickets are
-migrated in memory on read and rewritten on the next safe mutation. A ticket
-must never contain or hash the prompt. Firestarter's SQLite ledger and current
-fence remain authoritative.
+1.3 includes the task/claim identity, control schema, privacy-safe duration
+estimate, exact required root/worker runtime policy, policy revision,
+applicable rule IDs, lease epoch, fencing token, outbox ID, timestamps, and
+external receipt state. Legacy 1.0/1.2 tickets are migrated in memory on read
+and rewritten on the next safe mutation only when no receipt would be
+fabricated. A ticket must never contain or hash the prompt. Firestarter's
+SQLite ledger and current fence remain authoritative.
 
 The visible task prompt must be the exact `prompt` returned by `prepare-launch`.
 The prompt is ephemeral and must not be copied into logs, tickets, dashboards,
@@ -64,6 +66,8 @@ Response validation intentionally fails on:
 - a ticket without a committed receipt before heartbeat or handback.
 - an external task ID other than the exact ID in the current launch receipt;
 - schema 1.2 without its duration and root-role schemas or guard script;
+- schema 1.3 without its lifecycle-watchdog schemas;
+- missing, drifted, API-key, unattested, or contradictory runtime attestation;
 - a direct terminal handback that bypasses `close-and-refill`.
 
 ## Closure/refill extension
@@ -86,7 +90,12 @@ reconciled against the existing outbox/ticket.
 event-loss/periodic-heartbeat fallback. Both fail when runnable work exists and
 active-or-reserved slots are below configured capacity.
 
-## Root and duration adoption boundary
+Schema 1.3 adds evidence-derived lifecycle reconciliation after every worker
+message, wait timeout, and before status claims. The exact fenced closure order
+is handback, capacity release, blocked-work re-audit, successor launch receipt
+or terminal proof, then predecessor archive.
+
+## Root, lifecycle, and duration adoption boundary
 
 The root-role guard defines truthful statuses (`assigned`, `running`,
 `validated`, `merged`, `deployed`) and their required receipt/worker evidence.

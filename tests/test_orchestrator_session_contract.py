@@ -16,12 +16,14 @@ GENERATOR = ROOT / "bin" / "generate.py"
 ADDON = ROOT / "addons" / "orchestrator_session" / "common"
 CANONICAL_BILL = ADDON / "ORCHESTRATOR_BILL_OF_RIGHTS.md"
 REQUIRED_FILES = {
+    ".codex/config.toml",
     "AGENTS.orchestrator.md",
     "ORCHESTRATOR_BILL_OF_RIGHTS.md",
     "ORCHESTRATOR_PROMPT.md",
     "decisions-board/decisions.html",
     "decisions-board/decisions.json",
     "docs/ORCHESTRATOR_SESSION.md",
+    "bin/verify-orchestrator-runtime.py",
     "orchestrator-control/README.md",
     "orchestrator-control/VERSION",
     "orchestrator-control/adaptive_capacity_policy.py",
@@ -43,6 +45,8 @@ REQUIRED_FILES = {
     "orchestrator-control/schemas/duration-schedule.response.schema.json",
     "orchestrator-control/schemas/effective-rules.request.schema.json",
     "orchestrator-control/schemas/heartbeat.request.schema.json",
+    "orchestrator-control/schemas/lifecycle-watchdog.request.schema.json",
+    "orchestrator-control/schemas/lifecycle-watchdog.response.schema.json",
     "orchestrator-control/schemas/machine-response.schema.json",
     "orchestrator-control/schemas/migrate-decisions.request.schema.json",
     "orchestrator-control/schemas/policy-ledger.schema.json",
@@ -132,6 +136,10 @@ REQUIRED_FAILURE_PREVENTION_CLAUSES = {
         "every filesystem, process execution, browser, Sites, and task-management tool"
     ),
     "root_excluded_from_capacity": "Root never occupies worker capacity.",
+    "root_no_internal_subagents": (
+        "Root must never spawn an internal or nested subagent."
+    ),
+    "visible_peer_workers": "Every worker is a visible\npeer task",
     "owner_gate_before_notification": (
         "An owner\n"
         "notification is unreachable unless\n"
@@ -207,6 +215,9 @@ REQUIRED_FAILURE_PREVENTION_CLAUSES = {
         "every completed lane releases its task-owned resources and returns its\n"
         "evidence to the orchestrator."
     ),
+    "exact_closure_sequence": (
+        "handback → capacity release → blocked-work re-audit → exact successor launch"
+    ),
     "transactional_reservation": (
         "Reserve the task, all ownership claims, and\n"
         "  its create outbox in one transaction before external task creation"
@@ -266,7 +277,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         canonical_bytes = CANONICAL_BILL.read_bytes()
         canonical_text = canonical_bytes.decode("utf-8")
         self.assertEqual(
-            "1.2.0",
+            "1.3.0",
             (ADDON / "orchestrator-control" / "VERSION")
             .read_text(encoding="utf-8")
             .strip(),
@@ -376,7 +387,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
                         capture_output=True,
                         text=True,
                     )
-                    self.assertEqual("1.2", json.loads(status.stdout)["result"]["schema_version"])
+                    self.assertEqual("1.3", json.loads(status.stdout)["result"]["schema_version"])
 
 
 if __name__ == "__main__":

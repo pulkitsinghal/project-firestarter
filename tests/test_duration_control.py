@@ -34,7 +34,7 @@ SPEC.loader.exec_module(control)
 
 class DurationControlTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.sandbox = tempfile.TemporaryDirectory(dir="/private/tmp")
+        self.sandbox = tempfile.TemporaryDirectory()
         self.root = Path(self.sandbox.name)
         self.repo = self.root / "repo"
         self.repo.mkdir()
@@ -170,6 +170,7 @@ class DurationControlTests(unittest.TestCase):
             "prepare-launch", self.prepare_request(suffix, estimate=estimate)
         )
         required = prepared["result"]["envelope"]["receipt_required"]
+        runtime_policy = required["runtime_policy"]
         receipt = {
             "interface_version": "1.0",
             "request_id": f"receipt-{suffix}",
@@ -179,6 +180,25 @@ class DurationControlTests(unittest.TestCase):
             "fencing_token": required["fencing_token"],
             "external_thread_id": f"thread-{suffix}",
             "applicable_rule_ids": required["applicable_rule_ids"],
+            "runtime_attestation": {
+                "root_model": runtime_policy["root_model"],
+                "root_reasoning_effort": runtime_policy[
+                    "root_reasoning_effort"
+                ],
+                "root_service_tier": runtime_policy["root_service_tier"],
+                "root_fast_mode": runtime_policy["root_fast_mode"],
+                "worker_model": runtime_policy["worker_model"],
+                "worker_reasoning_effort": runtime_policy[
+                    "worker_reasoning_effort"
+                ],
+                "worker_service_tier": runtime_policy["worker_service_tier"],
+                "worker_fast_mode": runtime_policy["worker_fast_mode"],
+                "service_tier_attestation": "config-verified",
+                "tier_provenance": "trusted-project-and-user-config",
+                "auth_mode": "chatgpt",
+                "history_mode": "full-history",
+                "parent_attestation_present": True,
+            },
             "now": "2026-07-29T03:31:00Z",
         }
         self.run_cli("record-launch-receipt", receipt)

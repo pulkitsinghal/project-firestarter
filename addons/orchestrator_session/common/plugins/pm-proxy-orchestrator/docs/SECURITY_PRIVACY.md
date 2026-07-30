@@ -21,6 +21,9 @@ The bridge:
 - verifies owner-gate route and notification flag agree.
 - requires an exact external task ID match before heartbeat, handback, or
   duration reclassification;
+- requires exact launch model/effort and Fast-tier provenance; config-derived
+  ChatGPT desktop verification is never labeled runtime, and API-key or
+  unattested Fast claims fail closed;
 - rejects direct terminal handback so capacity release cannot bypass the
   idempotent close/refill saga.
 

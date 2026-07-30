@@ -6,6 +6,22 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Checked-in orchestrator root/spawn defaults for `gpt-5.6-sol`, `xhigh`, and
+  ChatGPT Fast, plus a read-only machine/project startup verifier. It rejects
+  untrusted projects, config or launch drift, API-key Fast claims, and
+  unattested/contradictory tier provenance; ChatGPT desktop config proof is
+  reported as `config-verified`, never runtime-attested. PM bridge ticket 1.3
+  carries the required runtime policy and launch attestation into the exact
+  receipt boundary.
+- Orchestrator-control schema 1.3 lifecycle watchdog: objective
+  tests/output/closure evidence creates a durable `COMPLETION_CANDIDATE`
+  independent of worker self-report; fresh typed remaining-work progress is
+  bounded; two missed handback checks emit `TERMINALIZE` and
+  `INTERRUPT_REQUIRED`; and an exact interrupt receipt atomically releases,
+  re-audits, reserves a successor or proves `EMPTY`/`OWNER_GATED`, and starts
+  the archive fence. Status exposes required reconciliation after worker
+  messages, wait timeouts, and before claims. Interface 1.0 and existing
+  schema-1.x state remain compatible.
 - Audit-only adaptive-capacity evaluation for the orchestrator control plane:
   closed caller-supplied snapshot schemas, deterministic age/cap/digest
   computation, explicit non-authority flags, and a pinned service-supervisor

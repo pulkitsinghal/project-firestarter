@@ -76,9 +76,11 @@ jobs:
         run: |
           python3 -B -m unittest -v \
             tests.test_orchestrator_control \
+            tests.test_orchestrator_runtime_policy \
             tests.test_orchestrator_session_contract \
             tests.test_receipt_feed \
-            tests.test_adaptive_capacity
+            tests.test_adaptive_capacity \
+            tests.test_lifecycle_watchdog
 
       - name: Verify the synthetic service-supervisor contract
         env:
