@@ -142,6 +142,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let previewOutputPath = CompanionPreviewRenderer.requestedOutputPath() {
+            NSApplication.shared.setActivationPolicy(.accessory)
+            _ = CompanionPreviewRenderer.render(to: previewOutputPath)
+            NSApplication.shared.terminate(nil)
+            return
+        }
         guard claimSingleInstance() else { return }
         configureMainMenu()
         showDashboard(nil)
@@ -518,6 +524,7 @@ final class DashboardState: ObservableObject {
 private struct DashboardView: View {
     @StateObject private var state: DashboardState
     @StateObject private var chat: RouterChatSession
+    @StateObject private var companion = CompanionController()
     @State private var didPrepareConversationFixture = false
     @AppStorage("OperationsFloater.GuideCollapsedV1")
     private var guideCollapsed = false
@@ -533,6 +540,8 @@ private struct DashboardView: View {
     private var testsCollapsed = false
     @AppStorage("OperationsFloater.SignalsCollapsedV1")
     private var signalsCollapsed = false
+    @AppStorage("OperationsFloater.CompanionDismissedV1")
+    private var companionDismissed = false
     private let conversationFixtureModuleID: String?
     private let conversationFixtureUsesRecorderNormalizer: Bool
 
@@ -580,8 +589,14 @@ private struct DashboardView: View {
             minHeight: DashboardLayoutMetrics.minimumWindowSize.height
         )
         .background(.regularMaterial)
+        .overlay(alignment: .bottomTrailing) {
+            CompanionView(controller: companion, dismissed: $companionDismissed)
+                .padding(.trailing, 14)
+                .padding(.bottom, 12)
+        }
         .task {
             await state.refreshPreferredSource()
+            ingestCompanion()
             guard let conversationFixtureModuleID,
                   !didPrepareConversationFixture else {
                 return
@@ -593,12 +608,24 @@ private struct DashboardView: View {
                     conversationFixtureUsesRecorderNormalizer
             )
         }
-        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
-            guard hasActiveSnapshotConsumers else { return }
-            Task {
-                await state.refreshPreferredSource()
-            }
+        .onChange(of: state.snapshot) { _, _ in
+            ingestCompanion()
         }
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
+            if hasActiveSnapshotConsumers {
+                Task {
+                    await state.refreshPreferredSource()
+                }
+            }
+            ingestCompanion()
+        }
+    }
+
+    private func ingestCompanion() {
+        companion.ingest(
+            snapshot: state.snapshot,
+            receiptNeedsAttention: !state.receiptFeed.decisions.isEmpty
+        )
     }
 
     private var header: some View {

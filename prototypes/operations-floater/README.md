@@ -94,6 +94,16 @@ snapshot remains schema version `1.0`.
   Motion produces a fully stable frame.
 - The guide itself uses no image feed, camera, microphone, network service,
   analytics, or external transmission.
+- A dismissible corner companion ("Ember") restates the same canonical state as
+  one friendly character. It naps when the queue is empty, perks up while lanes
+  run, briefly celebrates when work reaches the finished lane, and looks
+  concerned on a verified failure, attention signal, or pending owner decision.
+  A short status bubble restates only canonical lane counts.
+- The companion is vector-drawn with SwiftUI Canvas and uses no image asset,
+  camera, microphone, network service, analytics, or external transmission. Its
+  mood, pose, motion, and status line are deterministic functions of the
+  snapshot and time; Reduce Motion produces a fully stable frame, and it can be
+  dismissed to a small wake button. See [docs/COMPANION.md](docs/COMPANION.md).
 - Queue work appears on a 0-to-100 percent rail. Its rectangular chip animates
   as verified step evidence changes; adding steps can move the chip backward
   without erasing completed work. Hovering shows the full summary and clicking
@@ -203,6 +213,13 @@ privacy, and lifecycle tests:
 ```bash
 swift test
 bash Tests/permission-identity-preflight.test.sh
+```
+
+Render a still-frame gallery of every companion mood. This rasterizes offscreen
+and writes a PNG without opening or foregrounding a dashboard window:
+
+```bash
+swift run OperationsFloater --render-companion-preview /tmp/ember-gallery.png
 ```
 
 Routine validation stops at SwiftPM and synthetic fixture tests on the active
