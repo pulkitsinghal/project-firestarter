@@ -8,6 +8,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -507,7 +508,17 @@ class LifecycleWatchdogTests(unittest.TestCase):
         )
         replay = self.run_cli("lifecycle-watchdog", interrupt)
         self.assertEqual(result["result"]["capacity"], replay["result"]["capacity"])
-        self.assertNotIn("prompt", replay["result"]["successor"])
+        # The interrupt replay carries the successor prompt through, symmetric
+        # with record_handback: it equals the fresh reservation's prompt
+        # (caller prompt + authoritative stored envelope).
+        self.assertEqual(
+            result["result"]["successor"]["prompt"],
+            replay["result"]["successor"]["prompt"],
+        )
+        self.assertIn(
+            "orchestrator_launch_envelope",
+            replay["result"]["successor"]["prompt"],
+        )
         status = self.run_cli("status")["result"]
         self.assertEqual(
             ["task-successor"],
@@ -550,7 +561,20 @@ class LifecycleWatchdogTests(unittest.TestCase):
             "prompt"
         ] = "ALTERED REPLAY PROMPT"
         replay = self.run_cli("lifecycle-watchdog", altered_prompt)
-        self.assertNotIn("prompt", replay["result"]["successor"])
+        # The prompt is caller-owned convenience data outside the idempotency
+        # boundary, so a replay echoes back whatever prompt the caller re-sends,
+        # combined with the authoritative stored envelope.
+        self.assertTrue(
+            replay["result"]["successor"]["prompt"].startswith(
+                "ALTERED REPLAY PROMPT"
+            )
+        )
+        self.assertIn(
+            "orchestrator_launch_envelope",
+            replay["result"]["successor"]["prompt"],
+        )
+        # State stays fenced: the altered prompt is never persisted, and the
+        # re-injected envelope is the original authoritative one.
         self.assertNotIn(
             "ALTERED REPLAY PROMPT",
             (self.state / "orchestrator.sqlite3").read_text(
@@ -575,6 +599,150 @@ class LifecycleWatchdogTests(unittest.TestCase):
             "lifecycle-watchdog", changed, expected=control.EXIT_CONFLICT
         )
         self.assertEqual("IDEMPOTENCY_CONFLICT", conflict["error"]["code"])
+
+    def test_interrupt_replay_tolerates_refreshed_timestamp(self) -> None:
+        prepared = self.completion_candidate()
+        self.force_interrupt_required(prepared)
+        interrupt = self.interrupt_request(
+            prepared,
+            successor=self.prepare_payload(
+                "successor", path="/src", now="2026-07-29T18:05:00Z"
+            ),
+        )
+        first = self.run_cli("lifecycle-watchdog", interrupt)
+        self.assertEqual(
+            "SUCCESSOR_RESERVED", first["result"]["capacity"]["outcome"]
+        )
+        # A retry that only refreshes the wall-clock timestamp is the same
+        # logical request. It must replay cleanly on semantic content rather
+        # than raising IDEMPOTENCY_CONFLICT because "now" moved.
+        refreshed = json.loads(json.dumps(interrupt))
+        refreshed["now"] = "2026-07-29T18:09:30Z"
+        replay = self.run_cli("lifecycle-watchdog", refreshed)
+        self.assertEqual(
+            first["result"]["capacity"], replay["result"]["capacity"]
+        )
+        self.assertEqual(
+            first["result"]["lifecycle"], replay["result"]["lifecycle"]
+        )
+        self.assertEqual(
+            first["result"]["successor"]["prompt"],
+            replay["result"]["successor"]["prompt"],
+        )
+        # Exactly one successor was reserved despite the refreshed retry.
+        self.assertEqual("LAUNCH_PENDING", self.task_state("task-successor"))
+        with sqlite3.connect(self.state / "orchestrator.sqlite3") as connection:
+            self.assertEqual(
+                1,
+                connection.execute(
+                    "SELECT count(*) FROM tasks WHERE task_id='task-successor'"
+                ).fetchone()[0],
+            )
+
+    def test_concurrent_interrupt_and_handback_reserve_successor_exactly_once(
+        self,
+    ) -> None:
+        primary = self.completion_candidate()
+        self.force_interrupt_required(primary)
+        sibling = self.launch("sibling", path="/src")
+        # Both closures race to reserve the SAME successor identity (identical
+        # source/idempotency/outcome keys), on a path that overlaps neither the
+        # interrupted predecessor (/docs) nor the handed-back predecessor
+        # (/src). reserve_launch dedup must admit exactly one launch.
+        (self.repo / "lane-shared").mkdir()
+        shared_successor = self.prepare_payload(
+            "shared-successor", path="/lane-shared", now="2026-07-29T18:05:00Z"
+        )
+        interrupt = self.interrupt_request(
+            primary,
+            successor=json.loads(json.dumps(shared_successor)),
+            suffix="race-interrupt",
+        )
+        interrupt["capacity"]["configured_capacity"] = 2
+        handback = existing_control_tests.ControlPlaneTests.handback(
+            sibling,
+            "sibling",
+            successor=json.loads(json.dumps(shared_successor)),
+            now="2026-07-29T18:05:30Z",
+        )
+        handback["capacity"]["configured_capacity"] = 2
+        handback["capacity"]["runnable_queue_count"] = 1
+
+        results: list[dict[str, object]] = []
+        errors: list[control.ControlError] = []
+        collect = threading.Lock()
+        start = threading.Barrier(2)
+
+        def interrupt_once() -> None:
+            start.wait()
+            try:
+                outcome = control.Plane(self.state, LEDGER).lifecycle_watchdog(
+                    interrupt
+                )
+            except control.ControlError as error:
+                with collect:
+                    errors.append(error)
+            else:
+                with collect:
+                    results.append(outcome)
+
+        def handback_once() -> None:
+            start.wait()
+            try:
+                outcome = control.Plane(self.state, LEDGER).record_handback(
+                    handback
+                )
+            except control.ControlError as error:
+                with collect:
+                    errors.append(error)
+            else:
+                with collect:
+                    results.append(outcome)
+
+        threads = [
+            threading.Thread(target=interrupt_once),
+            threading.Thread(target=handback_once),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        # Exactly one closure reserved the shared successor; the loser fails
+        # closed with DUPLICATE_STOP and rolls back — no duplicate launch.
+        self.assertEqual(1, len(results), f"results={results} errors={errors}")
+        self.assertEqual(1, len(errors), f"results={results} errors={errors}")
+        self.assertEqual("DUPLICATE_STOP", errors[0].code)
+        self.assertEqual(control.EXIT_CONFLICT, errors[0].exit_status)
+        self.assertEqual(
+            "SUCCESSOR_RESERVED", results[0]["capacity"]["outcome"]
+        )
+        with sqlite3.connect(self.state / "orchestrator.sqlite3") as connection:
+            self.assertEqual(
+                1,
+                connection.execute(
+                    "SELECT count(*) FROM tasks "
+                    "WHERE task_id='task-shared-successor'"
+                ).fetchone()[0],
+            )
+            # The losing closure rolled its predecessor back, so exactly one of
+            # the two predecessors reached ARCHIVE_PENDING.
+            self.assertEqual(
+                1,
+                connection.execute(
+                    "SELECT count(*) FROM tasks "
+                    "WHERE task_id IN ('task-primary','task-sibling') "
+                    "AND state='ARCHIVE_PENDING'"
+                ).fetchone()[0],
+            )
+            # The shared successor is reserved exactly once.
+            self.assertEqual(
+                "LAUNCH_PENDING",
+                connection.execute(
+                    "SELECT state FROM tasks "
+                    "WHERE task_id='task-shared-successor'"
+                ).fetchone()[0],
+            )
 
     def test_interrupt_without_runnable_work_is_truthful_empty_and_not_active(
         self,
