@@ -9,7 +9,7 @@ snapshot, never writes it, and performs no control-plane action.
 It ships in **two switchable styles** that share one state machine:
 
 - **Ember** (`.pet`) — a vector-drawn fox-kit.
-- **Nova** (`.human`) — a warm, stylized human assistant.
+- **Nova** (`.human`) — a Cortana-style holographic, full-figure assistant.
 
 Both are driven by the *exact same* mood/pose/motion pipeline; only the drawing
 differs, so switching between them is a pure presentation choice with no
@@ -60,15 +60,22 @@ lanes running." or "3 items staged and ready to go.").
 Motion is a pure function of `(time, mood)`. **Reduce Motion produces a fully
 stable frame** (open eyes, no bob, no hop), matching the existing guide avatar.
 
-Nova reinterprets the same pose/motion fields for a human silhouette without
-touching the state machine: `earLift` becomes a forward **lean** (perked → leans
-in when focused/staged/celebrating; drooped → withdraws when waiting/concerned/
-sleeping), `tailEnergy × tailSway` becomes a subtle live head sway, `browAngle`
-knots the inner brows, and `eyeOpenness`/`happyEyes`/`sleeping` drive eyelids,
-smiling squints, and resting arcs. Each mood therefore reads as a distinct human
-expression — breathing/blinking idle, lean-in focused, warm open-grin
-celebrating, worried-brow concerned, eyes-closed sleeping — and Reduce Motion is
-stable for Nova too.
+Nova reinterprets the same pose/motion fields for a small, floating **holographic
+full-figure** person — translucent and softly glowing, with an ethereal rim-light,
+an inner core glow, drifting scanlines and motes, and a lower body that dissolves
+into light above a projector footprint — all without touching the state machine.
+`pose.mood` selects the whole-body **stance and arm posture** (idle = relaxed,
+waiting = hand-on-hip, staged = open presenting gesture, focused = leaning in,
+celebrating = arms-up bloom, concerned = arms crossed, sleeping = curled/seated);
+`tailEnergy` drives the **aura/glow intensity** so celebration blooms brightest
+and sleep/concern dim; `earLift` becomes a forward **lean** (perked → leans in;
+drooped → withdraws); `tailEnergy × tailSway` becomes a subtle live head sway;
+`browAngle` knots the inner brows; `pose.accent` tints the whole hologram so every
+mood stays color-readable; and `eyeOpenness`/`happyEyes`/`sleeping` drive eyelids,
+smiling squints, and resting arcs. Each mood therefore reads as a distinct
+full-body performance — relaxed idle, lean-in focused, arms-up open-grin
+celebrating, arms-crossed worried concerned, curled eyes-closed sleeping — and
+Reduce Motion is stable for Nova too (a fully static pose and aura per mood).
 
 ## Choosing a style
 
