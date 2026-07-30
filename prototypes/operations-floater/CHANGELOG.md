@@ -10,6 +10,16 @@
   companion is drawn with SwiftUI Canvas and uses no image asset, camera,
   microphone, network service, analytics, or external transmission. Adds a
   headless `--render-companion-preview` mood-gallery still-frame.
+- Add a switchable **companion style** (`CompanionStyle`) so the corner companion
+  ships as either **Ember** (the fox-kit pet) or **Nova**, a warm, stylized
+  human assistant. Nova is a second SwiftUI Canvas rendering driven by the exact
+  same mood/pose/motion state machine — no behavioral change — mapping every mood
+  to a distinct, Reduce-Motion-aware human expression (breathing/blinking idle,
+  lean-in focused, warm open-grin celebrating, worried-brow concerned, eyes-closed
+  sleeping). The choice persists via `AppStorage`
+  (`OperationsFloater.CompanionStyleV1`) and switches live from the
+  **Companion Style** app menu. Extends the headless preview with an optional
+  `--companion-style` flag and adds a committed Nova mood-gallery still-frame.
 
 - Add a local-only, read-only receipt-feed 1.1 source with strict shape,
   duplicate-key, provenance, file-type, size, and SHA-256 validation.

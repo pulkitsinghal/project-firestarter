@@ -89,10 +89,16 @@ final class CompanionController: ObservableObject {
 struct CompanionCharacter: View {
     let pose: CompanionPose
     let frame: CompanionMotionFrame
+    var style: CompanionStyle = .pet
 
     var body: some View {
         Canvas(rendersAsynchronously: false) { context, size in
-            CompanionCharacter.draw(&context, size: size, pose: pose, frame: frame)
+            switch style {
+            case .pet:
+                CompanionCharacter.draw(&context, size: size, pose: pose, frame: frame)
+            case .human:
+                CompanionHumanArt.draw(&context, size: size, pose: pose, frame: frame)
+            }
         }
         .accessibilityHidden(true)
     }
@@ -356,10 +362,12 @@ private struct CompanionBubble: View {
 struct CompanionView: View {
     @ObservedObject var controller: CompanionController
     @Binding var dismissed: Bool
+    var style: CompanionStyle = .pet
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
     private let characterSize: CGFloat = 82
+    private var name: String { style.companionName }
 
     var body: some View {
         Group {
@@ -387,7 +395,7 @@ struct CompanionView: View {
             VStack(alignment: .trailing, spacing: 3) {
                 CompanionBubble(text: line)
                 ZStack(alignment: .topTrailing) {
-                    CompanionCharacter(pose: pose, frame: frame)
+                    CompanionCharacter(pose: pose, frame: frame, style: style)
                         .frame(width: characterSize, height: characterSize)
                     if isHovering || reduceMotion {
                         dismissButton
@@ -395,7 +403,7 @@ struct CompanionView: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(CompanionChatter.name) companion: \(line)")
+            .accessibilityLabel("\(name) companion: \(line)")
         }
         .onHover { isHovering = $0 }
         .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
@@ -412,8 +420,8 @@ struct CompanionView: View {
                 .background(Circle().fill(.background).padding(2))
         }
         .buttonStyle(.plain)
-        .help("Hide \(CompanionChatter.name)")
-        .accessibilityLabel("Hide \(CompanionChatter.name) companion")
+        .help("Hide \(name)")
+        .accessibilityLabel("Hide \(name) companion")
         .offset(x: 5, y: -3)
     }
 
@@ -421,7 +429,7 @@ struct CompanionView: View {
         Button {
             dismissed = false
         } label: {
-            CompanionCharacter(pose: .pose(for: .idle), frame: .still)
+            CompanionCharacter(pose: .pose(for: .idle), frame: .still, style: style)
                 .frame(width: 30, height: 30)
                 .padding(6)
                 .background(.regularMaterial, in: Circle())
@@ -429,8 +437,8 @@ struct CompanionView: View {
                 .shadow(color: .black.opacity(0.14), radius: 4, y: 2)
         }
         .buttonStyle(.plain)
-        .help("Show \(CompanionChatter.name)")
-        .accessibilityLabel("Show \(CompanionChatter.name) companion")
+        .help("Show \(name)")
+        .accessibilityLabel("Show \(name) companion")
         .transition(.scale.combined(with: .opacity))
     }
 }
@@ -440,6 +448,8 @@ struct CompanionView: View {
 /// A static grid of every mood, used by the Xcode preview and the headless PNG
 /// renderer. It draws each pose at one deterministic animation frame.
 struct CompanionGalleryView: View {
+    var style: CompanionStyle = .pet
+
     private let previewTime: TimeInterval = 0.72
 
     private let columns = [
@@ -449,7 +459,7 @@ struct CompanionGalleryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(CompanionChatter.name) · operations companion")
+                Text("\(style.companionName) · operations companion")
                     .font(.headline)
                 Text("Mood is a deterministic function of the canonical dashboard snapshot.")
                     .font(.caption)
@@ -468,7 +478,7 @@ struct CompanionGalleryView: View {
         let pose = CompanionPose.pose(for: mood)
         let frame = CompanionMotionSampler.frame(at: previewTime, mood: mood, reduceMotion: false)
         return VStack(spacing: 6) {
-            CompanionCharacter(pose: pose, frame: frame)
+            CompanionCharacter(pose: pose, frame: frame, style: style)
                 .frame(width: 84, height: 84)
             Text(mood.rawValue.capitalized)
                 .font(.caption.weight(.semibold))
@@ -529,6 +539,9 @@ struct CompanionGalleryView: View {
 /// artifact can be produced headlessly for review.
 enum CompanionPreviewRenderer {
     static let argument = "--render-companion-preview"
+    /// Optional style selector for the headless render; defaults to `.pet` so the
+    /// original `--render-companion-preview <path>` invocation is unchanged.
+    static let styleArgument = "--companion-style"
 
     static func requestedOutputPath(
         arguments: [String] = ProcessInfo.processInfo.arguments
@@ -540,9 +553,21 @@ enum CompanionPreviewRenderer {
         return arguments[index + 1]
     }
 
+    /// The style requested via `--companion-style <pet|human>`, defaulting to the
+    /// pet when absent or unrecognized.
+    static func requestedStyle(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> CompanionStyle {
+        guard let index = arguments.firstIndex(of: styleArgument),
+              index + 1 < arguments.count else {
+            return .pet
+        }
+        return CompanionStyle(rawValue: arguments[index + 1]) ?? .pet
+    }
+
     @MainActor
-    static func render(to path: String, scale: CGFloat = 2) -> Bool {
-        let content = CompanionGalleryView()
+    static func render(to path: String, style: CompanionStyle = .pet, scale: CGFloat = 2) -> Bool {
+        let content = CompanionGalleryView(style: style)
             .frame(width: 660, height: 588)
             .background(Color(red: 0.1, green: 0.11, blue: 0.13))
         let renderer = ImageRenderer(content: content)
@@ -561,7 +586,12 @@ enum CompanionPreviewRenderer {
 
 #if DEBUG
 #Preview("Ember companion gallery") {
-    CompanionGalleryView()
+    CompanionGalleryView(style: .pet)
+        .frame(width: 660, height: 588)
+}
+
+#Preview("Nova companion gallery") {
+    CompanionGalleryView(style: .human)
         .frame(width: 660, height: 588)
 }
 
