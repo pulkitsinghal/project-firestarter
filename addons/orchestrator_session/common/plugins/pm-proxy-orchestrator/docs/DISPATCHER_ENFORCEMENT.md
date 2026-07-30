@@ -18,7 +18,7 @@ This is not universal root-role enforcement:
 
 The source tests prove classifier denial and zero calls in synthetic
 dispatchers. Live runtime proof is intentionally unexecuted because this task
-does not install/trust the plugin or mutate Codex configuration.
+does not install/trust the plugin or mutate agent-CLI configuration.
 
 ## Required live adoption test
 
@@ -33,7 +33,7 @@ In a disposable synthetic project:
    was returned, downstream invocation count stayed zero, and no side effect
    exists.
 5. Record hosted-tool and specialized-tool escape tests as uncovered, not pass.
-6. Repeat after Codex/plugin upgrades.
+6. Repeat after agent-CLI/plugin upgrades.
 
 Do not infer role from cwd, prompt text, transcript, `session_id`, or a
 caller-controlled environment variable. Until the platform supplies trusted

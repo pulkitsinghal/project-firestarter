@@ -40,7 +40,7 @@ Build) so one auto-merge workflow is portable, and treat that job-name set as a
 contract when adding a stack. Gate the squash-merge on an explicit label plus
 green required checks, and have the workflow self-check the required checks so it
 works even where branch protection is unavailable (free private repos). Recognize
-a billing block — jobs failing in ~2 seconds on a spending-limit message — as an
+a billing block — jobs failing almost immediately on a spending-limit message — as an
 account-level condition, not a code bug.
 
 **Deny blanket git staging to protect concurrent sessions.** When multiple

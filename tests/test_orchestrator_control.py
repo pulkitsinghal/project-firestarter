@@ -177,7 +177,7 @@ class ControlPlaneTests(unittest.TestCase):
                 "worker_fast_mode": runtime_policy["worker_fast_mode"],
                 "service_tier_attestation": "config-verified",
                 "tier_provenance": "trusted-project-and-user-config",
-                "auth_mode": "chatgpt",
+                "auth_mode": "subscription",
                 "history_mode": "full-history",
                 "parent_attestation_present": True,
             },
@@ -352,9 +352,9 @@ class ControlPlaneTests(unittest.TestCase):
             "prepare-launch", self.prepare("runtime-policy-drift")
         )
         policy = prepared["result"]["envelope"]["runtime_policy"]
-        self.assertEqual("gpt-5.6-sol", policy["root"]["model"])
-        self.assertEqual("xhigh", policy["root"]["reasoning_effort"])
-        self.assertEqual("fast", policy["root"]["service_tier"])
+        self.assertEqual("coordinator-model", policy["root"]["model"])
+        self.assertEqual("high", policy["root"]["reasoning_effort"])
+        self.assertEqual("priority", policy["root"]["service_tier"])
         self.assertTrue(policy["root"]["fast_mode"])
         self.assertEqual(policy["root"], policy["worker_defaults"])
         self.assertEqual(
@@ -383,7 +383,7 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual("FAST_MODE_DRIFT", error["error"]["code"])
 
         wrong_model = self.receipt(prepared, "runtime-policy-drift")
-        wrong_model["runtime_attestation"]["worker_model"] = "gpt-5.6-terra"
+        wrong_model["runtime_attestation"]["worker_model"] = "alternate-model"
         error = self.run_cli("record-launch-receipt", wrong_model, expected=2)
         self.assertEqual("SCHEMA_INVALID", error["error"]["code"])
 

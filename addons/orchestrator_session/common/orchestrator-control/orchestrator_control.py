@@ -23,9 +23,9 @@ from urllib.parse import urlsplit
 INTERFACE_VERSION = "1.0"
 SCHEMA_VERSION = "1.3"
 POLICY_SCHEMA_VERSION = "1.0"
-REQUIRED_ROOT_MODEL = "gpt-5.6-sol"
-REQUIRED_ROOT_REASONING_EFFORT = "xhigh"
-REQUIRED_SERVICE_TIER = "fast"
+REQUIRED_ROOT_MODEL = "coordinator-model"
+REQUIRED_ROOT_REASONING_EFFORT = "high"
+REQUIRED_SERVICE_TIER = "priority"
 REQUIRED_FAST_MODE = True
 FAST_PERFORMANCE_MULTIPLIER = 1.5
 GPT56_STANDARD_CREDIT_MULTIPLIER = 2.5
@@ -5285,7 +5285,7 @@ def validate_receipt(value: Any, kind: str) -> dict[str, Any]:
             "auth_mode": enum(
                 raw_runtime["auth_mode"],
                 "auth_mode",
-                {"chatgpt", "api-key"},
+                {"subscription", "api-key"},
             ),
             "history_mode": enum(
                 raw_runtime["history_mode"],
@@ -5314,10 +5314,10 @@ def validate_receipt(value: Any, kind: str) -> dict[str, Any]:
                 "SERVICE_TIER_PROVENANCE_INVALID",
                 "service-tier verification provenance contradicts its source",
             )
-        if runtime["auth_mode"] != "chatgpt":
+        if runtime["auth_mode"] != "subscription":
             fail(
                 "FAST_AUTH_MODE_UNSUPPORTED",
-                "ChatGPT Fast semantics cannot be claimed for API-key auth",
+                "Subscription priority-tier semantics cannot be claimed for API-key auth",
             )
         if not runtime["parent_attestation_present"]:
             fail(

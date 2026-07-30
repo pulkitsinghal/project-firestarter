@@ -198,7 +198,7 @@ class BridgeTestCase(unittest.TestCase):
             (
                 {
                     **config_verified_runtime_attestation(),
-                    "root_model": "gpt-5.6-terra",
+                    "root_model": "alternate-model",
                 },
                 "RUNTIME_ATTESTATION_INVALID",
             ),
@@ -234,7 +234,7 @@ class BridgeTestCase(unittest.TestCase):
         self.assertEqual("1.0", stored["control_schema_version"])
         self.assertIsNone(stored["duration_estimate"])
         self.assertEqual(
-            "gpt-5.6-sol",
+            "coordinator-model",
             stored["runtime_policy"]["root_model"],
         )
 

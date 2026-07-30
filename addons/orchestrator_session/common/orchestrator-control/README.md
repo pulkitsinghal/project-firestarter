@@ -2,7 +2,7 @@
 
 This Python-stdlib companion enforces the machine-checkable parts of the
 [`Orchestrator Bill of Rights`](../ORCHESTRATOR_BILL_OF_RIGHTS.md). It is a
-prompt-safe boundary for a future Codex skill/plugin wrapper, not a network
+prompt-safe boundary for a future agent-CLI skill/plugin wrapper, not a network
 service and not a replacement policy source.
 
 ## Authority and storage
@@ -73,7 +73,7 @@ When no authoritative orchestrator database exists, `reconcile-manifest`
 imports one complete caller-supplied, allowlisted current-task manifest into a
 canonical mode-`0700` local directory. The persisted state contains only typed
 launch/handback receipts, sanitized public metadata, bounded typed evidence,
-coarse keys, and explicit provenance. It neither calls a Codex API nor stores a
+coarse keys, and explicit provenance. It neither calls an agent-CLI API nor stores a
 raw task response. A monotonic manifest revision makes replay idempotent and
 rejects stale or changed same-revision input. Canonical and mirror receipts are
 retained for provenance, while mirrors and unresolved duplicate revisions are
@@ -248,7 +248,7 @@ active.
 ## Runtime adoption and proof boundary
 
 `root_role_guard.py` is a validated source boundary, not a tool interceptor.
-Until the active Codex dispatcher calls it before every filesystem, process
+Until the active agent-CLI dispatcher calls it before every filesystem, process
 execution, browser, Sites, and task-management tool and suppresses the
 underlying call for denial, error, timeout, or unavailable state, adoption is
 voluntary and runtime enforcement must not be claimed. A source-only skill may

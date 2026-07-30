@@ -168,7 +168,7 @@ class LifecycleWatchdogTests(unittest.TestCase):
                 "worker_fast_mode": runtime_policy["worker_fast_mode"],
                 "service_tier_attestation": "config-verified",
                 "tier_provenance": "trusted-project-and-user-config",
-                "auth_mode": "chatgpt",
+                "auth_mode": "subscription",
                 "history_mode": "full-history",
                 "parent_attestation_present": True,
             },

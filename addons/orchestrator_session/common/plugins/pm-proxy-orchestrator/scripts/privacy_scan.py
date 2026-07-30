@@ -13,11 +13,17 @@ ROOT = Path(__file__).resolve().parents[1]
 TEXT_SUFFIXES = {".md", ".json", ".py", ".yaml", ".yml", ".txt", ""}
 FORBIDDEN_TEXT = [
     "[TODO:",
-    "/Users/medico",
-    "pulkitsinghal@gmail.com",
-    "pulkit@auggiehealth.us",
-    "Deepak528",
     "-----BEGIN PRIVATE KEY-----",
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "-----BEGIN OPENSSH PRIVATE KEY-----",
+]
+# Owner-neutral PII heuristics: flag real home-directory paths and
+# real-looking personal email addresses, while ignoring the reserved
+# example/test domains used in fixtures (RFC 2606). Keep this guard generic
+# rather than hard-coding any maintainer's identity into a public artifact.
+FORBIDDEN_PATTERNS = [
+    re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+/"),
+    re.compile(r"\b[A-Za-z0-9._%+-]+@(?!example\.)(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}\b"),
 ]
 FORBIDDEN_CODE = [
     re.compile(r"\bshell\s*=\s*True\b"),
@@ -42,6 +48,9 @@ def main() -> int:
         for needle in FORBIDDEN_TEXT:
             if needle in text:
                 failures.append(f"{relative}: forbidden text {needle!r}")
+        for pattern in FORBIDDEN_PATTERNS:
+            if pattern.search(text):
+                failures.append(f"{relative}: forbidden PII pattern {pattern.pattern!r}")
         if path.suffix == ".py":
             for pattern in FORBIDDEN_CODE:
                 if pattern.search(text):

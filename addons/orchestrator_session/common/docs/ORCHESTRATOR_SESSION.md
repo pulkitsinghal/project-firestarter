@@ -37,17 +37,17 @@ Enable it at stamp time:
 Before the root coordinates any task:
 
 1. Start from the exact project root and require that exact path to be
-   `trusted` in the machine-local Codex config. The checked-in
-   `.codex/config.toml` and machine config must both resolve to root and spawn
-   defaults `gpt-5.6-sol`, `xhigh`, and `service_tier = "fast"`, with
-   `fast_mode` and `multi_agent` enabled.
+   `trusted` in the agent CLI's machine-local config. The checked-in
+   `.codex/config.toml` and machine config must both resolve to the coordinator
+   and worker runtime defaults (a model, a reasoning effort, and
+   `service_tier = "priority"`), with `fast_mode` and `multi_agent` enabled.
 2. Capture a bounded launch attestation for the effective root model, reasoning
    effort, fast mode, authentication mode, and service-tier provenance. Model
    and effort values must come from the launch/runtime surface. Use
    `service_tier_attestation: "runtime"` with
    `tier_provenance: "platform-runtime"` only when the platform genuinely
    reports the effective tier.
-3. ChatGPT desktop task/thread and spawn APIs do not report service tier. For
+3. Some desktop-app task/thread and spawn APIs do not report service tier. For
    that surface, use `service_tier_attestation: "config-verified"` with
    `tier_provenance: "trusted-project-and-user-config"` only after both exact
    configs and project trust verify. Never relabel config-derived evidence as

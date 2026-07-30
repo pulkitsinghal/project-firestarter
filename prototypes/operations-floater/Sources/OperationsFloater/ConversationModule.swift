@@ -845,7 +845,7 @@ enum ConversationModuleAllowlist {
 
     static let geometryRecorderManifest = ConversationModuleManifest(
         contractVersion: ConversationModuleContract.version,
-        moduleID: "auggie.verbal-orders.synthetic-geometry-recorder",
+        moduleID: "example.verbal-orders.synthetic-geometry-recorder",
         displayName: "Synthetic geometry recorder",
         capabilities: [
             .narration,
@@ -857,7 +857,7 @@ enum ConversationModuleAllowlist {
             .proposedActions,
         ],
         privacy: .hostControlled,
-        provenanceSourceID: "auggie.project-verbal-orders.geometry-recorder",
+        provenanceSourceID: "example.project-verbal-orders.geometry-recorder",
         allowedTranscriptProviders: [.onDevice, .syntheticFixture],
         allowedWindowBindingIDs: [
             "verbal-orders.synthetic.geometry-canvas",
@@ -866,7 +866,7 @@ enum ConversationModuleAllowlist {
 
     static let relativeXYRecorderManifest = ConversationModuleManifest(
         contractVersion: ConversationModuleContract.version,
-        moduleID: "auggie.verbal-orders.relative-xy-recorder",
+        moduleID: "example.verbal-orders.relative-xy-recorder",
         displayName: "Relative XY recorder",
         capabilities: [
             .narration,
@@ -879,7 +879,7 @@ enum ConversationModuleAllowlist {
             .proposedActions,
         ],
         privacy: .hostControlled,
-        provenanceSourceID: "auggie.project-verbal-orders.relative-xy-recorder",
+        provenanceSourceID: "example.project-verbal-orders.relative-xy-recorder",
         allowedTranscriptProviders: [.onDevice, .syntheticFixture],
         allowedWindowBindingIDs: [
             "verbal-orders.neutral.selected-window",
