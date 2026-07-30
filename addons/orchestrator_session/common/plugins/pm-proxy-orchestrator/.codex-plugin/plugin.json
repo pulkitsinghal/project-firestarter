@@ -1,7 +1,7 @@
 {
   "name": "pm-proxy-orchestrator",
   "version": "0.3.0",
-  "description": "Fail-closed Codex wrapper for the Firestarter cross-task control plane.",
+  "description": "Fail-closed agent-CLI wrapper for the Firestarter cross-task control plane.",
   "author": {
     "name": "Firestarter contributors"
   },

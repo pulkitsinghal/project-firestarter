@@ -45,19 +45,19 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         self,
         *,
         trusted: bool,
-        user_model: str = "gpt-5.6-sol",
+        user_model: str = "coordinator-model",
     ) -> None:
         trust = "trusted" if trusted else "untrusted"
         self.user_config.write_text(
             f'model = "{user_model}"\n'
-            'model_reasoning_effort = "xhigh"\n'
-            'service_tier = "fast"\n'
+            'model_reasoning_effort = "high"\n'
+            'service_tier = "priority"\n'
             "[features]\n"
             "fast_mode = true\n"
             "multi_agent = true\n"
             "[agents]\n"
-            'default_subagent_model = "gpt-5.6-sol"\n'
-            'default_subagent_reasoning_effort = "xhigh"\n'
+            'default_subagent_model = "coordinator-model"\n'
+            'default_subagent_reasoning_effort = "high"\n'
             f'[projects."{self.project}"]\n'
             f'trust_level = "{trust}"\n',
             encoding="utf-8",
@@ -66,13 +66,13 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
     def write_attestation(
         self,
         *,
-        model: str = "gpt-5.6-sol",
-        effort: str = "xhigh",
-        tier: str = "fast",
+        model: str = "coordinator-model",
+        effort: str = "high",
+        tier: str = "priority",
         fast_mode: bool = True,
         tier_source: str = "config-verified",
         tier_provenance: str = "trusted-project-and-user-config",
-        auth_mode: str = "chatgpt",
+        auth_mode: str = "subscription",
     ) -> None:
         self.attestation.write_text(
             json.dumps(
@@ -121,9 +121,9 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         policy = result["policy"]
         self.assertEqual(
             {
-                "model": "gpt-5.6-sol",
-                "reasoning_effort": "xhigh",
-                "service_tier": "fast",
+                "model": "coordinator-model",
+                "reasoning_effort": "high",
+                "service_tier": "priority",
                 "fast_mode": True,
                 "service_tier_attestation": "config-verified",
             },
@@ -131,9 +131,9 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             {
-                "model": "gpt-5.6-sol",
-                "reasoning_effort": "xhigh",
-                "service_tier": "fast",
+                "model": "coordinator-model",
+                "reasoning_effort": "high",
+                "service_tier": "priority",
                 "fast_mode": True,
             },
             policy["worker_defaults"],
@@ -153,8 +153,8 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         path = self.project / ".codex" / "config.toml"
         path.write_text(
             path.read_text(encoding="utf-8").replace(
-                'default_subagent_model = "gpt-5.6-sol"',
-                'default_subagent_model = "gpt-5.6-terra"',
+                'default_subagent_model = "coordinator-model"',
+                'default_subagent_model = "alternate-model"',
             ),
             encoding="utf-8",
         )
@@ -162,7 +162,7 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         self.assertEqual("PROJECT_POLICY_DRIFT", result["error"]["code"])
 
     def test_cli_or_profile_runtime_override_drift_fails_closed(self) -> None:
-        self.write_attestation(model="gpt-5.6-terra")
+        self.write_attestation(model="alternate-model")
         result = self.run_verifier(expected=2)
         self.assertEqual("EFFECTIVE_RUNTIME_DRIFT", result["error"]["code"])
 
@@ -172,7 +172,7 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         self.assertEqual("SERVICE_TIER_UNATTESTED", result["error"]["code"])
 
     def test_conflicting_machine_default_fails_before_project_precedence(self) -> None:
-        self.write_user_config(trusted=True, user_model="gpt-5.6-terra")
+        self.write_user_config(trusted=True, user_model="alternate-model")
         result = self.run_verifier(expected=2)
         self.assertEqual("USER_POLICY_DRIFT", result["error"]["code"])
 
@@ -186,7 +186,7 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         self.assertTrue(result["precedence"]["service_tier_runtime_attested"])
         self.assertFalse(result["precedence"]["service_tier_config_verified"])
 
-    def test_api_key_auth_cannot_claim_chatgpt_fast_semantics(self) -> None:
+    def test_api_key_auth_cannot_claim_priority_tier_semantics(self) -> None:
         self.write_attestation(auth_mode="api-key")
         result = self.run_verifier(expected=2)
         self.assertEqual("FAST_AUTH_MODE_UNSUPPORTED", result["error"]["code"])

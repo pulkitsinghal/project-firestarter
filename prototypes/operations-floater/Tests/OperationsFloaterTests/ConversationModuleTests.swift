@@ -149,7 +149,7 @@ struct ConversationModuleTests {
                 token: floor.token
             ),
             provenance: ConversationModuleProvenance(
-                sourceID: "auggie.project-verbal-orders.geometry-recorder",
+                sourceID: "example.project-verbal-orders.geometry-recorder",
                 buildDigest: provenance.buildDigest
             ),
             events: [event],
@@ -205,7 +205,7 @@ struct ConversationModuleTests {
                 token: floor.token
             ),
             provenance: ConversationModuleProvenance(
-                sourceID: "auggie.project-verbal-orders.geometry-recorder",
+                sourceID: "example.project-verbal-orders.geometry-recorder",
                 buildDigest: provenance.buildDigest
             ),
             events: [event]

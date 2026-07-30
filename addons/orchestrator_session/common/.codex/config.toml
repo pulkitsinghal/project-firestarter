@@ -1,11 +1,11 @@
-model = "gpt-5.6-sol"
-model_reasoning_effort = "xhigh"
-service_tier = "fast"
+model = "coordinator-model"
+model_reasoning_effort = "high"
+service_tier = "priority"
 
 [features]
 fast_mode = true
 multi_agent = true
 
 [agents]
-default_subagent_model = "gpt-5.6-sol"
-default_subagent_reasoning_effort = "xhigh"
+default_subagent_model = "coordinator-model"
+default_subagent_reasoning_effort = "high"

@@ -33,13 +33,13 @@
         "parent_attestation_present"
       ],
       "properties": {
-        "root_model": {"const": "gpt-5.6-sol"},
-        "root_reasoning_effort": {"const": "xhigh"},
-        "root_service_tier": {"const": "fast"},
+        "root_model": {"const": "coordinator-model"},
+        "root_reasoning_effort": {"const": "high"},
+        "root_service_tier": {"const": "priority"},
         "root_fast_mode": {"const": true},
-        "worker_model": {"const": "gpt-5.6-sol"},
-        "worker_reasoning_effort": {"const": "xhigh"},
-        "worker_service_tier": {"const": "fast"},
+        "worker_model": {"const": "coordinator-model"},
+        "worker_reasoning_effort": {"const": "high"},
+        "worker_service_tier": {"const": "priority"},
         "worker_fast_mode": {"const": true},
         "service_tier_attestation": {
           "enum": ["runtime", "config-verified", "unattested"]
@@ -47,7 +47,7 @@
         "tier_provenance": {
           "enum": ["platform-runtime", "trusted-project-and-user-config", "none"]
         },
-        "auth_mode": {"enum": ["chatgpt", "api-key"]},
+        "auth_mode": {"enum": ["subscription", "api-key"]},
         "history_mode": {"enum": ["none", "bounded", "full-history"]},
         "parent_attestation_present": {"type": "boolean"}
       }

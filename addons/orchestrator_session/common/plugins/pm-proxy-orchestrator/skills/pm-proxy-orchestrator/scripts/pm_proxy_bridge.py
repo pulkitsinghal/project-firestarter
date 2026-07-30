@@ -26,13 +26,13 @@ MAX_MACHINE_OUTPUT = 1_048_576
 MAX_REQUEST_BYTES = 524_288
 CLI_TIMEOUT_SECONDS = 15
 RUNTIME_POLICY_REQUIRED = {
-    "root_model": "gpt-5.6-sol",
-    "root_reasoning_effort": "xhigh",
-    "root_service_tier": "fast",
+    "root_model": "coordinator-model",
+    "root_reasoning_effort": "high",
+    "root_service_tier": "priority",
     "root_fast_mode": True,
-    "worker_model": "gpt-5.6-sol",
-    "worker_reasoning_effort": "xhigh",
-    "worker_service_tier": "fast",
+    "worker_model": "coordinator-model",
+    "worker_reasoning_effort": "high",
+    "worker_service_tier": "priority",
     "worker_fast_mode": True,
     "service_tier_attestation_allowed": ["config-verified", "runtime"],
     "parent_attestation_required": True,
@@ -687,10 +687,10 @@ def validate_runtime_attestation(value: Any) -> dict[str, Any]:
             "runtime attestation fields are incompatible",
             exit_status=2,
         )
-    if value["auth_mode"] != "chatgpt":
+    if value["auth_mode"] != "subscription":
         raise BridgeError(
             "FAST_AUTH_MODE_UNSUPPORTED",
-            "ChatGPT Fast semantics cannot be claimed for API-key auth",
+            "Subscription priority-tier semantics cannot be claimed for API-key auth",
             exit_status=2,
         )
     exact = {

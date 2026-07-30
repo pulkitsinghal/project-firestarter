@@ -215,7 +215,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
         )
     }
 
-    static let moduleID = "auggie.verbal-orders.relative-xy-recorder"
+    static let moduleID = "example.verbal-orders.relative-xy-recorder"
     static let bindingID = "verbal-orders.neutral.selected-window"
     static let maximumSessionEvents = 4_096
     static let moveCoalescingDistance = 0.0025
@@ -407,7 +407,7 @@ final class NeutralGeometryCaptureSession: ObservableObject {
         do {
             try provenance.validate(
                 expectedSourceID:
-                    "auggie.project-verbal-orders.relative-xy-recorder"
+                    "example.project-verbal-orders.relative-xy-recorder"
             )
         } catch {
             throw NeutralGeometryCaptureError.invalidProvenance

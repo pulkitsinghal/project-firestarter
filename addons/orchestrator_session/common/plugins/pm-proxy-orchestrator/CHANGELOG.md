@@ -3,8 +3,8 @@
 ## Unreleased
 
 - Add PM bridge/ticket 1.3 for exact root/worker runtime policy and launch
-  attestation, including truthful `runtime` versus ChatGPT desktop
-  `config-verified` Fast-tier provenance and fail-closed API-key/drift handling.
+  attestation, including truthful `runtime` versus desktop-app
+  `config-verified` priority-tier provenance and fail-closed API-key/drift handling.
 - Accept Firestarter schema 1.3 lifecycle-watchdog contracts and preserve the
   receipt-fenced handback → release → blocked re-audit → successor receipt or
   terminal proof → archive sequence.
@@ -53,7 +53,7 @@
 
 ## 0.1.0 - 2026-07-28
 
-- Add the fail-closed Firestarter `1.0` bridge and operational Codex skill.
+- Add the fail-closed Firestarter `1.0` bridge and operational agent-CLI skill.
 - Require queue recycling and `prepare-launch` before visible task creation.
 - Add exact rule/fence tickets, receipt and heartbeat guards, typed decision
   routing, sanitized policy recording, and fenced handback/archive flows.

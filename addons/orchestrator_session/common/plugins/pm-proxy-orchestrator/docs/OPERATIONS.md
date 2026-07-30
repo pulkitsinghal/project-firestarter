@@ -57,7 +57,7 @@ python skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py \
 
 The launch attestation reports the effective root/worker model and effort.
 Use `service_tier_attestation: "runtime"` only when the platform genuinely
-surfaces effective service tier. ChatGPT desktop task/thread and spawn APIs do
+surfaces effective service tier. Some desktop-app task/thread and spawn APIs do
 not, so an exact trusted project plus matching project/user configs uses
 `config-verified` with `trusted-project-and-user-config`. Never call that
 runtime evidence; API-key Fast semantics and unattested/conflicting provenance

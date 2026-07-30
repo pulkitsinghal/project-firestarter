@@ -23,15 +23,15 @@ Unknown fields fail closed.
 
 The allowlisted geometry adapter is:
 
-- module ID: `auggie.verbal-orders.synthetic-geometry-recorder`
-- provenance source: `auggie.project-verbal-orders.geometry-recorder`
+- module ID: `example.verbal-orders.synthetic-geometry-recorder`
+- provenance source: `example.project-verbal-orders.geometry-recorder`
 - transcript providers: `onDevice`, `syntheticFixture`
 - window binding: `verbal-orders.synthetic.geometry-canvas`
 
 The selected-window relative-coordinate adapter is:
 
-- module ID: `auggie.verbal-orders.relative-xy-recorder`
-- provenance source: `auggie.project-verbal-orders.relative-xy-recorder`
+- module ID: `example.verbal-orders.relative-xy-recorder`
+- provenance source: `example.project-verbal-orders.relative-xy-recorder`
 - transcript providers: `onDevice`, `syntheticFixture`
 - generic wire binding: `verbal-orders.neutral.selected-window`
 - events: normalized mouse move/down/up/drag, normalized scroll plus bounded
