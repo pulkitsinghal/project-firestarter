@@ -17,5 +17,14 @@ after trusted installation, but hosted paths, opt-outs, reauthorization gaps,
 and non-spoofable root identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
 
+Bridge/ticket `1.3` accepts control schema `1.3`, requires the exact root and
+worker runtime policy plus a truthful launch attestation before receipt, and
+adds lifecycle-watchdog reconciliation. ChatGPT desktop Fast tier is
+`config-verified` because its task/thread and spawn APIs do not report service
+tier; only a genuinely surfaced platform tier is `runtime`. Root never creates
+internal subagents: workers are visible peer tasks, root is excluded from worker
+capacity, and closure follows handback → release → blocked re-audit → successor
+receipt or terminal proof → archive.
+
 No network client, MCP server, app connector, shell executor, or
 arbitrary-command field is included.

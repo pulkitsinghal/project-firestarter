@@ -271,6 +271,18 @@ with `owner_prompt_required=true`. Dashboard projections must show their
 evaluation time and a freshness/stale marker; stale rows do not prove slot or
 completion truth.
 
+Schema 1.3 adds an evidence-derived lifecycle watchdog. Call
+`lifecycle-watchdog` after every worker message, wait timeout, and before a
+status claim. Objective completion signals persist as
+`COMPLETION_CANDIDATE` even if the worker still says `running`. Only fresh,
+changed, explicitly typed remaining-work progress resets the bounded handback
+counter. Two missed checks return `TERMINALIZE` and `INTERRUPT_REQUIRED`; the
+slot remains owned until an exact interrupt receipt atomically releases the
+claim, re-audits blocked work, reserves a successor or proves
+`EMPTY`/`OWNER_GATED`, and creates the archive fence. `status` exposes
+`reconciliation_required_task_ids` and does not authorize a plain running
+claim for completion candidates.
+
 ## Stable commands
 
 | Command | Contract |
@@ -285,6 +297,7 @@ completion truth.
 | `record-heartbeat` | Extend only the current fenced owner lease; stale workers are rejected. |
 | `record-handback` | Validate exact refs, typed checks, CI/deployment/privacy truth, owned resource disposition, and normalized terminal observation; atomically release capacity, reserve an optional successor, and durably start the fenced closure/refill saga. |
 | `capacity-watchdog` | Reconcile a durable saga after an event loss or crash, optionally reserve one exact successor, and expose a visible deficit until receipt-derived capacity is satisfied. |
+| `lifecycle-watchdog` | Reconcile worker messages/timeouts/status claims against objective completion evidence; bound handback waits; require an exact interrupt receipt; and atomically refill before archive. |
 | `record-archive-receipt` | Complete the archive outbox idempotently only after the successor launch receipt or evidenced `EMPTY`, `OWNER_GATED`, or `CAPACITY_FULL` outcome. |
 | `recycle-queue` | Audit every blocked item in one transaction and rank the highest-value safely resumable work before lower-value replenishment. |
 | `record-duration-progress` | Record separated active/queue/setup/wait/wall timing and atomically reclassify an underestimated receipt-backed worker without restart or ownership loss. |
@@ -306,7 +319,8 @@ completion truth.
 Success is one JSON object on stdout. Failure is one JSON object on stderr.
 Tests cover 100-repeat prepare and closure/refill races, the observed
 receiptless external FAQ mirror, event/watchdog recovery, the missed
-`interrupted/notLoaded` closeout, archive fencing, crash rollback, stale fences,
+`interrupted/notLoaded` closeout, completion-candidate terminalization,
+fresh-progress preservation, interrupt/refill/archive fencing, crash rollback, stale fences,
 rule conflict quarantine, CI truth, privacy, unsafe dashboard links, exact
 bucket assignment, sparse/conflicting priors, waiting-time exclusion,
 underestimate rollover, early finish, reclassification crash/race recovery,

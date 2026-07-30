@@ -50,9 +50,18 @@ python skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py \
   record-launch-receipt \
   --ticket /absolute/private/orchestrator-state/task.ticket.json \
   --external-thread-id EXTERNAL_TASK_ID \
+  --runtime-attestation /absolute/ephemeral/launch-attestation.json \
   --request-id STABLE_RECEIPT_REQUEST_ID \
   --now 2026-07-28T22:01:00Z
 ```
+
+The launch attestation reports the effective root/worker model and effort.
+Use `service_tier_attestation: "runtime"` only when the platform genuinely
+surfaces effective service tier. ChatGPT desktop task/thread and spawn APIs do
+not, so an exact trusted project plus matching project/user configs uses
+`config-verified` with `trusted-project-and-user-config`. Never call that
+runtime evidence; API-key Fast semantics and unattested/conflicting provenance
+are denied.
 
 Call `heartbeat` with `--external-thread-id` before first mutation and
 periodically. A mirror ID is denied before the Firestarter mutation command.
@@ -70,11 +79,21 @@ predecessor ticket, structured handback, and refill request. The refill request
 contains configured capacity, normalized terminal observation, owner-gated
 evidence, and full candidate `prepare-launch` requests. Create every returned
 successor exactly once and record each through `record-refill-receipt`.
+Successor receipt also requires `--runtime-attestation`; do not inherit or
+invent a tier claim merely because the predecessor was receipted.
 
 Run `slot-status` for dashboard truth. Run `watchdog-refill` on startup and
 periodic heartbeat as the fallback for lost closeout messages. Use
 `record-archive-receipt` only after the refill saga permits archive and the
 external archive succeeds.
+
+For schema 1.3, run `lifecycle-watchdog` after each worker message, wait timeout,
+and before every status claim. Objective completion evidence and fresh changed
+remaining-work progress determine whether to request handback or terminalize.
+An exact interrupt receipt performs release and blocked re-audit atomically;
+archive remains fenced until the selected visible peer successor is receipted
+or an evidenced terminal outcome exists. Root never spawns internal subagents
+and never occupies worker capacity.
 
 Schema 1.2 exposes `duration-estimate`, `duration-schedule`,
 `record-duration-progress`, and `record-duration-observation`. The last two

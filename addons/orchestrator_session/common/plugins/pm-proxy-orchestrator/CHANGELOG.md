@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Add PM bridge/ticket 1.3 for exact root/worker runtime policy and launch
+  attestation, including truthful `runtime` versus ChatGPT desktop
+  `config-verified` Fast-tier provenance and fail-closed API-key/drift handling.
+- Accept Firestarter schema 1.3 lifecycle-watchdog contracts and preserve the
+  receipt-fenced handback → release → blocked re-audit → successor receipt or
+  terminal proof → archive sequence.
+- Make root coordination-only with visible peer workers, no internal subagents,
+  and root excluded from configured worker capacity.
+
 ## 0.3.0 - 2026-07-28
 
 - Accept Firestarter ledger schemas 1.0 through 1.2 while preserving interface

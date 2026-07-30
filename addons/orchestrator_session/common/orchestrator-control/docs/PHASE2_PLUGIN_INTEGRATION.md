@@ -18,7 +18,8 @@ python orchestrator-control/orchestrator_control.py \
 Requests are UTF-8 JSON on stdin. Success is one JSON object on stdout. Failure
 is one JSON object on stderr and no success output.
 
-Schema `1.2` is an additive local-state migration from schema `1.0`/`1.1`; the
+Schema `1.3` is an additive local-state migration from schema
+`1.0`/`1.1`/`1.2`; the
 machine interface remains `1.0`. A wrapper accepts compatible schema `1.x` only
 after verifying every schema and command it uses. Unknown major/interface
 versions, missing schemas, unsafe state, or partial migrations fail closed.
@@ -89,6 +90,36 @@ Status claims cite their exact receipt/heartbeat/handback evidence, and owner
 notification is reachable only after a current typed `OWNER_GATE`. Dashboard
 projections expose evaluation time plus fresh/stale state; stale projections are
 not authority.
+
+## Mandatory startup/runtime attestation
+
+The project and packaged orchestrator template both check in `.codex/config.toml`
+with these exact root and spawn defaults: `gpt-5.6-sol`, `xhigh`,
+`service_tier = "fast"`, `fast_mode = true`, and `multi_agent = true`.
+Startup must run `bin/verify-orchestrator-runtime` against the exact trusted
+project and the current user's Codex configuration before any worker launch.
+An untrusted project, missing value, drift, or conflicting override is a hard
+denial.
+
+Every launch envelope and receipt carries the effective model, effort, service
+tier, fast-mode state, authentication mode, attestation source, and provenance.
+The only accepted Fast-tier provenance values are:
+
+- `runtime` with `platform-runtime` provenance when the launch/runtime surface
+  genuinely reports the effective tier; or
+- `config-verified` with `trusted-project-and-user-config` provenance when the
+  exact trusted project and user configuration were verified.
+
+ChatGPT desktop task/thread/spawn APIs do not report effective service tier.
+Their Fast claim is therefore `config-verified`, never `runtime`. An API-key
+claim, unattested tier, model/effort drift, disabled fast or multi-agent
+features, conflicting root/spawn defaults, mismatched source/provenance, or
+unknown attestation value fails closed. Configuration evidence must never be
+relabeled as runtime evidence.
+
+The root is coordination-only and never consumes a worker slot. It must not
+spawn an internal or nested orchestrator subagent. All implementation workers
+are visible peer tasks created through the fenced launch/receipt protocol.
 
 ## Mandatory duration-lane contract
 
@@ -204,16 +235,18 @@ output.
    `recycle-queue`. Select the highest-value eligible successor, if any, and
    include its exact `prepare-launch` request plus the configured capacity,
    runnable queue count, terminal observation, and bounded evidence refs.
-10. `record-handback` releases the predecessor claim, emits durable
-   `CAPACITY_RELEASED`, reserves the successor and create outbox, records
-   `EMPTY`/`OWNER_GATED` with evidence when appropriate, and starts the archive
-   outbox in one SQLite transaction. If runnable work exists but
-   active-or-reserved slots do not equal configured capacity, status exposes
-   `CAPACITY_INVARIANT_FAILED` and archival remains fenced.
+10. `record-handback` performs the exact ordered transition
+    **handback → capacity release → blocked-work re-audit** before it reserves
+    the successor and create outbox, records `EMPTY`/`OWNER_GATED` with evidence
+    when appropriate, and starts the archive outbox. All of those effects commit
+    in one SQLite transaction. If runnable work exists but active-or-reserved
+    slots do not equal configured capacity, status exposes
+    `CAPACITY_INVARIANT_FAILED` and archival remains fenced.
 11. Create the successor from the returned verbatim prompt and record its exact
-    launch receipt. Only then may `record-archive-receipt` complete predecessor
-    archival. Repeated events and receipts are idempotent; stale or fabricated
-    fences fail closed.
+    launch receipt. This completes the exact sequence
+    **successor receipt → predecessor archive**. Only then may
+    `record-archive-receipt` complete predecessor archival. Repeated events and
+    receipts are idempotent; stale or fabricated fences fail closed.
 12. Drive refill from the durable capacity-release event. On process startup,
     heartbeat, or a periodic timer, invoke `capacity-watchdog` for any
     unsatisfied saga. It may reserve only the exact supplied successor and may
@@ -225,6 +258,13 @@ output.
     worker is active. When `record-duration-progress` releases a shorter lane
     during rollover, refill that lane through the same prepare/create/receipt
     protocol without restarting or duplicating the reclassified worker.
+14. Invoke `lifecycle-watchdog` with current external lifecycle observations.
+    A terminal observation atomically enters the closure/refill saga. A stale
+    progress observation requires two consecutive unchanged watchdog misses
+    before it emits one fenced `INTERRUPT_TASK`; any fresh progress cancels the
+    pending interruption. Replay is idempotent. Root is excluded from worker
+    capacity, and the configured worker cap is enforced before any successor
+    reservation.
 
 The wrapper owns Codex API calls; the repository control plane owns policy,
 reservation, fencing, idempotency, evidence acceptance, queue ordering, and the
@@ -276,6 +316,16 @@ The wrapper is ready to become mandatory only after its integration suite proves
   separately, with only the last proving runtime interposition; and
 - dashboard/root status marks freshness and evidence source, excludes root from
   worker capacity, and cannot reach notification without a typed `OWNER_GATE`.
+- project and user configuration drift, untrusted project state, API-key
+  claims, unattested service tier, and source/provenance mismatches all fail
+  closed, while config-derived Fast evidence is never reported as runtime;
+- root cannot spawn an internal orchestrator subagent, and all capacity-bearing
+  workers are visible peer tasks with exact launch receipts;
+- terminal lifecycle observation, two-miss stale-progress interruption,
+  fresh-progress cancellation, worker-cap enforcement, and root exclusion are
+  deterministic and replay-idempotent;
+- handback, capacity release, blocked-work re-audit, successor receipt, and
+  predecessor archive occur in that exact fenced order;
 - exact boundary values assign the fixed eight buckets deterministically, and
   blocked/waiting plus queue/setup/tool/external wait never advance active time;
 - every prepare/receipt exposes the same monotonic estimate version, coarse
@@ -303,5 +353,6 @@ source artifact only: generation and validation do not install it into a
 personal marketplace or mutate live Codex configuration. Its bridge uses a
 fixed command allowlist, validates the Firestarter executable/version/schema,
 runs `recycle-queue` before launch and closure, persists prompt-free tickets,
-and fails closed on missing/corrupt state, quarantined policy, stale receipts,
-or interface mismatch.
+requires the schema-1.3 runtime attestation on launch and refill receipts, and
+fails closed on missing/corrupt state, quarantined policy, stale receipts,
+unattested or drifting runtime policy, or interface mismatch.

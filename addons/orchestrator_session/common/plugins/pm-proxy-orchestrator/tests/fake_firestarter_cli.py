@@ -16,6 +16,32 @@ from typing import Any
 
 
 INTERFACE = "1.0"
+RUNTIME_POLICY_RECEIPT = {
+    "root_model": "gpt-5.6-sol",
+    "root_reasoning_effort": "xhigh",
+    "root_service_tier": "fast",
+    "root_fast_mode": True,
+    "worker_model": "gpt-5.6-sol",
+    "worker_reasoning_effort": "xhigh",
+    "worker_service_tier": "fast",
+    "worker_fast_mode": True,
+    "service_tier_attestation_allowed": ["config-verified", "runtime"],
+    "parent_attestation_required": True,
+}
+RUNTIME_POLICY_ENVELOPE = {
+    "root": {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "xhigh",
+        "service_tier": "fast",
+        "fast_mode": True,
+    },
+    "worker_defaults": {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "xhigh",
+        "service_tier": "fast",
+        "fast_mode": True,
+    },
+}
 
 
 def canonical(value: Any) -> str:
@@ -280,11 +306,13 @@ def main() -> int:
                 "cleanup_duty": request["cleanup_duty"],
                 "heartbeat_protocol": {"command": "record-heartbeat", "requires_current_fence": True},
                 "closure_protocol": {"command": "record-handback", "requires_current_fence": True},
+                "runtime_policy": RUNTIME_POLICY_ENVELOPE,
                 "receipt_required": {
                     "policy_snapshot_revision": task["policy_snapshot_revision"],
                     "applicable_rule_ids": rule_ids,
                     "lease_epoch": task["lease_epoch"],
                     "fencing_token": task["fencing_token"],
+                    "runtime_policy": RUNTIME_POLICY_RECEIPT,
                 },
             }
             transported = request["prompt"] + "\n\n<orchestrator_launch_envelope>\n" + canonical(envelope) + "\n</orchestrator_launch_envelope>"
@@ -456,11 +484,13 @@ def main() -> int:
                         "command": "record-handback",
                         "requires_current_fence": True,
                     },
+                    "runtime_policy": RUNTIME_POLICY_ENVELOPE,
                     "receipt_required": {
                         "policy_snapshot_revision": state["policy_revision"],
                         "applicable_rule_ids": ["R-FENCE", "R-OWNER", "R-PM"],
                         "lease_epoch": 1,
                         "fencing_token": task["fencing_token"] + 1,
+                        "runtime_policy": RUNTIME_POLICY_RECEIPT,
                     },
                 }
                 successor_result = {

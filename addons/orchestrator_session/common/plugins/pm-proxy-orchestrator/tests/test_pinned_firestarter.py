@@ -8,7 +8,15 @@ import sys
 import unittest
 from pathlib import Path
 
-from tests.support import BRIDGE, iso, launch_request, private_temp, recycle_request, write_json
+from tests.support import (
+    BRIDGE,
+    config_verified_runtime_attestation,
+    iso,
+    launch_request,
+    private_temp,
+    recycle_request,
+    write_json,
+)
 
 
 class PinnedFirestarterIntegrationTest(unittest.TestCase):
@@ -52,6 +60,10 @@ class PinnedFirestarterIntegrationTest(unittest.TestCase):
         launch_value["context"]["repo"] = "github.com/pulkitsinghal/project-firestarter"
         launch = write_json(root / "launch.json", launch_value)
         ticket = state / "pinned.ticket.json"
+        runtime_attestation = write_json(
+            root / "runtime-attestation.json",
+            config_verified_runtime_attestation(),
+        )
         prepared = run(
             "prepare-launch",
             "--recycle-request",
@@ -74,6 +86,8 @@ class PinnedFirestarterIntegrationTest(unittest.TestCase):
             str(ticket),
             "--external-thread-id",
             "synthetic-pinned-thread",
+            "--runtime-attestation",
+            str(runtime_attestation),
             "--request-id",
             "pinned-receipt",
             "--now",

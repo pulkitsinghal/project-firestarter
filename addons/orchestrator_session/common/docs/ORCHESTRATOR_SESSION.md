@@ -18,7 +18,7 @@ Enable it at stamp time:
 | `ORCHESTRATOR_BILL_OF_RIGHTS.md` | The canonical policy: precedence and bounded conversation-derived training, PM-proxy ownership, the mandatory root-role boundary, launch envelopes, routine autonomy, exceptional gates, canonical repo/path ownership, duplicate-stop and blocked-queue re-audit behavior, delivery evidence, CI truth, closure/successor transactions, cleanup, privacy, identity, and reporting. |
 | `ORCHESTRATOR_PROMPT.md` | Thin paste-in bootstrap pointer to the Bill plus the initial inventory instruction. |
 | `AGENTS.orchestrator.md` | Thin paste-able `AGENTS.md` addendum that makes the Bill the durable policy source. |
-| `orchestrator-control/` | Versioned generic policy ledger, schema-1.2 local SQLite authority, mandatory `root_role_guard.py`, duration-calibrated worker lanes, stable JSON CLI, schemas, security-hardened dashboard, and Phase-2 skill/plugin wrapper contract. |
+| `orchestrator-control/` | Versioned generic policy ledger, schema-1.3 local SQLite authority, mandatory `root_role_guard.py`, evidence-derived lifecycle watchdog, duration-calibrated worker lanes, stable JSON CLI, schemas, security-hardened dashboard, and Phase-2 skill/plugin wrapper contract. |
 | `.agents/plugins/marketplace.json` | Repo-local marketplace entry for the validated `pm-proxy-orchestrator` source plugin; it is not a personal installation. |
 | `plugins/pm-proxy-orchestrator/` | Operational bridge, skill, closure/refill saga, docs, synthetic task-tool stub, and deterministic privacy/adversarial/race tests. |
 | `decisions-board/decisions.json` | Legacy-compatible starter display data. It is a view, not task or approval authority. |
@@ -31,6 +31,43 @@ Enable it at stamp time:
 2. Open a fresh capable-agent session at that root, then paste the prompt.
 3. Optionally add the marked `AGENTS.orchestrator.md` section to a durable agent
    brief so future sessions resolve the same canonical policy.
+
+## Startup runbook
+
+Before the root coordinates any task:
+
+1. Start from the exact project root and require that exact path to be
+   `trusted` in the machine-local Codex config. The checked-in
+   `.codex/config.toml` and machine config must both resolve to root and spawn
+   defaults `gpt-5.6-sol`, `xhigh`, and `service_tier = "fast"`, with
+   `fast_mode` and `multi_agent` enabled.
+2. Capture a bounded launch attestation for the effective root model, reasoning
+   effort, fast mode, authentication mode, and service-tier provenance. Model
+   and effort values must come from the launch/runtime surface. Use
+   `service_tier_attestation: "runtime"` with
+   `tier_provenance: "platform-runtime"` only when the platform genuinely
+   reports the effective tier.
+3. ChatGPT desktop task/thread and spawn APIs do not report service tier. For
+   that surface, use `service_tier_attestation: "config-verified"` with
+   `tier_provenance: "trusted-project-and-user-config"` only after both exact
+   configs and project trust verify. Never relabel config-derived evidence as
+   runtime. API-key authentication, an unattested tier, an untrusted project,
+   or any project/user/launch override drift fails closed.
+4. Run the read-only verifier before initializing the authority:
+
+   ```bash
+   python bin/verify-orchestrator-runtime.py \
+     --project-root "$PWD" \
+     --runtime-attestation /absolute/ephemeral/launch-attestation.json
+   ```
+
+   Continue only when it returns `ok: true`. The verifier does not edit the
+   machine config. Remove the ephemeral attestation through task-owned cleanup.
+5. Root remains coordination-only, never spawns an internal subagent, and
+   creates workers only as visible peer tasks. Root is excluded from worker
+   capacity. On closure, preserve the exact sequence: handback, atomic capacity
+   release, blocked-work re-audit, successor receipt or terminal-empty proof,
+   then predecessor archive.
 
 For enforced task creation, initialize the private local authority and require
 the Phase-2 wrapper flow:
@@ -64,6 +101,16 @@ as three distinct evidence stages. Active worker counts exclude root and queued
 setup; queued setup may count only in the separately visible reserved
 component. Owner notification requires a current typed `OWNER_GATE`; dashboard
 status names its receipt/handback source and whether it is fresh or stale.
+
+An adopting dispatcher must invoke `lifecycle-watchdog` after every worker
+message, wait timeout, and before every status claim; this source package does
+not interpose on those platform events itself. Objective
+tests/output/closure evidence is retained separately as
+`COMPLETION_CANDIDATE`; a `running` label is not authority. Fresh explicit
+remaining-work progress may defer handback, but two missed checks default to
+`TERMINALIZE`/`INTERRUPT_REQUIRED`. An exact interrupt receipt then performs
+the same fenced release, blocked re-audit, successor reservation or evidenced
+terminal-empty outcome, and archive sequence as a clean handback.
 
 Every launch envelope includes an active-runtime estimate in one fixed lane:
 `seconds` (0–<60s), `5m` (60–<450s), `10m` (450–<750s), `15m`

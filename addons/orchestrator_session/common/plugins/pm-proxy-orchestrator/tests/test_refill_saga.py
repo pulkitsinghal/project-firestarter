@@ -10,6 +10,7 @@ from pathlib import Path
 from tests.support import (
     BRIDGE,
     PLUGIN_ROOT,
+    config_verified_runtime_attestation,
     handback_request,
     iso,
     launch_request,
@@ -31,6 +32,10 @@ class RefillSagaTestCase(unittest.TestCase):
         self.cli = make_fake_install(self.root)
         self.state = self.root / "state"
         self.state.mkdir(mode=0o700)
+        self.runtime_attestation = write_json(
+            self.root / "runtime-attestation.json",
+            config_verified_runtime_attestation(),
+        )
 
     def run_script(self, script: Path, *args: str):
         return subprocess.run(
@@ -82,6 +87,8 @@ class RefillSagaTestCase(unittest.TestCase):
             str(ticket),
             "--external-thread-id",
             "thread-predecessor" + suffix,
+            "--runtime-attestation",
+            str(self.runtime_attestation),
             "--request-id",
             "predecessor-receipt" + suffix,
             "--now",
@@ -169,6 +176,8 @@ class RefillSagaTestCase(unittest.TestCase):
             "task-successor",
             "--external-thread-id",
             external,
+            "--runtime-attestation",
+            str(self.runtime_attestation),
             "--request-id",
             "successor-receipt",
             "--now",
@@ -185,6 +194,8 @@ class RefillSagaTestCase(unittest.TestCase):
             "task-successor",
             "--external-thread-id",
             external,
+            "--runtime-attestation",
+            str(self.runtime_attestation),
             "--request-id",
             "successor-receipt",
             "--now",
@@ -266,6 +277,10 @@ class RefillSagaTestCase(unittest.TestCase):
 
         predecessor_recycle = write_json(root / "pre-recycle.json", recycle_request())
         predecessor_launch = write_json(root / "pre-launch.json", launch_request())
+        runtime_attestation = write_json(
+            root / "runtime-attestation.json",
+            config_verified_runtime_attestation(),
+        )
         predecessor_ticket = state / "predecessor.ticket.json"
         self.assertEqual(
             0,
@@ -294,6 +309,8 @@ class RefillSagaTestCase(unittest.TestCase):
                     str(predecessor_ticket),
                     "--external-thread-id",
                     "thread-predecessor",
+                    "--runtime-attestation",
+                    str(runtime_attestation),
                     "--request-id",
                     "pre-receipt",
                     "--now",

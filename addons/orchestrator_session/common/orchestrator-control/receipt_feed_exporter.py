@@ -29,7 +29,7 @@ MAX_JSON_BYTES = 1_048_576
 INTERFACE_VERSION = "1.0"
 FEED_VERSION = "1.1"
 LEGACY_FEED_VERSION = "1.0"
-FIRESTARTER_SCHEMA = "1.2"
+FIRESTARTER_SCHEMA = "1.3"
 SNAPSHOT_PREFIX = "receipt-feed-1.1."
 CURRENT_POINTER = "receipt-feed-current.json"
 PREVIOUS_POINTER = "receipt-feed-previous.json"
@@ -528,7 +528,10 @@ def export_feed(raw: Any) -> dict[str, Any]:
         fail("STATUS_INVALID", "expected a successful authoritative status response")
     status = response["result"]
     if status.get("schema_version") != FIRESTARTER_SCHEMA:
-        fail("VERSION_UNSUPPORTED", "Firestarter status schema must be 1.2")
+        fail(
+            "VERSION_UNSUPPORTED",
+            f"Firestarter status schema must be {FIRESTARTER_SCHEMA}",
+        )
     duration_status = status.get("duration")
     if (
         not isinstance(duration_status, dict)
@@ -1701,12 +1704,23 @@ def normalize_manifest(raw: Any) -> dict[str, Any]:
     }
 
 
+def trusted_system_path_alias(path: Path) -> bool:
+    return (
+        sys.platform == "darwin"
+        and str(path) in {"/tmp", "/var"}
+        and path.resolve() == Path(f"/private{path}").resolve()
+        and path.lstat().st_uid == 0
+    )
+
+
 def safe_local_state_dir(raw: str) -> Path:
     state = Path(raw).absolute()
     current = Path(state.anchor)
     for part in state.parts[1:]:
         current = current / part
         if current.exists() and current.is_symlink():
+            if trusted_system_path_alias(current):
+                continue
             fail("STATE_UNSAFE", "state directory path cannot contain a symlink")
     if state.exists() and (state.is_symlink() or not state.is_dir()):
         fail("STATE_UNSAFE", "state directory must be a non-symlink directory")
@@ -1935,6 +1949,8 @@ def safe_output_dir(raw: str) -> Path:
     for part in output.parts[1:]:
         current = current / part
         if current.exists() and current.is_symlink():
+            if trusted_system_path_alias(current):
+                continue
             fail("OUTPUT_UNSAFE", "output directory path cannot contain a symlink")
     if output.exists() and (output.is_symlink() or not output.is_dir()):
         fail("OUTPUT_UNSAFE", "output must be a non-symlink directory")

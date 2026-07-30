@@ -99,6 +99,11 @@ exists. A proposed task-execution action is denied and requires a successor
 prepare/handoff instead; absence of a convenient current lane does not let root
 silently become the worker.
 
+Root must never spawn an internal or nested subagent. Every worker is a visible
+peer task created through the platform task/thread surface, independently
+addressable by the owner, and receipt-bound to one canonical lane. Root itself
+is not a worker and is excluded from configured worker capacity.
+
 This is a control-plane invariant, not prompt etiquette. Whenever an eligible
 worker slot exists, root is coordination-only. A missed delegation followed by
 root inspection or direct work is a denied control-plane action. Root must not
@@ -124,6 +129,18 @@ Status language is receipt- and handback-derived:
 - `validated` requires a worker handback with validation evidence;
 - `merged` requires a worker handback with exact merge evidence; and
 - `deployed` requires a worker handback with deployment evidence.
+
+Root reconciles the lifecycle watchdog after every worker message, every wait
+timeout, and immediately before any status claim. Objective completion evidence
+creates `COMPLETION_CANDIDATE` independently of a worker's self-reported
+`running` label. Only explicit bounded remaining-work fields with a fresh,
+changed progress reference can defer terminalization. After two missed handback
+checks by default, the watchdog returns `TERMINALIZE` and
+`INTERRUPT_REQUIRED`. Capacity is not released until the exact interrupt
+receipt is recorded; that receipt atomically releases ownership, re-audits
+blocked work, reserves a successor or proves `EMPTY`/`OWNER_GATED`, and starts
+the archive fence. Completed, interrupted, archive-pending, or archived agents
+never count as active.
 
 A delegation or `send_message` event proves none of `implemented`, `tested`, or
 `complete`. Root may not claim those outcomes, or translate assignment into
@@ -208,14 +225,21 @@ owner, dependencies, evidence target, and current state.
   already running, merged, shipped, or owner-gated item.
 - Closure and capacity refill are one fenced, idempotent saga. A valid clean
   handback normalizes `completed`, `archived`, and observed
-  `interrupted/notLoaded` as terminal, emits a durable capacity-release event,
-  re-audits blocked work, reserves the highest-value eligible successor, and
-  records its exact launch receipt before predecessor archival completes. If
-  there is no eligible successor, record `EMPTY` or `OWNER_GATED` with evidence.
+  `interrupted/notLoaded` as terminal. The required order is
+  **handback → capacity release → blocked-work re-audit → exact successor launch
+  receipt (or evidenced `EMPTY`/`OWNER_GATED`) → predecessor archive**. Reserve
+  the highest-value eligible successor; never archive the predecessor before
+  that successor receipt or terminal proof exists.
   Whenever runnable work exists, active-or-reserved slots equal configured
   capacity; a deficit triggers immediate event-driven reconciliation, a
   periodic watchdog retry, and a visible dashboard failure. Slot truth derives
   only from reservations, launch receipts, and clean handbacks.
+- A worker's self-reported `running` state cannot override objective completion
+  evidence indefinitely. The lifecycle watchdog retains the completion
+  evidence, bounded handback checks, last fresh remaining-work progress, and
+  required action. A nonresponsive completion candidate is interrupted after
+  the configured deadline; a genuinely progressing worker remains active only
+  while its explicit progress fields are fresh and advance.
 - Schedule delegable work in calibrated active-runtime lanes with exact bounds:
   `seconds` is 0–<60 seconds, `5m` is 60–<450, `10m` is 450–<750,
   `15m` is 750–<1,050, `20m` is 1,050–<1,500, `30m` is

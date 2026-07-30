@@ -152,6 +152,7 @@ class ControlPlaneTests(unittest.TestCase):
     ) -> dict[str, object]:
         envelope = prepared["result"]["envelope"]
         required = envelope["receipt_required"]
+        runtime_policy = required["runtime_policy"]
         return {
             "interface_version": "1.0",
             "request_id": f"receipt-{suffix}",
@@ -161,6 +162,25 @@ class ControlPlaneTests(unittest.TestCase):
             "fencing_token": required["fencing_token"],
             "external_thread_id": f"thread-{suffix}",
             "applicable_rule_ids": required["applicable_rule_ids"],
+            "runtime_attestation": {
+                "root_model": runtime_policy["root_model"],
+                "root_reasoning_effort": runtime_policy[
+                    "root_reasoning_effort"
+                ],
+                "root_service_tier": runtime_policy["root_service_tier"],
+                "root_fast_mode": runtime_policy["root_fast_mode"],
+                "worker_model": runtime_policy["worker_model"],
+                "worker_reasoning_effort": runtime_policy[
+                    "worker_reasoning_effort"
+                ],
+                "worker_service_tier": runtime_policy["worker_service_tier"],
+                "worker_fast_mode": runtime_policy["worker_fast_mode"],
+                "service_tier_attestation": "config-verified",
+                "tier_provenance": "trusted-project-and-user-config",
+                "auth_mode": "chatgpt",
+                "history_mode": "full-history",
+                "parent_attestation_present": True,
+            },
             "now": now,
         }
 
@@ -326,6 +346,85 @@ class ControlPlaneTests(unittest.TestCase):
             "record-launch-receipt", self.receipt(prepared, "privacy")
         )
         self.assertEqual("RUNNING", accepted["result"]["state"])
+
+    def test_launch_receipt_fails_closed_on_runtime_policy_drift(self) -> None:
+        prepared = self.run_cli(
+            "prepare-launch", self.prepare("runtime-policy-drift")
+        )
+        policy = prepared["result"]["envelope"]["runtime_policy"]
+        self.assertEqual("gpt-5.6-sol", policy["root"]["model"])
+        self.assertEqual("xhigh", policy["root"]["reasoning_effort"])
+        self.assertEqual("fast", policy["root"]["service_tier"])
+        self.assertTrue(policy["root"]["fast_mode"])
+        self.assertEqual(policy["root"], policy["worker_defaults"])
+        self.assertEqual(
+            1.5, policy["tier_truth"]["desired_performance_multiplier"]
+        )
+        self.assertEqual(
+            2.5, policy["tier_truth"]["gpt56_standard_credit_multiplier"]
+        )
+
+        unattested = self.receipt(prepared, "runtime-policy-drift")
+        unattested["runtime_attestation"]["service_tier_attestation"] = "unattested"
+        unattested["runtime_attestation"]["tier_provenance"] = "none"
+        error = self.run_cli(
+            "record-launch-receipt", unattested, expected=2
+        )
+        self.assertEqual("SERVICE_TIER_UNATTESTED", error["error"]["code"])
+
+        no_parent = self.receipt(prepared, "runtime-policy-drift")
+        no_parent["runtime_attestation"]["parent_attestation_present"] = False
+        error = self.run_cli("record-launch-receipt", no_parent, expected=2)
+        self.assertEqual("PARENT_RUNTIME_UNATTESTED", error["error"]["code"])
+
+        slow = self.receipt(prepared, "runtime-policy-drift")
+        slow["runtime_attestation"]["worker_fast_mode"] = False
+        error = self.run_cli("record-launch-receipt", slow, expected=2)
+        self.assertEqual("FAST_MODE_DRIFT", error["error"]["code"])
+
+        wrong_model = self.receipt(prepared, "runtime-policy-drift")
+        wrong_model["runtime_attestation"]["worker_model"] = "gpt-5.6-terra"
+        error = self.run_cli("record-launch-receipt", wrong_model, expected=2)
+        self.assertEqual("SCHEMA_INVALID", error["error"]["code"])
+
+        api_key = self.receipt(prepared, "runtime-policy-drift")
+        api_key["runtime_attestation"]["auth_mode"] = "api-key"
+        error = self.run_cli("record-launch-receipt", api_key, expected=2)
+        self.assertEqual("FAST_AUTH_MODE_UNSUPPORTED", error["error"]["code"])
+
+        missing = self.receipt(prepared, "runtime-policy-drift")
+        del missing["runtime_attestation"]
+        error = self.run_cli("record-launch-receipt", missing, expected=2)
+        self.assertEqual("SCHEMA_INVALID", error["error"]["code"])
+
+        status = self.run_cli("status")["result"]
+        self.assertEqual("LAUNCH_PENDING", status["tasks"][0]["state"])
+
+    def test_launch_receipt_accepts_bounded_or_verified_full_history(self) -> None:
+        bounded = self.run_cli(
+            "prepare-launch", self.prepare("runtime-bounded", path="/docs")
+        )
+        bounded_receipt = self.receipt(bounded, "runtime-bounded")
+        bounded_receipt["runtime_attestation"]["history_mode"] = "bounded"
+        accepted = self.run_cli("record-launch-receipt", bounded_receipt)
+        self.assertEqual("RUNNING", accepted["result"]["state"])
+        self.assertEqual(
+            "config-verified",
+            accepted["result"]["runtime_attestation"][
+                "service_tier_attestation"
+            ],
+        )
+
+        full = self.run_cli(
+            "prepare-launch", self.prepare("runtime-full", path="/src")
+        )
+        accepted = self.run_cli(
+            "record-launch-receipt", self.receipt(full, "runtime-full")
+        )
+        self.assertEqual(
+            "full-history",
+            accepted["result"]["runtime_attestation"]["history_mode"],
+        )
 
     def test_prompt_injection_and_secret_like_inputs_have_no_execution_or_state(self) -> None:
         sentinel = self.root / "must-not-exist"
@@ -717,6 +816,25 @@ class ControlPlaneTests(unittest.TestCase):
                 sorted(process.returncode for process in processes),
                 f"iteration={index} outputs={outputs}",
             )
+            # Keep this duplicate-atomicity stress test capacity-neutral. Other
+            # tests exercise the production worker cap and terminal release.
+            connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+            try:
+                task_id = connection.execute(
+                    "SELECT task_id FROM tasks WHERE source_event_key=?",
+                    (f"repeat-source-{index}",),
+                ).fetchone()[0]
+                connection.execute(
+                    "UPDATE tasks SET state='CLOSED' WHERE task_id=?",
+                    (task_id,),
+                )
+                connection.execute(
+                    "UPDATE owner_claims SET status='released' WHERE task_id=?",
+                    (task_id,),
+                )
+                connection.commit()
+            finally:
+                connection.close()
 
         connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
         try:

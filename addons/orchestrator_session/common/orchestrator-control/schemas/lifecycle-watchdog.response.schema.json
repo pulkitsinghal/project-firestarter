@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/lifecycle-watchdog-response-1.0.schema.json",
+  "title": "lifecycle-watchdog success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "lifecycle-watchdog"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lifecycle", "successor", "capacity"],
+      "properties": {
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "task_id",
+            "lifecycle_state",
+            "worker_status",
+            "completion_signals",
+            "evidence_refs",
+            "remaining_work",
+            "handback_deadline_checks",
+            "handback_deadline_limit",
+            "required_action",
+            "interrupt_receipt_id",
+            "status_claim_allowed",
+            "updated_at"
+          ],
+          "properties": {
+            "task_id": {"type": "string"},
+            "lifecycle_state": {
+              "enum": [
+                "RUNNING",
+                "COMPLETION_CANDIDATE",
+                "INTERRUPT_REQUIRED",
+                "COMPLETED",
+                "INTERRUPTED"
+              ]
+            },
+            "worker_status": {
+              "enum": ["completed", "interrupted", "running", "unknown", "waiting"]
+            },
+            "completion_signals": {"type": "array", "items": {"type": "string"}},
+            "evidence_refs": {"type": "array", "items": {"type": "string"}},
+            "remaining_work": {"type": ["object", "null"]},
+            "handback_deadline_checks": {"type": "integer", "minimum": 0},
+            "handback_deadline_limit": {"type": "integer", "minimum": 1},
+            "required_action": {
+              "enum": [
+                "CONTINUE",
+                "REQUEST_HANDBACK",
+                "TERMINALIZE",
+                "ARCHIVE"
+              ]
+            },
+            "interrupt_receipt_id": {"type": ["string", "null"]},
+            "status_claim_allowed": {"type": "boolean"},
+            "updated_at": {"type": "string"}
+          }
+        },
+        "successor": {"type": ["object", "null"]},
+        "capacity": {"type": ["object", "null"]}
+      }
+    }
+  }
+}

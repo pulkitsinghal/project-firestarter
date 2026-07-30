@@ -16,15 +16,27 @@ from pathlib import Path
 from typing import Any
 
 
-BRIDGE_VERSION = "1.2"
+BRIDGE_VERSION = "1.3"
 INTERFACE_VERSION = "1.0"
-TICKET_VERSION = "1.2"
-LEGACY_TICKET_VERSIONS = {"1.0"}
-SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1", "1.2"}
+TICKET_VERSION = "1.3"
+LEGACY_TICKET_VERSIONS = {"1.0", "1.2"}
+SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1", "1.2", "1.3"}
 LAUNCH_RECEIPT_TTL_SECONDS = 300
 MAX_MACHINE_OUTPUT = 1_048_576
 MAX_REQUEST_BYTES = 524_288
 CLI_TIMEOUT_SECONDS = 15
+RUNTIME_POLICY_REQUIRED = {
+    "root_model": "gpt-5.6-sol",
+    "root_reasoning_effort": "xhigh",
+    "root_service_tier": "fast",
+    "root_fast_mode": True,
+    "worker_model": "gpt-5.6-sol",
+    "worker_reasoning_effort": "xhigh",
+    "worker_service_tier": "fast",
+    "worker_fast_mode": True,
+    "service_tier_attestation_allowed": ["config-verified", "runtime"],
+    "parent_attestation_required": True,
+}
 
 REQUIRED_SCHEMAS = {
     "shared.schema.json": "shared-1.0.schema.json",
@@ -62,6 +74,10 @@ DURATION_SCHEMAS = {
 ROOT_GUARD_SCHEMAS = {
     "root-role-guard.request.schema.json": "root-role-guard-request-1.0.schema.json",
     "root-role-guard.response.schema.json": "root-role-guard-response-1.0.schema.json",
+}
+LIFECYCLE_SCHEMAS = {
+    "lifecycle-watchdog.request.schema.json": "lifecycle-watchdog-request-1.0.schema.json",
+    "lifecycle-watchdog.response.schema.json": "lifecycle-watchdog-response-1.0.schema.json",
 }
 
 SECRET_KEYS = {
@@ -357,6 +373,8 @@ def validate_installation(cli_value: str) -> tuple[Path, str]:
         required_schemas.update(ROOT_GUARD_SCHEMAS)
         if not (root / "root_role_guard.py").is_file():
             raise BridgeError("CLI_INCOMPATIBLE", "schema 1.2 root-role guard is missing")
+    if int(match.group("minor")) >= 3:
+        required_schemas.update(LIFECYCLE_SCHEMAS)
     validate_schema_files(root, required_schemas)
     return cli, version
 
@@ -407,6 +425,7 @@ def run_cli(
         "record-handback",
         "record-archive-receipt",
         "capacity-watchdog",
+        "lifecycle-watchdog",
         "recycle-queue",
         "record-duration-progress",
         "record-duration-observation",
@@ -571,6 +590,7 @@ def validate_prepare_result(result: dict[str, Any]) -> tuple[dict[str, Any], lis
         "lease_epoch",
         "fencing_token",
         "effective_rules",
+        "runtime_policy",
         "receipt_required",
     }
     if not required.issubset(envelope):
@@ -610,7 +630,115 @@ def validate_prepare_result(result: dict[str, Any]) -> tuple[dict[str, Any], lis
             "MACHINE_RESPONSE_INVALID",
             "receipt duration estimate does not match envelope",
         )
+    runtime_policy = required_receipt.get("runtime_policy")
+    if runtime_policy != RUNTIME_POLICY_REQUIRED:
+        raise BridgeError(
+            "RUNTIME_POLICY_INCOMPATIBLE",
+            "launch receipt runtime policy is incompatible",
+        )
+    envelope_runtime = envelope["runtime_policy"]
+    if not isinstance(envelope_runtime, dict):
+        raise BridgeError(
+            "RUNTIME_POLICY_INCOMPATIBLE",
+            "launch envelope runtime policy is malformed",
+        )
+    if (
+        envelope_runtime.get("root", {}).get("model")
+        != RUNTIME_POLICY_REQUIRED["root_model"]
+        or envelope_runtime.get("root", {}).get("reasoning_effort")
+        != RUNTIME_POLICY_REQUIRED["root_reasoning_effort"]
+        or envelope_runtime.get("root", {}).get("service_tier")
+        != RUNTIME_POLICY_REQUIRED["root_service_tier"]
+        or envelope_runtime.get("root", {}).get("fast_mode") is not True
+        or envelope_runtime.get("worker_defaults", {}).get("model")
+        != RUNTIME_POLICY_REQUIRED["worker_model"]
+        or envelope_runtime.get("worker_defaults", {}).get("reasoning_effort")
+        != RUNTIME_POLICY_REQUIRED["worker_reasoning_effort"]
+        or envelope_runtime.get("worker_defaults", {}).get("service_tier")
+        != RUNTIME_POLICY_REQUIRED["worker_service_tier"]
+        or envelope_runtime.get("worker_defaults", {}).get("fast_mode") is not True
+    ):
+        raise BridgeError(
+            "RUNTIME_POLICY_INCOMPATIBLE",
+            "launch envelope root or worker runtime policy drifted",
+        )
     return envelope, sorted(rule_ids)
+
+
+def validate_runtime_attestation(value: Any) -> dict[str, Any]:
+    expected_fields = {
+        "root_model",
+        "root_reasoning_effort",
+        "root_service_tier",
+        "root_fast_mode",
+        "worker_model",
+        "worker_reasoning_effort",
+        "worker_service_tier",
+        "worker_fast_mode",
+        "service_tier_attestation",
+        "tier_provenance",
+        "auth_mode",
+        "history_mode",
+        "parent_attestation_present",
+    }
+    if not isinstance(value, dict) or set(value) != expected_fields:
+        raise BridgeError(
+            "RUNTIME_ATTESTATION_INVALID",
+            "runtime attestation fields are incompatible",
+            exit_status=2,
+        )
+    if value["auth_mode"] != "chatgpt":
+        raise BridgeError(
+            "FAST_AUTH_MODE_UNSUPPORTED",
+            "ChatGPT Fast semantics cannot be claimed for API-key auth",
+            exit_status=2,
+        )
+    exact = {
+        "root_model": RUNTIME_POLICY_REQUIRED["root_model"],
+        "root_reasoning_effort": RUNTIME_POLICY_REQUIRED[
+            "root_reasoning_effort"
+        ],
+        "root_service_tier": RUNTIME_POLICY_REQUIRED["root_service_tier"],
+        "root_fast_mode": True,
+        "worker_model": RUNTIME_POLICY_REQUIRED["worker_model"],
+        "worker_reasoning_effort": RUNTIME_POLICY_REQUIRED[
+            "worker_reasoning_effort"
+        ],
+        "worker_service_tier": RUNTIME_POLICY_REQUIRED["worker_service_tier"],
+        "worker_fast_mode": True,
+        "parent_attestation_present": True,
+    }
+    if any(value.get(key) != expected for key, expected in exact.items()):
+        raise BridgeError(
+            "RUNTIME_ATTESTATION_INVALID",
+            "root or worker runtime attestation drifted",
+            exit_status=2,
+        )
+    source = value["service_tier_attestation"]
+    expected_provenance = {
+        "runtime": "platform-runtime",
+        "config-verified": "trusted-project-and-user-config",
+    }.get(source)
+    if expected_provenance is None:
+        raise BridgeError(
+            "SERVICE_TIER_UNATTESTED",
+            "effective fast tier is not verified",
+            exit_status=2,
+        )
+    if value["tier_provenance"] != expected_provenance:
+        raise BridgeError(
+            "SERVICE_TIER_PROVENANCE_INVALID",
+            "service-tier provenance contradicts its verification source",
+            exit_status=2,
+        )
+    if value["history_mode"] not in {"none", "bounded", "full-history"}:
+        raise BridgeError(
+            "RUNTIME_ATTESTATION_INVALID",
+            "history mode is incompatible",
+            exit_status=2,
+        )
+    scan_strings(value, durable=True)
+    return value
 
 
 def ensure_ticket_parent(ticket_path: Path) -> None:
@@ -669,16 +797,34 @@ def load_ticket(path_value: str) -> tuple[Path, dict[str, Any]]:
         "duration_estimate",
         "owner_claim_id",
     }
-    if not isinstance(ticket, dict) or (
-        set(ticket) != legacy_expected and set(ticket) != current_expected
-    ):
+    current_expected_with_runtime = current_expected | {"runtime_policy"}
+    if not isinstance(ticket, dict) or frozenset(ticket) not in {
+        frozenset(legacy_expected),
+        frozenset(current_expected),
+        frozenset(current_expected_with_runtime),
+    }:
         raise BridgeError("RECEIPT_INVALID", "ticket fields are incompatible", exit_status=2)
-    if ticket["ticket_version"] in LEGACY_TICKET_VERSIONS and set(ticket) == legacy_expected:
-        ticket["ticket_version"] = TICKET_VERSION
+    if ticket["ticket_version"] == "1.0" and set(ticket) == legacy_expected:
         ticket["control_schema_version"] = "1.0"
         ticket["duration_estimate"] = None
         ticket["owner_claim_id"] = None
-    elif ticket["ticket_version"] != TICKET_VERSION or set(ticket) != current_expected:
+    if (
+        ticket["ticket_version"] in LEGACY_TICKET_VERSIONS
+        and set(ticket) == current_expected
+    ):
+        if ticket["receipt"] is not None:
+            raise BridgeError(
+                "RUNTIME_ATTESTATION_MISSING",
+                "legacy receipted ticket cannot be promoted without runtime attestation",
+                exit_status=2,
+            )
+        ticket["ticket_version"] = TICKET_VERSION
+        ticket["runtime_policy"] = RUNTIME_POLICY_REQUIRED
+    elif (
+        ticket["ticket_version"] != TICKET_VERSION
+        or set(ticket) != current_expected_with_runtime
+        or ticket["runtime_policy"] != RUNTIME_POLICY_REQUIRED
+    ):
         raise BridgeError("INTERFACE_INCOMPATIBLE", "ticket version is incompatible", exit_status=2)
     if not isinstance(ticket["task_id"], str) or not isinstance(ticket["applicable_rule_ids"], list):
         raise BridgeError("RECEIPT_INVALID", "ticket identity is malformed", exit_status=2)
@@ -710,7 +856,11 @@ def require_fresh_unreceipted(ticket: dict[str, Any], now: str) -> None:
 
 def require_active_receipt(ticket: dict[str, Any], now: str) -> None:
     receipt = ticket.get("receipt")
-    if not isinstance(receipt, dict) or set(receipt) != {"external_thread_id", "recorded_at"}:
+    if not isinstance(receipt, dict) or set(receipt) != {
+        "external_thread_id",
+        "recorded_at",
+        "runtime_attestation",
+    }:
         raise BridgeError("RECEIPT_MISSING", "committed exact launch receipt is required", exit_status=2)
     if parse_time(now) > parse_time(ticket["lease_expires_at"]):
         raise BridgeError("RECEIPT_STALE", "worker lease expired; takeover or reconcile", exit_status=2)
@@ -816,6 +966,7 @@ def build_parser() -> argparse.ArgumentParser:
     receipt = sub.add_parser("record-launch-receipt")
     receipt.add_argument("--ticket", required=True)
     receipt.add_argument("--external-thread-id", required=True)
+    receipt.add_argument("--runtime-attestation", required=True)
     receipt.add_argument("--request-id", required=True)
     receipt.add_argument("--now", required=True)
 
@@ -836,6 +987,12 @@ def build_parser() -> argparse.ArgumentParser:
     handback.add_argument("--ticket", required=True)
     handback.add_argument("--external-thread-id", required=True)
     handback.add_argument("--request", required=True)
+
+    lifecycle = sub.add_parser("lifecycle-watchdog")
+    lifecycle.add_argument("--ticket", required=True)
+    lifecycle.add_argument("--external-thread-id", required=True)
+    lifecycle.add_argument("--request", required=True)
+    lifecycle.add_argument("--successor-ticket")
 
     duration_progress = sub.add_parser("record-duration-progress")
     duration_progress.add_argument("--ticket", required=True)
@@ -951,6 +1108,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "lease_epoch": envelope["lease_epoch"],
             "fencing_token": envelope["fencing_token"],
             "applicable_rule_ids": rule_ids,
+            "runtime_policy": envelope["receipt_required"]["runtime_policy"],
             "outbox": result["outbox"],
             "receipt": None,
             "last_heartbeat_at": None,
@@ -968,6 +1126,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "task_id": ticket["task_id"],
                 "policy_snapshot_revision": ticket["policy_snapshot_revision"],
                 "applicable_rule_ids": rule_ids,
+                "runtime_policy": ticket["runtime_policy"],
                 "lease_epoch": ticket["lease_epoch"],
                 "fencing_token": ticket["fencing_token"],
                 "receipt_deadline": ticket["receipt_deadline"],
@@ -978,6 +1137,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         parse_time(args.now)
         path, ticket = load_ticket(args.ticket)
         require_fresh_unreceipted(ticket, args.now)
+        runtime_attestation = validate_runtime_attestation(
+            load_json_file(args.runtime_attestation, "runtime attestation")
+        )
         request = {
             "interface_version": INTERFACE_VERSION,
             "request_id": args.request_id,
@@ -987,6 +1149,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "fencing_token": ticket["fencing_token"],
             "external_thread_id": args.external_thread_id,
             "applicable_rule_ids": ticket["applicable_rule_ids"],
+            "runtime_attestation": runtime_attestation,
             "now": args.now,
         }
         validate_request(request, durable=True)
@@ -994,6 +1157,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         ticket["receipt"] = {
             "external_thread_id": args.external_thread_id,
             "recorded_at": args.now,
+            "runtime_attestation": runtime_attestation,
         }
         replace_ticket(path, ticket)
         return success("record-launch-receipt", result)
@@ -1093,6 +1257,124 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         ticket["last_heartbeat_at"] = args.now
         replace_ticket(path, ticket)
         return success("heartbeat", result)
+
+    if operation == "lifecycle-watchdog":
+        if not schema_at_least(health["schema_version"], (1, 3)):
+            raise BridgeError(
+                "FEATURE_UNSUPPORTED",
+                "lifecycle watchdog requires Firestarter schema 1.3",
+                exit_status=2,
+            )
+        request = load_json_file(args.request, "lifecycle-watchdog request")
+        validate_request(request, durable=False)
+        path, ticket = load_ticket(args.ticket)
+        require_active_receipt(ticket, request.get("now"))
+        require_external_identity(ticket, args.external_thread_id)
+        inject_ticket_fields(request, ticket)
+        request["external_thread_id"] = ticket["receipt"]["external_thread_id"]
+        result = run_cli(
+            cli,
+            state_dir,
+            "lifecycle-watchdog",
+            request=request,
+        )
+        lifecycle = result.get("lifecycle")
+        if not isinstance(lifecycle, dict):
+            raise BridgeError(
+                "MACHINE_RESPONSE_INVALID",
+                "lifecycle watchdog omitted lifecycle state",
+            )
+        successor = result.get("successor")
+        successor_launch = None
+        if lifecycle.get("lifecycle_state") == "INTERRUPTED":
+            ticket["handback"] = {
+                "recorded_at": request["now"],
+                "state": "INTERRUPTED",
+                "source": "lifecycle-watchdog",
+            }
+            if successor is not None:
+                if not args.successor_ticket:
+                    raise BridgeError(
+                        "SUCCESSOR_TICKET_REQUIRED",
+                        "interrupt refill returned a successor without a ticket path",
+                        exit_status=2,
+                    )
+                successor_request = request.get("capacity", {}).get(
+                    "successor_request"
+                )
+                if not isinstance(successor_request, dict):
+                    raise BridgeError(
+                        "MACHINE_RESPONSE_INVALID",
+                        "successor result has no matching request",
+                    )
+                envelope, rule_ids = validate_prepare_result(successor)
+                if successor_request.get("task_id") != envelope["task_id"]:
+                    raise BridgeError(
+                        "MACHINE_RESPONSE_INVALID",
+                        "successor task does not match the interrupt request",
+                    )
+                issued = parse_time(envelope["issued_at"])
+                successor_path = require_absolute(
+                    args.successor_ticket,
+                    "successor ticket",
+                    must_exist=False,
+                )
+                successor_ticket = {
+                    "ticket_version": TICKET_VERSION,
+                    "control_schema_version": health["schema_version"],
+                    "task_id": envelope["task_id"],
+                    "source_event_key": envelope["source_event_key"],
+                    "outcome_key": envelope["outcome_key"],
+                    "issued_at": envelope["issued_at"],
+                    "receipt_deadline": format_time(
+                        issued
+                        + dt.timedelta(seconds=LAUNCH_RECEIPT_TTL_SECONDS)
+                    ),
+                    "lease_expires_at": successor_request["lease_expires_at"],
+                    "policy_snapshot_revision": envelope[
+                        "policy_snapshot_revision"
+                    ],
+                    "lease_epoch": envelope["lease_epoch"],
+                    "fencing_token": envelope["fencing_token"],
+                    "applicable_rule_ids": rule_ids,
+                    "outbox": successor["outbox"],
+                    "receipt": None,
+                    "last_heartbeat_at": None,
+                    "handback": None,
+                    "duration_estimate": envelope.get("duration_estimate"),
+                    "owner_claim_id": envelope.get("owner_claim_id"),
+                    "runtime_policy": envelope["receipt_required"][
+                        "runtime_policy"
+                    ],
+                }
+                write_ticket_new(successor_path, successor_ticket)
+                successor_launch = {
+                    "task_id": envelope["task_id"],
+                    "prompt": successor.get("prompt"),
+                    "outbox": successor["outbox"],
+                    "ticket": str(successor_path),
+                    "fencing_token": envelope["fencing_token"],
+                }
+            elif args.successor_ticket:
+                raise BridgeError(
+                    "SUCCESSOR_TICKET_CONFLICT",
+                    "interrupt without a successor cannot create a ticket",
+                    exit_status=2,
+                )
+            replace_ticket(path, ticket)
+        elif args.successor_ticket:
+            raise BridgeError(
+                "SUCCESSOR_TICKET_CONFLICT",
+                "observe requests cannot create successor tickets",
+                exit_status=2,
+            )
+        return success(
+            "lifecycle-watchdog",
+            {
+                **result,
+                "successor_launch": successor_launch,
+            },
+        )
 
     if operation == "record-handback":
         request = load_json_file(args.request, "record-handback request")
@@ -1207,6 +1489,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "handback": None,
                 "duration_estimate": envelope.get("duration_estimate"),
                 "owner_claim_id": envelope.get("owner_claim_id"),
+                "runtime_policy": envelope["receipt_required"][
+                    "runtime_policy"
+                ],
             }
             write_ticket_new(successor_path, successor_ticket)
             successor_launch = {
@@ -1254,7 +1539,8 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         require_active_receipt(ticket, args.now)
         if not isinstance(ticket.get("handback"), dict):
             raise BridgeError("HANDBACK_MISSING", "handback is required before archive receipt", exit_status=2)
-        require_refill_saga_before_archive(state_dir, ticket["task_id"])
+        if ticket["handback"].get("source") != "lifecycle-watchdog":
+            require_refill_saga_before_archive(state_dir, ticket["task_id"])
         request = {
             "interface_version": INTERFACE_VERSION,
             "request_id": args.request_id,
