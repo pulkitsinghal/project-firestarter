@@ -2,6 +2,15 @@
 
 ## 1.2.0 (build 3) — unreleased
 
+- Add **Ember**, a dismissible, vector-drawn corner companion that mirrors the
+  canonical snapshot: it naps when the queue is empty, focuses while lanes run,
+  briefly celebrates when work reaches the finished lane, and shows concern on a
+  verified failure, attention signal, or pending owner decision. Mood, pose,
+  motion, and status text are deterministic and Reduce-Motion aware. The
+  companion is drawn with SwiftUI Canvas and uses no image asset, camera,
+  microphone, network service, analytics, or external transmission. Adds a
+  headless `--render-companion-preview` mood-gallery still-frame.
+
 - Add a local-only, read-only receipt-feed 1.1 source with strict shape,
   duplicate-key, provenance, file-type, size, and SHA-256 validation.
 - Read content-addressed `current` first and use LKG only when current fails
