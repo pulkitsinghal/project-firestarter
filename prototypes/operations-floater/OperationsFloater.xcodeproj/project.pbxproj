@@ -7,12 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10100000000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10200000000000000000001 /* Assets.xcassets */; };
 		B62C2C7DCF69BD92439B2DAF /* OperationsFloaterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		1879896A7B14D79C647AA2C1 /* OperationsFloater.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OperationsFloater.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1879896A7B14D79C647AA2C1 /* Operations Floater.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Operations Floater.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		62EC0288576AB159180BAA8B /* OperationsFloaterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationsFloaterApp.swift; sourceTree = "<group>"; };
+		A10200000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A10300000000000000000001 /* OperationsFloater.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OperationsFloater.entitlements; sourceTree = "<group>"; };
+		A10400000000000000000001 /* AppIconSource.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = AppIconSource.svg; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -20,6 +24,9 @@
 			isa = PBXGroup;
 			children = (
 				B80BC94537001B87D87E8E07 /* OperationsFloater */,
+				A10200000000000000000001 /* Assets.xcassets */,
+				A10400000000000000000001 /* AppIconSource.svg */,
+				A10300000000000000000001 /* OperationsFloater.entitlements */,
 				C297B170AAF4D60AB8A37E10 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -36,7 +43,7 @@
 		C297B170AAF4D60AB8A37E10 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				1879896A7B14D79C647AA2C1 /* OperationsFloater.app */,
+				1879896A7B14D79C647AA2C1 /* Operations Floater.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -49,6 +56,7 @@
 			buildConfigurationList = D2584BB46707705BC5E3BDB5 /* Build configuration list for PBXNativeTarget "OperationsFloater" */;
 			buildPhases = (
 				18435FBB03FC9845B72DF4B5 /* Sources */,
+				A10500000000000000000001 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -58,7 +66,7 @@
 			packageProductDependencies = (
 			);
 			productName = OperationsFloater;
-			productReference = 1879896A7B14D79C647AA2C1 /* OperationsFloater.app */;
+			productReference = 1879896A7B14D79C647AA2C1 /* Operations Floater.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -94,6 +102,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		A10500000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10100000000000000000001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		18435FBB03FC9845B72DF4B5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -110,7 +129,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OperationsFloater.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = B9QUJ2QV25;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -127,7 +150,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OperationsFloater.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = B9QUJ2QV25;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
