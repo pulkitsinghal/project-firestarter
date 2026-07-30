@@ -3976,6 +3976,13 @@ class Plane:
                     }
                 ),
             }
+        # The idempotency key is derived from semantic content only. Volatile
+        # wall-clock time ("now") is deliberately excluded so a timestamp-
+        # refreshed retry of the same logical request replays cleanly instead
+        # of raising IDEMPOTENCY_CONFLICT. Every field that changes the outcome
+        # (including remaining_work's observed_at and progress_ref) stays in the
+        # digest, so genuine conflicts are still detected. This mirrors the
+        # symmetric record_handback path, which also excludes "now".
         request_hash = digest(
             {
                 key: request[key]
@@ -3993,7 +4000,6 @@ class Plane:
                     "evidence_refs",
                     "remaining_work",
                     "interrupt_receipt",
-                    "now",
                 )
             }
             | {"capacity": capacity_projection}
@@ -4013,6 +4019,23 @@ class Plane:
                         exit_status=EXIT_CONFLICT,
                     )
                 replay = json.loads(existing_request["result_json"])
+                # The successor prompt is never persisted (stripped before the
+                # result is stored), so re-inject it on replay from the request
+                # combined with the authoritative stored envelope. This keeps
+                # the interrupt path symmetric with record_handback; the prompt
+                # is caller-owned convenience data and never mutates state.
+                replay_successor_request = (
+                    None
+                    if request["capacity"] is None
+                    else request["capacity"]["successor_request"]
+                )
+                if replay.get("successor") and replay_successor_request is not None:
+                    replay["successor"]["prompt"] = (
+                        replay_successor_request["prompt"]
+                        + "\n\n<orchestrator_launch_envelope>\n"
+                        + canonical(replay["successor"]["envelope"])
+                        + "\n</orchestrator_launch_envelope>"
+                    )
                 connection.commit()
                 return replay
             task = self.checked_task(connection, request, {"RUNNING"})
