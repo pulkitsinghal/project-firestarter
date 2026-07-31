@@ -832,6 +832,97 @@ struct RouterChatSessionTests {
         #expect(probe.removeMonitorCount == 1)
     }
 
+    @Test("One-click record enables the assistant, selects the recorder, and opens the picker without a floor")
+    func oneClickRecordingOpensPickerBeforeGrantingFloor() async {
+        let probe = RecorderActivationProbe()
+        let capture = makeRecorderCapture(
+            inputMonitoringAvailable: true,
+            monitorStarts: true,
+            probe: probe
+        )
+        // Start from a fresh, disabled session with no module selected so we
+        // exercise the full one-click preparation path.
+        let session = makeRecorderSession(
+            capture: capture,
+            selectRecorder: false
+        )
+        session.disable()
+        session.modules.selectedModuleID = nil
+        #expect(!session.isEnabled)
+
+        await session.beginOneClickRecording()
+
+        #expect(session.isEnabled)
+        #expect(
+            session.modules.selectedModuleID
+                == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
+        )
+        // The picker is shown, and critically NO floor was granted and NO window is
+        // bound yet — the window is chosen first (in the picker), which is exactly
+        // what the recorder's "choose a visible window first" guard requires.
+        #expect(session.isChoosingRecordingWindow)
+        #expect(session.modules.activeFloor == nil)
+        #expect(session.geometryCapture.selectedWindow == nil)
+        #expect(capture.mode == .disarmed)
+        // The window list was refreshed and is offered in the picker.
+        #expect(!session.geometryCapture.availableWindows.isEmpty)
+        // Input Monitoring was already available, so no TCC request was made.
+        #expect(probe.requestPermissionCount == 0)
+        #expect(probe.addMonitorCount == 0)
+    }
+
+    @Test("Choosing a window in the one-click flow grants the floor and starts recording + voice")
+    func oneClickChooseWindowStartsRecordingAndVoice() async {
+        let probe = RecorderActivationProbe()
+        let capture = makeRecorderCapture(
+            inputMonitoringAvailable: true,
+            monitorStarts: true,
+            probe: probe
+        )
+        let session = makeRecorderSession(capture: capture)
+        await session.enable()
+        session.isChoosingRecordingWindow = true
+        let voice = VoiceConversationSession(
+            engine: RecorderVoiceEngine(),
+            speechOutput: SilentSpeechOutput()
+        )
+
+        // 42 is the fixture window id produced by makeRecorderCapture.
+        await session.chooseRecordingWindow(42, voice: voice)
+
+        #expect(!session.isChoosingRecordingWindow)
+        #expect(session.modules.activeFloor != nil)
+        #expect(capture.mode == .recording)
+        #expect(voice.state == .listening)
+        #expect(probe.addMonitorCount == 1)
+        #expect(probe.removeMonitorCount == 0)
+    }
+
+    @Test("One-click record is a no-op while a recording is already live")
+    func oneClickRecordingIsNoOpWhileRecording() async {
+        let probe = RecorderActivationProbe()
+        let capture = makeRecorderCapture(
+            inputMonitoringAvailable: true,
+            monitorStarts: true,
+            probe: probe
+        )
+        let session = makeRecorderSession(capture: capture)
+        await session.enable()
+        let voice = VoiceConversationSession(
+            engine: RecorderVoiceEngine(),
+            speechOutput: SilentSpeechOutput()
+        )
+        await session.activateSelectedRecorder(with: voice)
+        #expect(capture.mode == .recording)
+
+        await session.beginOneClickRecording()
+
+        // The live recording is untouched and the picker is not reopened.
+        #expect(capture.mode == .recording)
+        #expect(!session.isChoosingRecordingWindow)
+        #expect(session.modules.activeFloor != nil)
+    }
+
     @Test("Recorder startup revokes floor when recording cannot start")
     func recorderStartupRollsBackRecordingFailure() async {
         var calls: [String] = []
@@ -1006,7 +1097,9 @@ struct RouterChatSessionTests {
     }
 
     private func makeRecorderSession(
-        capture: NeutralGeometryCaptureSession
+        capture: NeutralGeometryCaptureSession,
+        screenRecordingAvailable: Bool = true,
+        selectRecorder: Bool = true
     ) -> RouterChatSession {
         let manifest = ConversationModuleAllowlist.relativeXYRecorderManifest
         let modules = ConversationModuleHostSession(
@@ -1023,9 +1116,13 @@ struct RouterChatSessionTests {
                 result: .success(localReply(text: "Unused"))
             ),
             modules: modules,
-            geometryCapture: capture
+            geometryCapture: capture,
+            screenRecordingPreflight: { screenRecordingAvailable },
+            screenRecordingRequest: { screenRecordingAvailable }
         )
-        session.selectConversationTarget(manifest.moduleID)
+        if selectRecorder {
+            session.selectConversationTarget(manifest.moduleID)
+        }
         return session
     }
 

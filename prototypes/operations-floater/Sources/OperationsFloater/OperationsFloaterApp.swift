@@ -5,6 +5,13 @@ import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
 
+extension Notification.Name {
+    /// Posted by the "Record a Session" App-menu item / ⌘R so the dashboard's
+    /// one-click recorder card can start the flow from the AppKit menu bridge.
+    static let operationsFloaterStartRecording =
+        Notification.Name("com.example.operationsfloater.startRecording")
+}
+
 struct DashboardLaunchConfiguration: Equatable {
     static let backgroundUITestArgument = "--background-ui-test"
     static let syntheticConversationUITestArgument =
@@ -195,6 +202,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController.show(sender)
     }
 
+    /// Bridges the App-menu / ⌘R entry point to the SwiftUI dashboard: shows the
+    /// window, then posts a notification the recorder card observes to kick off the
+    /// one-click "Record a session" flow (enable → select recorder → window picker).
+    @objc private func startRecordingSession(_ sender: Any?) {
+        showDashboard(sender)
+        NotificationCenter.default.post(
+            name: .operationsFloaterStartRecording,
+            object: nil
+        )
+    }
+
     /// Opens the Screen Trainer overlay: a transparent, always-on-top window that
     /// draws the local model's candidate EHR regions for visual correction. It is
     /// seeded with a synthetic readout; real capture is a separate runtime step
@@ -315,6 +333,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "0"
         )
         showItem.target = self
+
+        let recordItem = applicationMenu.addItem(
+            withTitle: "Record a Session",
+            action: #selector(startRecordingSession(_:)),
+            keyEquivalent: "r"
+        )
+        recordItem.target = self
 
         let trainerItem = applicationMenu.addItem(
             withTitle: "Screen Trainer Overlay",
@@ -601,6 +626,7 @@ final class DashboardState: ObservableObject {
 private struct DashboardView: View {
     @StateObject private var state: DashboardState
     @StateObject private var chat: RouterChatSession
+    @StateObject private var voice = VoiceConversationSession()
     @StateObject private var companion = CompanionController()
     @State private var didPrepareConversationFixture = false
     @AppStorage("OperationsFloater.GuideCollapsedV1")
@@ -645,8 +671,15 @@ private struct DashboardView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
                         guideStrip(metrics: metrics)
+                        RecorderQuickStartCard(
+                            session: chat,
+                            voice: voice,
+                            metrics: metrics,
+                            assistantCollapsed: $assistantCollapsed
+                        )
                         RouterChatPanel(
                             session: chat,
+                            voice: voice,
                             metrics: metrics,
                             isCollapsed: $assistantCollapsed
                         )
