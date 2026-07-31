@@ -123,6 +123,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             launchConfiguration.usesRecorderNormalizerFixture
     )
 
+    private lazy var screenTrainerController = ScreenTrainerOverlayWindowController(
+        session: ScreenTrainerSession(
+            readout: SyntheticScreenTrainerModel.readout(for: .resultsReview),
+            store: ScreenTrainerCorrectionStore.defaultStore()
+        )
+    )
+
     private override init() {
         let launchConfiguration = DashboardLaunchConfiguration()
         self.launchConfiguration = launchConfiguration
@@ -151,6 +158,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApplication.shared.terminate(nil)
             return
         }
+        if let trainerDemoPath = ScreenTrainerDemoRenderer.requestedOutputPath() {
+            NSApplication.shared.setActivationPolicy(.accessory)
+            _ = ScreenTrainerDemoRenderer.render(
+                to: trainerDemoPath,
+                framePath: ScreenTrainerDemoRenderer.requestedFramePath(),
+                label: ScreenTrainerDemoRenderer.requestedLabel()
+            )
+            NSApplication.shared.terminate(nil)
+            return
+        }
         guard claimSingleInstance() else { return }
         configureMainMenu()
         showDashboard(nil)
@@ -166,6 +183,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showDashboard(_ sender: Any?) {
         windowController.show(sender)
+    }
+
+    /// Opens the Screen Trainer overlay: a transparent, always-on-top window that
+    /// draws the local model's candidate EHR regions for visual correction. It is
+    /// seeded with a synthetic readout; real capture is a separate runtime step
+    /// that only ever feeds the local model.
+    @objc private func showScreenTrainer(_ sender: Any?) {
+        screenTrainerController.show()
     }
 
     @objc private func closeDashboard(_ sender: Any?) {
@@ -280,6 +305,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "0"
         )
         showItem.target = self
+
+        let trainerItem = applicationMenu.addItem(
+            withTitle: "Screen Trainer Overlay",
+            action: #selector(showScreenTrainer(_:)),
+            keyEquivalent: "t"
+        )
+        trainerItem.target = self
         applicationMenu.addItem(.separator())
 
         let importItem = applicationMenu.addItem(
