@@ -520,29 +520,41 @@ struct ScreenTrainerRegionsLayer: View {
 struct ScreenTrainerOverlayView: View {
     @ObservedObject var session: ScreenTrainerSession
     @ObservedObject var captureController: ScreenCaptureController
+    @ObservedObject var layerSession: OverlayCompositionSession
 
     var body: some View {
         VStack(spacing: 0) {
             banner
             ScreenTrainerCaptureBar(controller: captureController)
             GeometryReader { geometry in
-                ScreenTrainerRegionsLayer(
-                    readout: session.readout,
-                    selectedRegionID: session.selectedRegionID
-                )
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0).onEnded { value in
-                        let point = CGPoint(
-                            x: value.location.x / geometry.size.width,
-                            y: value.location.y / geometry.size.height
-                        )
-                        session.selectRegion(at: point)
-                    }
-                )
+                ZStack(alignment: .topLeading) {
+                    ScreenTrainerRegionsLayer(
+                        readout: session.readout,
+                        selectedRegionID: session.selectedRegionID
+                    )
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0).onEnded { value in
+                            let point = CGPoint(
+                                x: value.location.x / geometry.size.width,
+                                y: value.location.y / geometry.size.height
+                            )
+                            session.selectRegion(at: point)
+                        }
+                    )
+                    // The clinician-authored layers draw ON TOP of the model's read.
+                    // Hit-testing stays off so selecting the model's regions still
+                    // works beneath; authored layers are selected from the panel.
+                    AuthoredOverlaysLayer(
+                        composition: layerSession.composition,
+                        selectedLayerID: layerSession.selectedLayerID
+                    )
+                    .allowsHitTesting(false)
+                }
             }
             correctionBar
             LearningPanel(session: session)
+            ScreenTrainerLayersPanel(session: layerSession)
         }
     }
 
@@ -834,9 +846,17 @@ final class ScreenTrainerOverlayWindowController {
     private var window: NSWindow?
     private let session: ScreenTrainerSession
     private let captureController: ScreenCaptureController
+    private let layerSession: OverlayCompositionSession
 
-    init(session: ScreenTrainerSession) {
+    init(
+        session: ScreenTrainerSession,
+        layerSession: OverlayCompositionSession = OverlayCompositionSession(
+            composition: .starter,
+            store: OverlayCompositionStore.defaultStore()
+        )
+    ) {
         self.session = session
+        self.layerSession = layerSession
         // Wire the real-capture controller to feed the model's read into the
         // session, replacing the synthetic default. Deliver hops to the main
         // actor because `ScreenCaptureController` is @MainActor.
@@ -869,7 +889,7 @@ final class ScreenTrainerOverlayWindowController {
     }
 
     private func makeWindow() -> NSWindow {
-        let size = NSSize(width: 720, height: 664)
+        let size = NSSize(width: 720, height: 860)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless],
@@ -886,7 +906,8 @@ final class ScreenTrainerOverlayWindowController {
         window.contentView = NSHostingView(
             rootView: ScreenTrainerOverlayView(
                 session: session,
-                captureController: captureController
+                captureController: captureController,
+                layerSession: layerSession
             )
         )
         window.center()
@@ -962,8 +983,17 @@ enum ScreenTrainerDemoRenderer {
         }) {
             session.select(primary.id)
         }
-        let content = ScreenTrainerDemoView(session: session, framePath: framePath)
-            .frame(width: 1_180, height: 760)
+        // A starter set of clinician-authored overlays (grouped by clinical
+        // context) so the demo shows the Photoshop-style layer stack drawn over the
+        // read and listed in the panel. No store, no capture, all synthetic.
+        let layerSession = OverlayCompositionSession(composition: .starter)
+        layerSession.select("layer-sign")
+        let content = ScreenTrainerDemoView(
+            session: session,
+            layerSession: layerSession,
+            framePath: framePath
+        )
+        .frame(width: 1_180, height: 900)
         let renderer = ImageRenderer(content: content)
         renderer.scale = scale
         guard let cgImage = renderer.cgImage else { return false }
@@ -983,6 +1013,7 @@ enum ScreenTrainerDemoRenderer {
 /// correction loop and PHI boundary.
 struct ScreenTrainerDemoView: View {
     @ObservedObject var session: ScreenTrainerSession
+    @ObservedObject var layerSession: OverlayCompositionSession
     let framePath: String?
 
     private static let frameSize = CGSize(width: 760, height: 520)
@@ -992,9 +1023,13 @@ struct ScreenTrainerDemoView: View {
             caption
             HStack(alignment: .top, spacing: 12) {
                 frameWithOverlay
-                LearningPanel(session: session, interactive: false)
-                    .frame(width: 360)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(spacing: 10) {
+                    LearningPanel(session: session, interactive: false)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    ScreenTrainerLayersPanel(session: layerSession, interactive: false)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .frame(width: 360)
             }
             .padding(.horizontal, 14)
             legend
@@ -1027,6 +1062,10 @@ struct ScreenTrainerDemoView: View {
             ScreenTrainerRegionsLayer(
                 readout: session.readout,
                 selectedRegionID: session.selectedRegionID
+            )
+            AuthoredOverlaysLayer(
+                composition: layerSession.composition,
+                selectedLayerID: layerSession.selectedLayerID
             )
             relabelChip
         }
