@@ -170,7 +170,7 @@ struct GuidePresentationTests {
         #expect(minimumMetrics.estimatedCardWidth(containerWidth: 380) == 352)
     }
 
-    @Test("Application entitlements allow only explicit audio input, selected files, and outbound networking")
+    @Test("Application entitlements request only the Hardened Runtime audio-input exception")
     func entitlementsRemainLocalOnly() throws {
         let data = try Data(
             contentsOf: packageRoot().appendingPathComponent("OperationsFloater.entitlements")
@@ -182,14 +182,17 @@ struct GuidePresentationTests {
         )
         let entitlements = try #require(value as? [String: Any])
 
-        #expect(entitlements.count == 4)
-        #expect(entitlements["com.apple.security.app-sandbox"] as? Bool == true)
-        #expect(
-            entitlements["com.apple.security.files.user-selected.read-write"] as? Bool == true
-        )
-        #expect(entitlements["com.apple.security.network.client"] as? Bool == true)
-        #expect(entitlements["com.apple.security.network.server"] == nil)
+        // Developer ID (direct) + Hardened Runtime, NOT sandboxed: the Relative XY
+        // recorder needs cross-process Input Monitoring, which the App Sandbox
+        // blocks. So the only entitlement is the microphone resource-access
+        // exception; the former sandbox-only keys are intentionally absent. See
+        // OperationsFloater.entitlements and docs/SIGNING.md.
+        #expect(entitlements.count == 1)
         #expect(entitlements["com.apple.security.device.audio-input"] as? Bool == true)
+        #expect(entitlements["com.apple.security.app-sandbox"] == nil)
+        #expect(entitlements["com.apple.security.files.user-selected.read-write"] == nil)
+        #expect(entitlements["com.apple.security.network.client"] == nil)
+        #expect(entitlements["com.apple.security.network.server"] == nil)
         #expect(entitlements["com.apple.security.device.camera"] == nil)
     }
 
