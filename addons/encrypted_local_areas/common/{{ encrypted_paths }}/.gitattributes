@@ -1,0 +1,15 @@
+# git-crypt: encrypt every file in this directory AT REST.
+#
+# This is the "{{ encrypted_paths }}" encrypted local area for {{ project_name }}.
+# Files committed here are transparently encrypted by git-crypt using the repo's
+# symmetric key (kept in {{ password_manager }} + the OS keychain — see
+# ../docs/ENCRYPTED_LOCAL_AREAS.md). Locked, the working tree shows ciphertext
+# blobs; unlocked, the plaintext. Either way the repo stays safe to push/back up.
+#
+# `*` routes everything in this subtree through git-crypt's clean/smudge filter.
+* filter=git-crypt diff=git-crypt
+
+# ...except the plaintext POINTER files, which must stay readable WITHOUT the key
+# so the area is self-describing even when locked. `!filter !diff` opts them out.
+README.md      !filter !diff
+.gitattributes !filter !diff

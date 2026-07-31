@@ -20,9 +20,13 @@
   "include_orchestrator_session": ["no", "yes"],
   "include_service_supervisor": ["no", "yes"],
   "include_browser_automation_policy": ["no", "yes"],
+  "include_encrypted_local_areas": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",
+
+  "encrypted_paths": "private",
+  "password_manager": "1Password",
 
   "require_coauthor": ["no", "yes"],
   "coauthor_footer": "Co-Authored-By: Oz <oz@example.com>",
