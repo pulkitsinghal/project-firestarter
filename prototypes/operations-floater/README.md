@@ -162,6 +162,16 @@ snapshot remains schema version `1.0`.
   The selected-window input panel separately echoes the latest mouse, scroll,
   and key-code events with elapsed time and relative coordinates. Printable
   character strings are not reconstructed and replay remains disabled.
+- The **Screen Trainer** overlay draws the local vision model's read of an
+  EHR-like screen as labeled, normalized boxes in a transparent, always-on-top,
+  click-through window, and lets the clinician correct it — click to confirm,
+  relabel, or drag a box, or type a free-text note. A live "what I'm learning"
+  panel narrates each correction and states what it now believes. Pointer and
+  typed input feed one PHI-free on-device store (the same
+  signature+label memory `watchful_memory.py` uses); a voice modality is
+  architected for the next slice. Development and tests use synthetic frames
+  only; no real screen is ever captured or read, and nothing leaves the device.
+  See [docs/SCREEN_TRAINER.md](docs/SCREEN_TRAINER.md).
 - Voice conversation is separately explicit and default-off. Production speech
   recognition requires an on-device provider and fails closed when permission,
   provider metadata, or on-device support is unavailable. Start, pause, resume,
@@ -224,6 +234,16 @@ and writes a PNG without opening or foregrounding a dashboard window:
 
 ```bash
 swift run OperationsFloater --render-companion-preview /tmp/ember-gallery.png
+```
+
+Render the Screen Trainer review still over a synthetic (PHI-free) EHR frame.
+This also rasterizes offscreen without opening a window:
+
+```bash
+swift run OperationsFloater \
+  --render-trainer-demo /tmp/screen-trainer-demo.png \
+  --trainer-demo-frame /tmp/synthetic-frame.png \
+  --trainer-demo-label results-review
 ```
 
 Routine validation stops at SwiftPM and synthetic fixture tests on the active
