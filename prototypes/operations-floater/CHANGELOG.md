@@ -2,18 +2,15 @@
 
 ## 1.2.0 (build 3) — unreleased
 
-- Resolve the sandbox-vs-Input-Monitoring conflict: adopt Developer ID (direct)
-  distribution with the Hardened Runtime and **without** the App Sandbox, so the
-  Relative XY recorder's cross-process Input Monitoring works. Correct
+- Adopt Developer ID (direct) distribution with the Hardened Runtime. Correct
   `OperationsFloater.entitlements` to the minimal set (Hardened Runtime
   microphone exception only) and set `ENABLE_APP_SANDBOX: NO` in `project.yml`.
 - Add `scripts/sign-and-notarize.sh` (owner-run, credential-free, parameterized):
   codesign `--options runtime` + entitlements + secure timestamp -> notarytool
   submit `--wait` -> stapler staple -> verify (`spctl`, `codesign --verify
   --deep --strict`, `stapler validate`).
-- Add `docs/SIGNING.md` with the sandbox-vs-Input-Monitoring analysis, the
-  sandboxed-alternative tradeoff, and the owner checklist (Developer ID cert,
-  notary profile, build, sign, first-launch TCC grants).
+- Add `docs/SIGNING.md` with the distribution analysis and the owner checklist
+  (Developer ID cert, notary profile, build, sign, first-launch TCC grants).
 - Add **Ember**, a dismissible, vector-drawn corner companion that mirrors the
   canonical snapshot: it naps when the queue is empty, focuses while lanes run,
   briefly celebrates when work reaches the finished lane, and shows concern on a
@@ -32,68 +29,6 @@
   (`OperationsFloater.CompanionStyleV1`) and switches live from the
   **Companion Style** app menu. Extends the headless preview with an optional
   `--companion-style` flag and adds a committed Nova mood-gallery still-frame.
-
-- **Screen Trainer — real screen capture (ScreenCaptureKit).** Replace the
-  synthetic default read with a real one: a **Capture / Read screen** button in
-  the overlay enumerates on-screen windows (`SCShareableContent`), auto-suggests
-  the **Citrix Viewer** window, captures one **downscaled** frame of the picked
-  window (`SCScreenshotManager`), and sends it to the **LOCAL** qwen2.5vl model
-  over localhost Ollama (`OllamaScreenReader.read`). The model's candidate
-  regions become the overlay's real read, which the owner confirms / relabels /
-  drags / types into the same on-device store (slice-1 loop unchanged). New
-  `ScreenCapture.swift` (`ScreenCaptureService`, `CitrixWindowHeuristic`,
-  `FrameDownscale`, `FrameEncoder`, live `OllamaScreenReader.read`) and
-  `ScreenCaptureController` state machine; `ScreenTrainerSession.applyLiveReadout`
-  swaps the read without persisting a correction. PHI boundary held: a frame is
-  produced only on the owner's Mac, held in memory, sent only to
-  `http://localhost:11434`, and dropped the instant inference returns — never
-  written to disk, logged, embedded, or placed in the store; window titles are
-  used only for the owner's local picker label. Screen Recording needs **no**
-  Hardened Runtime entitlement (TCC-gated, like Input Monitoring); adds an
-  advisory `NSScreenCaptureUsageDescription`. Verified end-to-end with a
-  **synthetic** frame via `--capture-selftest` (no real capture in dev/CI).
-- **Screen Trainer — author-your-own overlay LAYER system (Photoshop-style).**
-  Add a layer model the clinician authors on top of the model's read: each
-  `OverlayLayer` carries `{id, normalizedRect, label, purpose, actionLaneIndex,
-  groupID, visible}` — position, a name, a free-text PURPOSE (why the step
-  exists), a slot in the ACTION LANE (workflow click order), a group, and its own
-  show/hide. `OverlayGroup`s organize layers by clinical context (e.g. inpatient
-  / outpatient) with per-group show/hide. `OverlayComposition` is the pure value
-  type holding the whole document with all Photoshop-style semantics as pure
-  functions (effective visibility = own flag AND group visible; `renderableLayers`
-  excludes anything hidden; `actionLaneSequence` orders by workflow slot; add /
-  reorder / regroup / edit / remove). New `ScreenTrainerLayers.swift` (model +
-  `OverlayCompositionStore` single-document JSON persistence +
-  `OverlayCompositionSession`) and `ScreenTrainerLayersPanel.swift` (the panel +
-  `AuthoredOverlaysLayer`, which reuses the `NormalizedRect` box-drawing plumbing
-  and draws exactly the renderable layers). The overlay now shows a **LAYERS**
-  panel: list groups + layers, toggle visibility per-item and per-group, reorder,
-  and an **add overlay** affordance that authors a component with a label,
-  purpose, action-lane slot, and group. Persistence is PHI-free by construction —
-  only author-supplied labels, purposes, normalized positions, workflow-order
-  indices, group names, and visibility; no frame, pixels, or screen text. This is
-  the semantic-knowledge-graph seed the context-toggle, mermaid-graph, and
-  agentic-composition slices build on next.
-- **Screen Trainer — knowledge-graph relationships + mermaid round-trip.** Turn the
-  authored overlays into a real EHR-UI knowledge graph and make it editable as
-  mermaid — the "what I've learned" area the owner asked for. Add
-  `OverlayRelationship {id, fromLayerID, toLayerID, kind}` (the edge set on top of
-  the layer nodes) with an **extensible** `OverlayRelationshipKind` (well-knowns:
-  houses, navigatesTo, opens, triggers, partOf, precedes; new kinds may be coined in
-  the text). `OverlayComposition` gains pure add/remove/edit/validate relationship
-  functions (endpoints must exist and differ; identical edges de-dupe; `removeLayer`
-  prunes incident edges). New `ScreenTrainerMermaid.swift` adds `mermaidExport()` —
-  deterministic `flowchart TD` with a subgraph per group, nodes carrying label +
-  purpose (purpose/hidden as `%%` metadata), and relationships as labeled edges
-  (`a -->|houses| b`) — and `applyingMermaid(_:)`, which parses a reasonable subset of
-  mermaid and **merges onto** the current model (rename / re-group / add nodes,
-  add / remove / relabel edges). `export → import → export` is stable; malformed
-  input returns a specific `OverlayMermaidError` and never mutates the model. The
-  overlay adds a **"WHAT I'VE LEARNED"** panel (`LearnedGraphPanel`) showing the graph
-  BOTH as plain statements AND as editable mermaid with **Apply** / **Refresh**.
-  Relationships persist in the same PHI-free JSON document (backward-compatible: a
-  pre-relationships doc decodes with an empty edge set); the mermaid text carries only
-  labels, purposes, group names, and kinds — never pixels, screen text, or PHI.
 - Add a local-only, read-only receipt-feed 1.1 source with strict shape,
   duplicate-key, provenance, file-type, size, and SHA-256 validation.
 - Read content-addressed `current` first and use LKG only when current fails
@@ -105,7 +40,7 @@
 - Pin the reviewed dashboard snapshot, LKG, feed schema, manifest schema, and
   sanitized manifest hashes. No raw prompt, private path, or private content
   enters the source or tests.
-- Preserve Router chat/review, voice and floor control, Relative XY recording,
+- Preserve Router chat/review, voice and floor control,
   race/resource/privacy panels, collapse persistence, keyboard behavior,
   nonactivating background tests, and truthful empty dashboard behavior.
 
@@ -116,19 +51,17 @@
   Gatekeeper validation, and satisfy installed/candidate designated
   requirements in both directions before replacement.
 - Keep routine unsigned or ad-hoc builds disposable so they cannot silently
-  replace the app instance that owns Input Monitoring permission.
+  replace the installed, permission-bearing app instance.
 - Keep routine validation bundle-free on the active macOS profile after
   confirming Xcode 26.5 still invokes `lsregister` when
   `REGISTER_WITH_LAUNCH_SERVICES=NO` is supplied.
-- Enforce one recorder host with a process-scoped application lease while
+- Enforce one application host with a process-scoped application lease while
   retaining the existing single-Space window policy and Dock launcher.
 - Keep the `AppIcon` plist and asset-compiler declarations in the XcodeGen
   source of truth so regenerating the project cannot drop the Dock icon.
-- Roll back floor ownership, selected-window recording, the global event
-  monitor, and voice state when either half of **Give floor** fails to start.
 - Reject unexpected embedded login items, agents, daemons, privileged helpers,
   or launch services in the current helper-free release shape.
 - Add synthetic coverage for compatible and incompatible code identities,
-  helper rejection, Input Monitoring refusal, voice startup failure, successful
-  joint startup, and one-instance locking. The tests do not sign code, request
-  TCC access, launch an installed app, or modify System Settings.
+  helper rejection, voice startup failure, and one-instance locking. The tests
+  do not sign code, request TCC access, launch an installed app, or modify
+  System Settings.

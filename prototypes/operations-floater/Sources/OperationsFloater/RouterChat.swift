@@ -3,42 +3,6 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-enum RecorderActivationResult: Equatable {
-    case activated
-    case failed(reason: String, changedConversationControl: Bool)
-}
-
-@MainActor
-enum RecorderActivationTransaction {
-    static func run(
-        grantFloor: () async -> String?,
-        startRecording: () -> String?,
-        startVoice: () async -> String?,
-        stopVoice: () -> Void,
-        revokeRecording: (String) -> Void,
-        revokeFloor: () async -> Void
-    ) async -> RecorderActivationResult {
-        if let reason = await grantFloor() {
-            return .failed(reason: reason, changedConversationControl: false)
-        }
-
-        if let reason = startRecording() {
-            revokeRecording(reason)
-            await revokeFloor()
-            return .failed(reason: reason, changedConversationControl: true)
-        }
-
-        if let reason = await startVoice() {
-            stopVoice()
-            revokeRecording(reason)
-            await revokeFloor()
-            return .failed(reason: reason, changedConversationControl: true)
-        }
-
-        return .activated
-    }
-}
-
 enum RouterAvailability: Equatable, Sendable {
     case disabled
     case checking
@@ -241,7 +205,7 @@ protocol RouterChatTransport: Sendable {
     func critique(userMessage: String, assistantReply: String) async throws -> RouterChatCritique
 }
 
-struct RouterChatClient: RouterChatTransport, RecorderNarrationNormalizing {
+struct RouterChatClient: RouterChatTransport {
     enum ClientError: LocalizedError, Equatable {
         case invalidResponse
         case emptyResponse
@@ -275,7 +239,6 @@ struct RouterChatClient: RouterChatTransport, RecorderNarrationNormalizing {
     static let maximumModelLabelCharacters = RouterResponder.maximumLabelCharacters
     static let maximumProviderLabelCharacters = RouterResponder.maximumLabelCharacters
     static let maximumCritiqueBytes = 32_768
-    static let recorderNormalizerModel = "qwen2.5:32b"
 
     private final class LoopbackSessionDelegate: NSObject, URLSessionTaskDelegate,
         @unchecked Sendable
@@ -342,77 +305,6 @@ struct RouterChatClient: RouterChatTransport, RecorderNarrationNormalizing {
         )
         let (data, response) = try await session.data(for: request)
         return try Self.decodeCritique(data: data, response: response)
-    }
-
-    func normalizeRecorderNarration(
-        _ input: RecorderNormalizationInput
-    ) async throws -> RecorderNormalizationResult {
-        guard await hasResidentRecorderNormalizer() else {
-            throw RecorderNormalizationError.nonLocalResponder
-        }
-        let request = try Self.makeRequest(
-            model: Self.recorderNormalizerModel,
-            messages: [
-                CompletionRequest.Message(
-                    role: "system",
-                    content: RecorderNormalizationCodec.systemPrompt()
-                ),
-                CompletionRequest.Message(
-                    role: "user",
-                    content: try RecorderNormalizationCodec.userPayload(input)
-                ),
-            ]
-        )
-        let (data, response) = try await session.data(for: request)
-        let decoded = try Self.decodeRecorderNormalizationReply(
-            data: data,
-            response: response
-        )
-        return RecorderNormalizationResult(
-            batch: try RecorderNormalizationCodec.decodeBatch(decoded.text),
-            model: decoded.model
-        )
-    }
-
-    private func hasResidentRecorderNormalizer() async -> Bool {
-        var request = URLRequest(url: Self.metricsURL)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 2
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("operations-floater", forHTTPHeaderField: "X-Client-App")
-        do {
-            let (data, response) = try await session.data(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  data.count <= 1_048_576,
-                  let metrics = try? JSONDecoder().decode(
-                      RecorderRouterMetrics.self,
-                      from: data
-                  ) else {
-                return false
-            }
-            return metrics.ollama.resident.contains {
-                $0.name == Self.recorderNormalizerModel
-            }
-        } catch {
-            return false
-        }
-    }
-
-    private static func decodeRecorderNormalizationReply(
-        data: Data,
-        response: URLResponse
-    ) throws -> (text: String, model: String) {
-        guard let response = response as? HTTPURLResponse,
-              (200..<300).contains(response.statusCode),
-              data.count <= maximumCritiqueBytes,
-              let envelope = try? JSONDecoder().decode(CompletionResponse.self, from: data),
-              envelope.model == recorderNormalizerModel,
-              let text = envelope.choices.first?.message.content
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else {
-            throw RecorderNormalizationError.invalidResponse
-        }
-        return (text, recorderNormalizerModel)
     }
 
     static func makeCompletionRequest(messages: [RouterChatMessage]) throws -> URLRequest {
@@ -626,18 +518,6 @@ struct RouterChatClient: RouterChatTransport, RecorderNarrationNormalizing {
         }
     }
 
-    private struct RecorderRouterMetrics: Decodable {
-        struct Ollama: Decodable {
-            struct Resident: Decodable {
-                let name: String
-            }
-
-            let resident: [Resident]
-        }
-
-        let ollama: Ollama
-    }
-
     private struct CritiquePayload: Decodable {
         let verdict: RouterChatCritique.Verdict
         let problem: String
@@ -679,61 +559,28 @@ final class RouterChatSession: ObservableObject {
     @Published private(set) var modelLabel = "auto"
     @Published private(set) var critiques: [UUID: RouterChatCritique] = [:]
     @Published private(set) var reviewingMessageIDs: Set<UUID> = []
-    @Published private(set) var recorderTrace = RecorderPipelineTrace.idle
-    /// Drives the one-click "Record a session" window picker. The floor is never
-    /// granted until a window is chosen here, which satisfies the recorder's
-    /// existing "choose a visible window first" guard and kills the old
-    /// chicken-and-egg where the picker was unreachable before the floor.
-    @Published var isChoosingRecordingWindow = false
-
     let modules: ConversationModuleHostSession
-    let geometryCapture: NeutralGeometryCaptureSession
     var onAssistantReply: ((String) -> Void)?
     var onAssistantFailure: (() -> Void)?
     var onConversationControlChanged: (() -> Void)?
 
     private let transport: any RouterChatTransport
-    private let recorderNormalizer: any RecorderNarrationNormalizing
     private var sendTask: Task<Void, Never>?
     private var reviewTasks: [UUID: Task<Void, Never>] = [:]
     private var moduleObservation: AnyCancellable?
-    private var geometryCaptureObservation: AnyCancellable?
     private var moduleContextFloorToken: String?
     private var moduleContextTurns: [ConversationModuleContextTurn] = []
-    private var allowsRelativeXYTestFixture = false
     private var pendingVoiceMessageID: UUID?
-    // Screen Recording is not enforced by the recorder (Input Monitoring is), but
-    // window-owner names are richer with it, so the one-click flow offers to
-    // request it. Injectable so unit tests never touch the real TCC prompt.
-    private let screenRecordingPreflight: () -> Bool
-    private let screenRecordingRequest: () -> Bool
 
     init(
         transport: any RouterChatTransport = RouterChatClient(),
-        recorderNormalizer: any RecorderNarrationNormalizing = RouterChatClient(),
-        modules: ConversationModuleHostSession = ConversationModuleHostSession(),
-        geometryCapture: NeutralGeometryCaptureSession =
-            NeutralGeometryCaptureSession(),
-        screenRecordingPreflight: @escaping () -> Bool = {
-            CGPreflightScreenCaptureAccess()
-        },
-        screenRecordingRequest: @escaping () -> Bool = {
-            CGRequestScreenCaptureAccess()
-        }
+        modules: ConversationModuleHostSession = ConversationModuleHostSession()
     ) {
         self.transport = transport
-        self.recorderNormalizer = recorderNormalizer
         self.modules = modules
-        self.geometryCapture = geometryCapture
-        self.screenRecordingPreflight = screenRecordingPreflight
-        self.screenRecordingRequest = screenRecordingRequest
         moduleObservation = modules.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
-        geometryCaptureObservation =
-            geometryCapture.objectWillChange.sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
     }
 
     var canSend: Bool {
@@ -784,10 +631,7 @@ final class RouterChatSession: ObservableObject {
         availability = routerIsAvailable ? .online : .offline
     }
 
-    func prepareSyntheticConversationUITest(
-        moduleID: String,
-        usesNaturalRecorderNormalization: Bool = false
-    ) async {
+    func prepareSyntheticConversationUITest(moduleID: String) async {
         guard !isEnabled else { return }
         isEnabled = true
         availability = .offline
@@ -797,19 +641,9 @@ final class RouterChatSession: ObservableObject {
         modules.selectedModuleID = moduleID
         await modules.grantSelectedFloor()
         guard modules.activeFloor != nil else { return }
-        allowsRelativeXYTestFixture = usesNaturalRecorderNormalization
         send(
-            text: usesNaturalRecorderNormalization
-                ? "The label for this is YEAR and I am right now on the top left."
-                : (
-                    moduleID
-                        == ConversationModuleAllowlist.geometryRecorderManifest.moduleID
-                        ? "Synthetic geometry narration"
-                        : "Synthetic conversation fixture"
-                ),
-            transcriptProvider: usesNaturalRecorderNormalization
-                ? .onDevice
-                : .syntheticFixture
+            text: "Synthetic conversation fixture",
+            transcriptProvider: .syntheticFixture
         )
         for _ in 0..<100 where isSending {
             try? await Task.sleep(for: .milliseconds(10))
@@ -894,108 +728,18 @@ final class RouterChatSession: ObservableObject {
         if modules.activeFloor != nil {
             sendTask = Task { [weak self] in
                 guard let self else { return }
-                let isRelativeXY =
-                    modules.activeManifest?.moduleID
-                        == ConversationModuleAllowlist
-                            .relativeXYRecorderManifest.moduleID
                 do {
                     let floorToken = modules.activeFloor?.token
                     if moduleContextFloorToken != floorToken {
                         moduleContextFloorToken = floorToken
                         moduleContextTurns = []
                     }
-                    let captureSnapshot = try isRelativeXY
-                        && !allowsRelativeXYTestFixture
-                        ? geometryCapture.snapshot()
-                        : nil
-                    let fixture = captureSnapshot.map {
-                        (events: $0.events, window: Optional($0.window))
-                    } ?? Self.syntheticFixtureInput(
-                        for: modules.activeManifest,
-                        includeRelativeXY: allowsRelativeXYTestFixture
-                    )
-                    var moduleNarration = text
-                    var normalizedCommands: [RecorderNormalizedCommand] = []
-                    if isRelativeXY, transcriptProvider == .onDevice {
-                        recorderTrace = RecorderPipelineTrace(
-                            transcript: text,
-                            transcriptProvider: transcriptProvider.rawValue,
-                            normalizerModel: RouterChatClient.recorderNormalizerModel,
-                            commands: [],
-                            captureStateBefore: geometryCapture.mode.displayName,
-                            recorderStateAfter: "pending",
-                            windowDescription: fixture.window.map {
-                                "\($0.width)×\($0.height)"
-                            } ?? "No selected window",
-                            eventCount: fixture.events.count,
-                            outcome: .normalizing,
-                            detail: "Normalizing untrusted speech into the closed command schema.",
-                            updatedAt: Date()
-                        )
-                        let result = try await recorderNormalizer.normalizeRecorderNarration(
-                            RecorderNormalizationInput(
-                                transcript: text,
-                                captureMode: geometryCapture.mode.displayName,
-                                windowWidth: fixture.window?.width,
-                                windowHeight: fixture.window?.height,
-                                moduleQuestion: moduleContextTurns.last(where: {
-                                    $0.role == .module
-                                })?.text
-                            )
-                        )
-                        try Task.checkCancellation()
-                        availability = .online
-                        normalizedCommands = result.batch.commands
-                        moduleNarration = try result.batch.encodedNarration()
-                        recorderTrace = RecorderPipelineTrace(
-                            transcript: text,
-                            transcriptProvider: transcriptProvider.rawValue,
-                            normalizerModel: result.model,
-                            commands: normalizedCommands.map(\.displayText),
-                            captureStateBefore: geometryCapture.mode.displayName,
-                            recorderStateAfter: "submitting",
-                            windowDescription: fixture.window.map {
-                                "\($0.width)×\($0.height)"
-                            } ?? "No selected window",
-                            eventCount: fixture.events.count,
-                            outcome: .submitting,
-                            detail: "Closed commands validated locally; submitting to the recorder.",
-                            updatedAt: Date()
-                        )
-                    }
                     let reply = try await modules.submit(
-                        narration: moduleNarration,
+                        narration: text,
                         transcriptProvider: transcriptProvider,
-                        context: Self.boundedModuleContext(moduleContextTurns),
-                        events: fixture.events,
-                        window: fixture.window
+                        context: Self.boundedModuleContext(moduleContextTurns)
                     )
                     try Task.checkCancellation()
-                    if let captureSnapshot {
-                        geometryCapture.accept(
-                            captureSnapshot,
-                            narration: moduleNarration,
-                            commands: normalizedCommands,
-                            response: reply
-                        )
-                    }
-                    if isRelativeXY {
-                        recorderTrace = RecorderPipelineTrace(
-                            transcript: text,
-                            transcriptProvider: transcriptProvider.rawValue,
-                            normalizerModel: recorderTrace.normalizerModel,
-                            commands: normalizedCommands.map(\.displayText),
-                            captureStateBefore: recorderTrace.captureStateBefore,
-                            recorderStateAfter: reply.state.rawValue,
-                            windowDescription: recorderTrace.windowDescription,
-                            eventCount: fixture.events.count,
-                            outcome: .accepted,
-                            detail: reply.question
-                                ?? reply.reply
-                                ?? "Recorder accepted the closed turn.",
-                            updatedAt: Date()
-                        )
-                    }
                     let responseText = Self.moduleResponseText(reply)
                     if !responseText.isEmpty,
                        let manifest = modules.activeManifest {
@@ -1021,30 +765,10 @@ final class RouterChatSession: ObservableObject {
                 } catch is CancellationError {
                     return
                 } catch {
-                    if modules.activeFloor == nil {
-                        geometryCapture.revoke(reason: error.localizedDescription)
-                    } else {
-                        geometryCapture.preserveAfterFailure(error)
-                    }
                     onConversationControlChanged?()
                     discardPendingVoiceTranscript()
                     clearModuleContext()
                     lastError = error.localizedDescription
-                    if isRelativeXY {
-                        recorderTrace = RecorderPipelineTrace(
-                            transcript: text,
-                            transcriptProvider: transcriptProvider.rawValue,
-                            normalizerModel: recorderTrace.normalizerModel,
-                            commands: recorderTrace.commands,
-                            captureStateBefore: recorderTrace.captureStateBefore,
-                            recorderStateAfter: "preserved",
-                            windowDescription: recorderTrace.windowDescription,
-                            eventCount: recorderTrace.eventCount,
-                            outcome: .refused,
-                            detail: error.localizedDescription,
-                            updatedAt: Date()
-                        )
-                    }
                     isSending = false
                     onAssistantFailure?()
                 }
@@ -1125,139 +849,19 @@ final class RouterChatSession: ObservableObject {
         isSending = false
         clearModuleContext()
         pendingVoiceMessageID = nil
-        geometryCapture.revoke()
-        recorderTrace = .idle
-        allowsRelativeXYTestFixture = false
     }
 
     func revokeModuleFloor() async {
         onConversationControlChanged?()
         discardPendingVoiceTranscript()
         clearModuleContext()
-        geometryCapture.revoke()
         await modules.revokeFloor()
     }
 
-    func activateSelectedRecorder(with voice: VoiceConversationSession) async {
-        guard modules.selectedModuleID
-                == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID else {
-            await modules.grantSelectedFloor()
-            return
-        }
-
-        geometryCapture.refreshWindows()
-        guard geometryCapture.selectedWindow != nil else {
-            lastError = "Choose a visible window before giving the recorder the floor."
-            return
-        }
-
-        let result = await RecorderActivationTransaction.run(
-            grantFloor: {
-                await self.modules.grantSelectedFloor()
-                return self.modules.activeFloor == nil
-                    ? self.modules.lastError
-                        ?? "The selected recorder could not receive the floor."
-                    : nil
-            },
-            startRecording: {
-                self.geometryCapture.start()
-                return self.geometryCapture.mode == .recording
-                    ? nil
-                    : self.geometryCapture.lastError
-                        ?? "Input monitoring is required before recording can start."
-            },
-            startVoice: {
-                await voice.start()
-                return voice.state == .listening
-                    ? nil
-                    : voice.lastError ?? "Voice could not start."
-            },
-            stopVoice: {
-                voice.stop()
-            },
-            revokeRecording: { reason in
-                self.geometryCapture.revoke(reason: reason)
-            },
-            revokeFloor: {
-                await self.modules.revokeFloor()
-            }
-        )
-        switch result {
-        case .activated:
-            lastError = nil
-        case .failed(let reason, let changedConversationControl):
-            lastError = reason
-            if changedConversationControl {
-                onConversationControlChanged?()
-            }
-        }
-    }
-
-    /// One-click entry point for "Record a session". Ensures the assistant is
-    /// enabled and the Relative XY recorder is selected, proactively requests the
-    /// permissions the recorder needs, refreshes the window list, and then presents
-    /// the window picker. Crucially, no floor is granted here — that happens only
-    /// after the user picks a window in ``chooseRecordingWindow(_:voice:)``, which
-    /// is exactly what the recorder's "choose a visible window first" guard
-    /// requires. This is what removes the old chicken-and-egg.
-    func beginOneClickRecording() async {
-        // A recording (or its paused state) is already live — surface it, don't
-        // restart or reopen the picker.
-        if geometryCapture.mode == .recording || geometryCapture.mode == .paused {
-            return
-        }
-        lastError = nil
-        if !isEnabled {
-            await enable()
-        }
-        // Clear any prior review/idle floor so the fresh grant in the activation
-        // transaction cannot collide with an already-granted floor.
-        if modules.activeFloor != nil {
-            await revokeModuleFloor()
-        }
-        if modules.selectedModuleID
-            != ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID {
-            selectConversationTarget(
-                ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
-            )
-        }
-        requestRecordingPermissions()
-        isChoosingRecordingWindow = true
-    }
-
-    /// Re-requests the recorder's permissions and refreshes the window list. Wired
-    /// to the picker's "Request again" and "Refresh" affordances so a permission
-    /// denial never dead-ends: the user grants access, taps again, and continues.
-    func requestRecordingPermissions() {
-        if !geometryCapture.inputMonitoringAvailable {
-            geometryCapture.requestInputMonitoring()
-        }
-        if !screenRecordingPreflight() {
-            _ = screenRecordingRequest()
-        }
-        geometryCapture.refreshWindows()
-    }
-
-    /// Whether macOS Screen Recording is granted. Window enumeration works without
-    /// it; the picker uses this only to explain why owner names may be sparse.
-    var isScreenRecordingAvailable: Bool {
-        screenRecordingPreflight()
-    }
-
-    /// Completes the one-click flow: bind the chosen window, dismiss the picker, and
-    /// grant the floor + start voice and geometry recording together through the
-    /// existing, transactional activation path.
-    func chooseRecordingWindow(
-        _ windowID: CGWindowID,
-        voice: VoiceConversationSession
-    ) async {
-        geometryCapture.select(windowID: windowID)
-        isChoosingRecordingWindow = false
-        await activateSelectedRecorder(with: voice)
-    }
-
-    func cancelRecordingWindowSelection() {
-        isChoosingRecordingWindow = false
+    /// Gives the selected conversation module the floor.
+    func grantSelectedModuleFloor() async {
+        await modules.grantSelectedFloor()
+        lastError = modules.activeFloor == nil ? modules.lastError : nil
     }
 
     func selectConversationTarget(_ moduleID: String?) {
@@ -1268,7 +872,6 @@ final class RouterChatSession: ObservableObject {
         onConversationControlChanged?()
         discardPendingVoiceTranscript()
         clearModuleContext()
-        geometryCapture.revoke()
         modules.selectedModuleID = moduleID
     }
 
@@ -1375,60 +978,6 @@ final class RouterChatSession: ObservableObject {
             .joined(separator: "\n\n")
     }
 
-    static func syntheticFixtureInput(
-        for manifest: ConversationModuleManifest?,
-        includeRelativeXY: Bool = false
-    ) -> (
-        events: [ConversationModuleEvent],
-        window: ConversationModuleWindowContext?
-    ) {
-        if includeRelativeXY,
-           manifest?.moduleID
-            == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID {
-            return (
-                [
-                    ConversationModuleEvent(
-                        eventID: "event_relative-xy-ui-test-1",
-                        sequence: 1,
-                        kind: .normalizedPointer,
-                        pointerPhase: .move,
-                        normalizedX: 0.2,
-                        normalizedY: 0.3,
-                        navigationKey: nil,
-                        placeholder: nil
-                    ),
-                ],
-                ConversationModuleWindowContext(
-                    bindingID: "verbal-orders.neutral.selected-window",
-                    width: 935,
-                    height: 598
-                )
-            )
-        }
-        guard manifest?.moduleID
-            == ConversationModuleAllowlist.geometryRecorderManifest.moduleID else {
-            return ([], nil)
-        }
-        return (
-            [
-                ConversationModuleEvent(
-                    eventID: "event_synthetic-canvas-1",
-                    sequence: 1,
-                    kind: .placeholder,
-                    pointerPhase: nil,
-                    normalizedX: nil,
-                    normalizedY: nil,
-                    navigationKey: nil,
-                    placeholder: .canvasRegion
-                ),
-            ],
-            ConversationModuleWindowContext(
-                bindingID: "verbal-orders.synthetic.geometry-canvas",
-                width: 1_280,
-                height: 720
-            )
-        )
-    }
 }
 
 struct RouterChatPanel: View {
@@ -1727,23 +1276,13 @@ struct RouterChatPanel: View {
                 .disabled(session.modules.activeFloor != nil)
 
                 if session.modules.activeFloor == nil {
-                    Button(
-                        session.modules.selectedModuleID
-                            == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
-                            ? "Give floor · start voice + recording"
-                            : "Give floor"
-                    ) {
+                    Button("Give floor") {
                         Task {
-                            await session.activateSelectedRecorder(with: voice)
+                            await session.grantSelectedModuleFloor()
                         }
                     }
                     .controlSize(.mini)
-                    .help(
-                        session.modules.selectedModuleID
-                            == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
-                            ? "Give the Relative XY recorder the floor to start voice and recording together."
-                            : "Give the selected conversation module the floor."
-                    )
+                    .help("Give the selected conversation module the floor.")
                     .disabled(
                         session.modules.selectedModuleID == nil
                             || session.modules.isWorking
@@ -1770,31 +1309,13 @@ struct RouterChatPanel: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
                         .background(Color.accentColor.opacity(0.14), in: Capsule())
-                    Text(
-                        manifest.moduleID
-                            == ConversationModuleAllowlist
-                                .relativeXYRecorderManifest.moduleID
-                            ? "Ephemeral · selected-window input only · no pixels, OCR, "
-                                + "character recovery, injection, or replay"
-                            : "Ephemeral · host mic/UI/TTS · no capture, replay, or persistence"
-                    )
+                    Text("Ephemeral · host mic/UI/TTS · no capture, replay, or persistence")
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                 }
                 .help(
                     "Escape returns control to the dashboard. The module receives only "
                         + "its allowlisted bounded contract fields."
-                )
-            }
-
-            if session.modules.activeManifest?.moduleID
-                == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID {
-                RecorderPipelineTracePanel(trace: session.recorderTrace)
-                NeutralGeometryCapturePanel(
-                    capture: session.geometryCapture,
-                    provenance: session.modules.healthByModuleID[
-                        ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
-                    ]?.provenance
                 )
             }
 
@@ -1809,103 +1330,6 @@ struct RouterChatPanel: View {
         }
         .padding(7)
         .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private struct RecorderPipelineTracePanel: View {
-        let trace: RecorderPipelineTrace
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("RECORDER PIPELINE")
-                        .font(.system(size: 8, weight: .bold))
-                    Spacer()
-                    Text(trace.outcome.rawValue.uppercased())
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(trace.outcome == .refused ? .orange : .secondary)
-                }
-
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 4) {
-                        stage("Voice")
-                        arrow
-                        stage("Transcript")
-                        arrow
-                        stage("Local NLP")
-                        arrow
-                        stage("Commands")
-                        arrow
-                        stage("Validator")
-                        arrow
-                        stage("Recorder")
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Voice → Transcript → Local NLP")
-                        Text("Commands → Validator → Recorder")
-                    }
-                    .font(.system(size: 9, weight: .medium))
-                }
-
-                if trace.outcome == .idle {
-                    Text(trace.detail)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                } else {
-                    traceRow("Heard", trace.transcript)
-                    traceRow(
-                        "Normalized",
-                        trace.commands.isEmpty
-                            ? "Waiting for closed commands"
-                            : trace.commands.joined(separator: " → ")
-                    )
-                    traceRow(
-                        "Transform",
-                        "\(trace.captureStateBefore) → \(trace.recorderStateAfter)"
-                    )
-                    traceRow(
-                        "Input",
-                        "\(trace.eventCount) events · \(trace.windowDescription)"
-                    )
-                    traceRow(
-                        "Model",
-                        trace.normalizerModel.isEmpty
-                            ? "Not invoked"
-                            : trace.normalizerModel
-                    )
-                    traceRow("Result", trace.detail)
-                }
-            }
-            .padding(7)
-            .background(.quinary, in: RoundedRectangle(cornerRadius: 7))
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Recorder transformation pipeline")
-        }
-
-        private func stage(_ value: String) -> some View {
-            Text(value)
-                .font(.system(size: 8, weight: .medium))
-                .padding(.horizontal, 5)
-                .padding(.vertical, 3)
-                .background(.background.opacity(0.65), in: Capsule())
-        }
-
-        private var arrow: some View {
-            Image(systemName: "arrow.right")
-                .font(.system(size: 7))
-                .foregroundStyle(.secondary)
-        }
-
-        private func traceRow(_ label: String, _ value: String) -> some View {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(label)
-                    .frame(width: 62, alignment: .leading)
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-            .font(.system(size: 9))
-        }
     }
 
     private func moduleResult(_ response: ConversationModuleResponse) -> some View {
@@ -1942,20 +1366,12 @@ struct RouterChatPanel: View {
 
             switch voice.state {
             case .off, .unavailable:
-                if session.modules.activeFloor == nil,
-                   session.modules.selectedModuleID
-                        == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID {
-                    Text("Give floor starts voice + recording")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button("Start voice") {
-                        Task {
-                            await voice.start()
-                        }
+                Button("Start voice") {
+                    Task {
+                        await voice.start()
                     }
-                    .controlSize(.mini)
                 }
+                .controlSize(.mini)
             case .listening:
                 Button("Pause") {
                     voice.pause()
@@ -2248,337 +1664,5 @@ struct RouterChatPanel: View {
         case .offline:
             .orange
         }
-    }
-}
-
-/// The PRIMARY, one-click path to recording. A single prominent button enables the
-/// assistant, selects the Relative XY recorder, requests permissions, and presents
-/// a window picker — after which the floor is granted and voice + geometry
-/// recording start together. The detailed conversation-floor controls in
-/// ``RouterChatPanel`` remain available underneath as the advanced path.
-struct RecorderQuickStartCard: View {
-    @ObservedObject var session: RouterChatSession
-    @ObservedObject var voice: VoiceConversationSession
-    let metrics: DashboardLayoutMetrics
-    @Binding var assistantCollapsed: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 7) {
-                Image(systemName: "record.circle")
-                    .foregroundStyle(isRecordingActive ? .red : .secondary)
-                Text("RECORD A SESSION")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                stateBadge
-            }
-
-            content
-
-            Text(
-                "One click starts voice narration and selected-window geometry "
-                    + "recording together. Only mouse, scroll, and key-code geometry "
-                    + "is captured — never pixels, characters, titles, or screenshots."
-            )
-            .font(.system(size: 9))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-
-            if let error = session.lastError, !isRecordingActive {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(
-                    Color.red.opacity(isRecordingActive ? 0.5 : 0.22),
-                    lineWidth: 1
-                )
-        )
-        .sheet(isPresented: $session.isChoosingRecordingWindow) {
-            RecordingWindowPickerSheet(
-                session: session,
-                voice: voice,
-                assistantCollapsed: $assistantCollapsed
-            )
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: .operationsFloaterStartRecording
-            )
-        ) { _ in
-            start()
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Record a session")
-    }
-
-    private var isRecordingActive: Bool {
-        switch session.geometryCapture.mode {
-        case .recording, .paused:
-            true
-        default:
-            false
-        }
-    }
-
-    @ViewBuilder
-    private var stateBadge: some View {
-        switch session.geometryCapture.mode {
-        case .recording:
-            badge("RECORDING", .red)
-        case .paused:
-            badge("PAUSED", .orange)
-        case .review:
-            badge("REVIEW", .secondary)
-        case .disarmed, .armed:
-            EmptyView()
-        }
-    }
-
-    private func badge(_ text: String, _ color: Color) -> some View {
-        Text(text)
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.14), in: Capsule())
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch session.geometryCapture.mode {
-        case .disarmed, .armed:
-            Button(action: start) {
-                Label("Record a session", systemImage: "record.circle.fill")
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 3)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            .controlSize(.large)
-            .accessibilityHint(
-                "Choose a window, then start voice and geometry recording."
-            )
-        case .recording:
-            HStack(spacing: 8) {
-                Text("\(session.geometryCapture.capturedEvents.count) events")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                Button("Pause") { pause() }
-                    .controlSize(.small)
-                Button("Stop & review") { stopAndReview() }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-            }
-            expandHint("Full controls and JSON export are in the Assistant panel below.")
-        case .paused:
-            HStack(spacing: 8) {
-                Text("Recording paused")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.orange)
-                Spacer(minLength: 0)
-                Button("Resume") { resume() }
-                    .controlSize(.small)
-                Button("Stop & review") { stopAndReview() }
-                    .controlSize(.small)
-            }
-            expandHint("Full controls and JSON export are in the Assistant panel below.")
-        case .review:
-            HStack(spacing: 8) {
-                Text("Recording ready to review")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                Button("New recording") { start() }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-            }
-            expandHint("Review the captured events and export the JSON in the Assistant panel below.")
-        }
-    }
-
-    private func expandHint(_ text: String) -> some View {
-        Button {
-            assistantCollapsed = false
-        } label: {
-            HStack(spacing: 4) {
-                Text(text)
-                Image(systemName: "chevron.down")
-            }
-            .font(.system(size: 9))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .accessibilityHint("Opens the Assistant panel with the full recorder controls.")
-    }
-
-    private func start() {
-        assistantCollapsed = false
-        Task { await session.beginOneClickRecording() }
-    }
-
-    private func pause() {
-        voice.pause()
-        session.geometryCapture.pause()
-    }
-
-    private func resume() {
-        session.geometryCapture.resume()
-        voice.resume()
-    }
-
-    private func stopAndReview() {
-        voice.stop()
-        session.geometryCapture.stop()
-    }
-}
-
-/// The window picker presented FIRST by the one-click flow, before any floor is
-/// granted. Choosing a row binds the window and immediately starts recording.
-struct RecordingWindowPickerSheet: View {
-    @ObservedObject var session: RouterChatSession
-    @ObservedObject var voice: VoiceConversationSession
-    @Binding var assistantCollapsed: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Choose a window to record")
-                    .font(.headline)
-                Text(
-                    "Recording captures mouse, scroll, and key-code geometry from "
-                        + "only the window you pick — never pixels, characters, "
-                        + "titles, OCR, or screenshots."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            permissionNotes
-            windowList
-
-            HStack {
-                Button("Refresh") { session.requestRecordingPermissions() }
-                Spacer()
-                Button("Cancel") {
-                    session.cancelRecordingWindowSelection()
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-            }
-        }
-        .padding(18)
-        .frame(width: 470, height: 430)
-    }
-
-    @ViewBuilder
-    private var permissionNotes: some View {
-        if !session.geometryCapture.inputMonitoringAvailable {
-            noteRow(
-                systemImage: "keyboard.badge.ellipsis",
-                text: "Allow Operations Floater in Privacy & Security → Input "
-                    + "Monitoring, then choose a window (or Refresh) to start."
-            )
-        }
-        if !session.isScreenRecordingAvailable {
-            noteRow(
-                systemImage: "rectangle.on.rectangle",
-                text: "Window names stay sparse until Screen Recording is granted "
-                    + "in Privacy & Security → Screen Recording. Recording still "
-                    + "captures geometry only."
-            )
-        }
-    }
-
-    private func noteRow(systemImage: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: systemImage)
-                .foregroundStyle(.orange)
-            Text(text)
-                .font(.caption2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Button("Request again") { session.requestRecordingPermissions() }
-                .controlSize(.mini)
-        }
-        .padding(8)
-        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    @ViewBuilder
-    private var windowList: some View {
-        if session.geometryCapture.availableWindows.isEmpty {
-            VStack(spacing: 6) {
-                Image(systemName: "macwindow.badge.plus")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                Text("No windows found.")
-                    .font(.caption.weight(.semibold))
-                Text("Open the app you want to record, then Refresh.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, minHeight: 170)
-        } else {
-            ScrollView {
-                VStack(spacing: 4) {
-                    ForEach(session.geometryCapture.availableWindows) { window in
-                        Button {
-                            pick(window.id)
-                        } label: {
-                            HStack(spacing: 9) {
-                                Image(systemName: "macwindow")
-                                    .foregroundStyle(.secondary)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(window.ownerName)
-                                        .font(.caption.weight(.semibold))
-                                        .lineLimit(1)
-                                    Text(
-                                        "\(Int(window.bounds.width))"
-                                            + "×\(Int(window.bounds.height))"
-                                    )
-                                    .font(.caption2.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 0)
-                                Image(systemName: "chevron.right")
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                .quinary,
-                                in: RoundedRectangle(cornerRadius: 8)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Record \(window.displayName)")
-                    }
-                }
-            }
-            .frame(maxHeight: 230)
-        }
-    }
-
-    private func pick(_ windowID: CGWindowID) {
-        assistantCollapsed = false
-        Task { await session.chooseRecordingWindow(windowID, voice: voice) }
-        dismiss()
     }
 }

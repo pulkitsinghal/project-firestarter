@@ -5,27 +5,14 @@ import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
 
-extension Notification.Name {
-    /// Posted by the "Record a Session" App-menu item / ⌘R so the dashboard's
-    /// one-click recorder card can start the flow from the AppKit menu bridge.
-    static let operationsFloaterStartRecording =
-        Notification.Name("com.example.operationsfloater.startRecording")
-}
-
 struct DashboardLaunchConfiguration: Equatable {
     static let backgroundUITestArgument = "--background-ui-test"
     static let syntheticConversationUITestArgument =
         "--synthetic-conversation-ui-test"
-    static let geometryConversationUITestArgument =
-        "--geometry-conversation-ui-test"
-    static let recorderNormalizerUITestArgument =
-        "--recorder-normalizer-ui-test"
     static let compactUITestArgument = "--compact-ui-test"
 
     let isBackgroundUITest: Bool
     let usesSyntheticConversationFixture: Bool
-    let usesGeometryConversationFixture: Bool
-    let usesRecorderNormalizerFixture: Bool
     let usesCompactTestFrame: Bool
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
@@ -33,12 +20,6 @@ struct DashboardLaunchConfiguration: Equatable {
         usesSyntheticConversationFixture =
             isBackgroundUITest
             && arguments.contains(Self.syntheticConversationUITestArgument)
-        usesGeometryConversationFixture =
-            isBackgroundUITest
-            && arguments.contains(Self.geometryConversationUITestArgument)
-        usesRecorderNormalizerFixture =
-            isBackgroundUITest
-            && arguments.contains(Self.recorderNormalizerUITestArgument)
         usesCompactTestFrame =
             isBackgroundUITest
             && arguments.contains(Self.compactUITestArgument)
@@ -55,12 +36,6 @@ struct DashboardLaunchConfiguration: Equatable {
             : DashboardLayoutMetrics.defaultWindowSize
     }
     var conversationFixtureModuleID: String? {
-        if usesRecorderNormalizerFixture {
-            return ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
-        }
-        if usesGeometryConversationFixture {
-            return ConversationModuleAllowlist.geometryRecorderManifest.moduleID
-        }
         if usesSyntheticConversationFixture {
             return ConversationModuleAllowlist.syntheticManifest.moduleID
         }
@@ -125,16 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         usesSavedFrame: launchConfiguration.usesSavedFrame,
         initialWindowSize: launchConfiguration.initialWindowSize,
         conversationFixtureModuleID:
-            launchConfiguration.conversationFixtureModuleID,
-        conversationFixtureUsesRecorderNormalizer:
-            launchConfiguration.usesRecorderNormalizerFixture
-    )
-
-    private lazy var screenTrainerController = ScreenTrainerOverlayWindowController(
-        session: ScreenTrainerSession(
-            readout: SyntheticScreenTrainerModel.readout(for: .resultsReview),
-            store: ScreenTrainerCorrectionStore.defaultStore()
-        )
+            launchConfiguration.conversationFixtureModuleID
     )
 
     private override init() {
@@ -165,26 +131,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApplication.shared.terminate(nil)
             return
         }
-        if let trainerDemoPath = ScreenTrainerDemoRenderer.requestedOutputPath() {
-            NSApplication.shared.setActivationPolicy(.accessory)
-            _ = ScreenTrainerDemoRenderer.render(
-                to: trainerDemoPath,
-                framePath: ScreenTrainerDemoRenderer.requestedFramePath(),
-                label: ScreenTrainerDemoRenderer.requestedLabel()
-            )
-            NSApplication.shared.terminate(nil)
-            return
-        }
-        if CaptureSelfTest.isRequested() {
-            // Exercise the real capture-encode → local-model → readout wiring with a
-            // SYNTHETIC in-memory frame (no window capture, no PHI), then exit.
-            NSApplication.shared.setActivationPolicy(.accessory)
-            Task {
-                await CaptureSelfTest.run()
-                NSApplication.shared.terminate(nil)
-            }
-            return
-        }
         guard claimSingleInstance() else { return }
         configureMainMenu()
         showDashboard(nil)
@@ -200,25 +146,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showDashboard(_ sender: Any?) {
         windowController.show(sender)
-    }
-
-    /// Bridges the App-menu / ⌘R entry point to the SwiftUI dashboard: shows the
-    /// window, then posts a notification the recorder card observes to kick off the
-    /// one-click "Record a session" flow (enable → select recorder → window picker).
-    @objc private func startRecordingSession(_ sender: Any?) {
-        showDashboard(sender)
-        NotificationCenter.default.post(
-            name: .operationsFloaterStartRecording,
-            object: nil
-        )
-    }
-
-    /// Opens the Screen Trainer overlay: a transparent, always-on-top window that
-    /// draws the local model's candidate EHR regions for visual correction. It is
-    /// seeded with a synthetic readout; real capture is a separate runtime step
-    /// that only ever feeds the local model.
-    @objc private func showScreenTrainer(_ sender: Any?) {
-        screenTrainerController.show()
     }
 
     @objc private func closeDashboard(_ sender: Any?) {
@@ -333,20 +260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "0"
         )
         showItem.target = self
-
-        let recordItem = applicationMenu.addItem(
-            withTitle: "Record a Session",
-            action: #selector(startRecordingSession(_:)),
-            keyEquivalent: "r"
-        )
-        recordItem.target = self
-
-        let trainerItem = applicationMenu.addItem(
-            withTitle: "Screen Trainer Overlay",
-            action: #selector(showScreenTrainer(_:)),
-            keyEquivalent: "t"
-        )
-        trainerItem.target = self
         applicationMenu.addItem(.separator())
 
         let importItem = applicationMenu.addItem(
@@ -436,7 +349,6 @@ final class DashboardWindowController {
     private let usesSavedFrame: Bool
     private let initialWindowSize: CGSize
     private let conversationFixtureModuleID: String?
-    private let conversationFixtureUsesRecorderNormalizer: Bool
 
     init(
         state: DashboardState,
@@ -445,8 +357,7 @@ final class DashboardWindowController {
         joinsAllSpaces: Bool = false,
         usesSavedFrame: Bool = true,
         initialWindowSize: CGSize = DashboardLayoutMetrics.defaultWindowSize,
-        conversationFixtureModuleID: String? = nil,
-        conversationFixtureUsesRecorderNormalizer: Bool = false
+        conversationFixtureModuleID: String? = nil
     ) {
         self.state = state
         self.activatesApplication = activatesApplication
@@ -455,8 +366,6 @@ final class DashboardWindowController {
         self.usesSavedFrame = usesSavedFrame
         self.initialWindowSize = initialWindowSize
         self.conversationFixtureModuleID = conversationFixtureModuleID
-        self.conversationFixtureUsesRecorderNormalizer =
-            conversationFixtureUsesRecorderNormalizer
     }
 
     @discardableResult
@@ -505,9 +414,7 @@ final class DashboardWindowController {
         panel.contentView = NSHostingView(
             rootView: DashboardView(
                 state: state,
-                conversationFixtureModuleID: conversationFixtureModuleID,
-                conversationFixtureUsesRecorderNormalizer:
-                    conversationFixtureUsesRecorderNormalizer
+                conversationFixtureModuleID: conversationFixtureModuleID
             )
         )
         state.onPinnedChange = { [weak panel] isPinned in
@@ -648,18 +555,14 @@ private struct DashboardView: View {
     @AppStorage(CompanionStyle.storageKey)
     private var companionStyleRawValue = CompanionStyle.default.rawValue
     private let conversationFixtureModuleID: String?
-    private let conversationFixtureUsesRecorderNormalizer: Bool
 
     init(
         state: DashboardState,
-        conversationFixtureModuleID: String? = nil,
-        conversationFixtureUsesRecorderNormalizer: Bool = false
+        conversationFixtureModuleID: String? = nil
     ) {
         _state = StateObject(wrappedValue: state)
         _chat = StateObject(wrappedValue: RouterChatSession())
         self.conversationFixtureModuleID = conversationFixtureModuleID
-        self.conversationFixtureUsesRecorderNormalizer =
-            conversationFixtureUsesRecorderNormalizer
     }
 
     var body: some View {
@@ -671,12 +574,6 @@ private struct DashboardView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
                         guideStrip(metrics: metrics)
-                        RecorderQuickStartCard(
-                            session: chat,
-                            voice: voice,
-                            metrics: metrics,
-                            assistantCollapsed: $assistantCollapsed
-                        )
                         RouterChatPanel(
                             session: chat,
                             voice: voice,
@@ -719,9 +616,7 @@ private struct DashboardView: View {
             }
             didPrepareConversationFixture = true
             await chat.prepareSyntheticConversationUITest(
-                moduleID: conversationFixtureModuleID,
-                usesNaturalRecorderNormalization:
-                    conversationFixtureUsesRecorderNormalizer
+                moduleID: conversationFixtureModuleID
             )
         }
         .onChange(of: state.snapshot) { _, _ in

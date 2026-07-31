@@ -29,8 +29,6 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSScreenCaptureUsageDescription</key>
-	<string>Screen Trainer reads only the window you pick, with a local on-device model, to learn your EHR layout. Frames never leave this Mac and are deleted right after.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Start Voice Conversation uses the microphone only while you explicitly listen.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

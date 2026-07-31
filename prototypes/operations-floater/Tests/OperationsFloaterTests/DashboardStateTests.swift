@@ -37,31 +37,10 @@ struct DashboardStateTests {
         #expect(!configuration.joinsAllSpaces)
         #expect(!configuration.usesSavedFrame)
         #expect(configuration.usesSyntheticConversationFixture)
-        #expect(!configuration.usesRecorderNormalizerFixture)
         #expect(
             configuration.initialWindowSize
                 == DashboardLayoutMetrics.minimumWindowSize
         )
-    }
-
-    @Test("Recorder normalizer UI testing selects the Relative XY module")
-    func recorderNormalizerUITestLaunchConfiguration() {
-        let configuration = DashboardLaunchConfiguration(
-            arguments: [
-                "/tmp/Operations Floater",
-                DashboardLaunchConfiguration.backgroundUITestArgument,
-                DashboardLaunchConfiguration.recorderNormalizerUITestArgument,
-            ]
-        )
-
-        #expect(configuration.isBackgroundUITest)
-        #expect(configuration.usesRecorderNormalizerFixture)
-        #expect(
-            configuration.conversationFixtureModuleID
-                == ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
-        )
-        #expect(!configuration.activatesApplication)
-        #expect(!configuration.joinsAllSpaces)
     }
 
     @Test("Background UI testing starts with Keep in front disabled")

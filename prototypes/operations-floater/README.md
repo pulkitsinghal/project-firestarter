@@ -38,7 +38,7 @@ contract fields, requires allowlisted root-excluded provenance, and falls back
 to an independently verified LKG only when current input is invalid. A valid
 stale current feed remains selected and is visibly marked stale. Feed absence
 or failure makes only this panel unavailable; it never disables the established
-dashboard, Router, voice, recorder, or window behavior.
+dashboard, Router, voice, or window behavior.
 
 Choose **Import Local Snapshot…** to select and install a canonical local file.
 The app does not retain the selected source path. Installation validates before
@@ -71,7 +71,7 @@ snapshot remains schema version `1.0`.
   every Desktop are never implicit.
 - The app holds one process-scoped lease in its Application Support
   directory. A direct second launch activates the existing bundle instance and
-  exits before starting another recorder host.
+  exits before starting another application host.
 - A deliberate `--background-ui-test` launch mode leaves **Keep in front** off,
   stays on one macOS Desktop, and neither activates the app nor force-orders its
   window above unrelated work. Normal user launches retain the foreground
@@ -137,41 +137,7 @@ snapshot remains schema version `1.0`.
   module the floor. Modules provide no UI, mic, TTS, persistence, screen capture,
   input injection, executable replay, arbitrary network, or dynamic code.
   Escape or **Return to dashboard** revokes the floor. The built-in synthetic
-  checkpoint module provides deterministic contract testing; the geometry
-  recorder adapter uses only fixed loopback IPC and neutral synthetic fixture
-  events.
-- The optional **Relative XY recorder** lets the user select any one visible
-  window, then pairs dashboard voice narration with that window's complete
-  mouse, scroll, and key-code event stream. Coordinates are normalized to the
-  selected window. The host retains its exact process/window binding in memory
-  only and rejects events when that window loses the active/topmost binding.
-  It never reads pixels, OCR, window titles, URLs, clipboard data, or printable
-  characters. Recording is explicit, memory-only until **Stop & review**, and
-  export uses a user-selected local JSON file. It contains no replay or input
-  injection path. Calculator and Chess are neutral practice examples, not an
-  application allowlist.
-- Recorder voice turns are normalized through the fixed loopback Router with the
-  explicit resident `qwen2.5:32b` model. The raw transcript and prior recorder
-  question are labeled untrusted data. Only a strict
-  `relative-xy-command-batch/v1` JSON object reaches the deterministic module;
-  non-local model provenance, extra fields, invalid identifiers, and unknown
-  commands fail closed.
-- A live recorder pipeline makes each transformation inspectable: on-device
-  transcript, local model, closed command sequence, capture state, module state,
-  selected-window dimensions, event count, and exact acceptance/refusal detail.
-  The selected-window input panel separately echoes the latest mouse, scroll,
-  and key-code events with elapsed time and relative coordinates. Printable
-  character strings are not reconstructed and replay remains disabled.
-- The **Screen Trainer** overlay draws the local vision model's read of an
-  EHR-like screen as labeled, normalized boxes in a transparent, always-on-top,
-  click-through window, and lets the clinician correct it — click to confirm,
-  relabel, or drag a box, or type a free-text note. A live "what I'm learning"
-  panel narrates each correction and states what it now believes. Pointer and
-  typed input feed one PHI-free on-device store (the same
-  signature+label memory `watchful_memory.py` uses); a voice modality is
-  architected for the next slice. Development and tests use synthetic frames
-  only; no real screen is ever captured or read, and nothing leaves the device.
-  See [docs/SCREEN_TRAINER.md](docs/SCREEN_TRAINER.md).
+  checkpoint module provides deterministic contract testing.
 - Voice conversation is separately explicit and default-off. Production speech
   recognition requires an on-device provider and fails closed when permission,
   provider metadata, or on-device support is unavailable. Start, pause, resume,
@@ -190,14 +156,12 @@ snapshot remains schema version `1.0`.
 - The default 620-by-640 window shows a dense two-column operational grid and
   remains usable down to a 380-by-480 compact single-column layout.
 - The application target uses the Hardened Runtime and is distributed directly
-  with a Developer ID (not sandboxed), and includes a macOS app icon, encryption
-  declaration, and productivity category. The App Sandbox is deliberately off
-  because the Relative XY recorder needs cross-process Input Monitoring, which
-  the sandbox blocks. See [docs/SIGNING.md](docs/SIGNING.md) for the
-  sandbox-vs-Input-Monitoring analysis, entitlements, and owner signing steps.
+  with a Developer ID, and includes a macOS app icon, encryption declaration,
+  and productivity category. See [docs/SIGNING.md](docs/SIGNING.md) for the
+  distribution posture, entitlements, and owner signing steps.
 - The supported release shape is one signed main app with no login item,
-  launch agent, daemon, privileged helper, or updater. Input Monitoring belongs
-  to that app's stable code identity; unsigned and ad-hoc routine builds are
+  launch agent, daemon, privileged helper, or updater. Permission grants bind to
+  that app's stable code identity; unsigned and ad-hoc routine builds are
   disposable test artifacts and must not replace or launch as the permission-
   bearing installed copy.
 
@@ -205,7 +169,7 @@ See [INSTALL_UPDATE_ROLLBACK.md](INSTALL_UPDATE_ROLLBACK.md) for the release
 preflight, local update procedure, acceptance checks, and rollback path.
 See
 [`docs/PERMISSION_AND_INSTALL_LIFECYCLE.md`](docs/PERMISSION_AND_INSTALL_LIFECYCLE.md)
-for the stable Input Monitoring identity, no-helper contract, single-instance
+for the stable signed code identity, no-helper contract, single-instance
 lifecycle, and owner-gated migration plan.
 See [docs/BACKGROUND_UI_TESTING.md](docs/BACKGROUND_UI_TESTING.md) for the
 low-disruption spare-Desktop test workflow and its measured limitations.
@@ -213,9 +177,6 @@ See
 [docs/CONVERSATION_MODULE_CONTRACT.md](docs/CONVERSATION_MODULE_CONTRACT.md)
 for the versioned module manifest, exact IPC envelope and bounds, floor
 lifecycle, privacy posture, and failure behavior.
-See [docs/RECORDER_LIVE_TRACE.md](docs/RECORDER_LIVE_TRACE.md) for the visible
-voice-to-command architecture, event-echo boundary, collapse lifecycle, and
-single-Space behavior.
 See [docs/RECEIPT_FEED_NATIVE.md](docs/RECEIPT_FEED_NATIVE.md) for the pinned
 native receipt contract, selection semantics, privacy boundary, and rollback.
 
@@ -234,16 +195,6 @@ and writes a PNG without opening or foregrounding a dashboard window:
 
 ```bash
 swift run OperationsFloater --render-companion-preview /tmp/ember-gallery.png
-```
-
-Render the Screen Trainer review still over a synthetic (PHI-free) EHR frame.
-This also rasterizes offscreen without opening a window:
-
-```bash
-swift run OperationsFloater \
-  --render-trainer-demo /tmp/screen-trainer-demo.png \
-  --trainer-demo-frame /tmp/synthetic-frame.png \
-  --trainer-demo-label results-review
 ```
 
 Routine validation stops at SwiftPM and synthetic fixture tests on the active

@@ -13,17 +13,36 @@ struct ConversationModuleTests {
         sourceID: "firestarter.operations-floater.synthetic",
         buildDigest: "7e3b6a1b0d4586f3d3b99a8e4b5114ca4f963f1b6ce974cf81682433c73547de"
     )
+    /// A neutral, host-controlled test manifest that exercises the generic
+    /// conversation-module contract (pointer, key, scroll, placeholder, and
+    /// window events) without referencing any product-specific module.
+    private let neutralInputManifest = ConversationModuleManifest(
+        contractVersion: ConversationModuleContract.version,
+        moduleID: "firestarter.test.neutral-input",
+        displayName: "Neutral input contract fixture",
+        capabilities: [
+            .narration,
+            .normalizedPointerEvents,
+            .navigationKeys,
+            .rawKeyboardEvents,
+            .scrollEvents,
+            .placeholderEvents,
+            .neutralWindowContext,
+            .checkpoints,
+            .proposedActions,
+        ],
+        privacy: .hostControlled,
+        provenanceSourceID: "firestarter.test.neutral-input",
+        allowedTranscriptProviders: [.onDevice, .syntheticFixture],
+        allowedWindowBindingIDs: ["firestarter.test.neutral-window"]
+    )
 
     @Test("The static allowlist accepts only host-controlled privacy")
     func allowlistPrivacy() throws {
         try ConversationModuleAllowlist.syntheticManifest.validate()
-        try ConversationModuleAllowlist.geometryRecorderManifest.validate()
-        try ConversationModuleAllowlist.relativeXYRecorderManifest.validate()
 
         for manifest in [
             ConversationModuleAllowlist.syntheticManifest,
-            ConversationModuleAllowlist.geometryRecorderManifest,
-            ConversationModuleAllowlist.relativeXYRecorderManifest,
         ] {
             #expect(manifest.privacy == .hostControlled)
             #expect(manifest.privacy.ephemeralOnly)
@@ -38,12 +57,12 @@ struct ConversationModuleTests {
         }
     }
 
-    @Test("Relative XY accepts any selected window and the complete input vocabulary")
-    func relativeXYInputVocabulary() throws {
-        let manifest = ConversationModuleAllowlist.relativeXYRecorderManifest
+    @Test("The contract accepts any selected window and the complete input vocabulary")
+    func neutralInputVocabulary() throws {
+        let manifest = neutralInputManifest
         #expect(
             manifest.allowedWindowBindingIDs
-                == ["verbal-orders.neutral.selected-window"]
+                == ["firestarter.test.neutral-window"]
         )
         #expect(manifest.capabilities.contains(.rawKeyboardEvents))
         #expect(manifest.capabilities.contains(.scrollEvents))
@@ -92,7 +111,7 @@ struct ConversationModuleTests {
             ),
             events: events,
             window: ConversationModuleWindowContext(
-                bindingID: "verbal-orders.neutral.selected-window",
+                bindingID: "firestarter.test.neutral-window",
                 width: 1_437,
                 height: 913
             )
@@ -141,31 +160,30 @@ struct ConversationModuleTests {
             navigationKey: nil,
             placeholder: nil
         )
+        let manifest = neutralInputManifest
         let validRequest = request(
-            manifest: ConversationModuleAllowlist.geometryRecorderManifest,
+            manifest: manifest,
             floor: ConversationFloorGrant(
                 state: .granted,
-                moduleID: ConversationModuleAllowlist.geometryRecorderManifest.moduleID,
+                moduleID: manifest.moduleID,
                 token: floor.token
             ),
             provenance: ConversationModuleProvenance(
-                sourceID: "example.project-verbal-orders.geometry-recorder",
+                sourceID: manifest.provenanceSourceID,
                 buildDigest: provenance.buildDigest
             ),
             events: [event],
             window: ConversationModuleWindowContext(
-                bindingID: "verbal-orders.synthetic.geometry-canvas",
+                bindingID: "firestarter.test.neutral-window",
                 width: 1280,
                 height: 720
             )
         )
 
-        try validRequest.validate(
-            for: ConversationModuleAllowlist.geometryRecorderManifest
-        )
+        try validRequest.validate(for: manifest)
 
         let drifted = request(
-            manifest: ConversationModuleAllowlist.geometryRecorderManifest,
+            manifest: manifest,
             floor: validRequest.floor,
             provenance: validRequest.provenance,
             events: [event],
@@ -176,9 +194,7 @@ struct ConversationModuleTests {
             )
         )
         #expect(throws: ConversationModuleError.windowBindingRejected) {
-            try drifted.validate(
-                for: ConversationModuleAllowlist.geometryRecorderManifest
-            )
+            try drifted.validate(for: manifest)
         }
     }
 
@@ -197,24 +213,23 @@ struct ConversationModuleTests {
             navigationKey: .tab,
             placeholder: nil
         )
+        let manifest = neutralInputManifest
         let request = request(
-            manifest: ConversationModuleAllowlist.geometryRecorderManifest,
+            manifest: manifest,
             floor: ConversationFloorGrant(
                 state: .granted,
-                moduleID: ConversationModuleAllowlist.geometryRecorderManifest.moduleID,
+                moduleID: manifest.moduleID,
                 token: floor.token
             ),
             provenance: ConversationModuleProvenance(
-                sourceID: "example.project-verbal-orders.geometry-recorder",
+                sourceID: manifest.provenanceSourceID,
                 buildDigest: provenance.buildDigest
             ),
             events: [event]
         )
 
         #expect(throws: ConversationModuleError.sequenceMismatch) {
-            try request.validate(
-                for: ConversationModuleAllowlist.geometryRecorderManifest
-            )
+            try request.validate(for: manifest)
         }
     }
 
@@ -234,7 +249,7 @@ struct ConversationModuleTests {
 
     @Test("Revoke and end control envelopes do not need a transcript provider")
     func controlEnvelopeProviderIsExempt() throws {
-        let manifest = ConversationModuleAllowlist.geometryRecorderManifest
+        let manifest = neutralInputManifest
         let controlRequest = ConversationModuleRequest(
             contractVersion: ConversationModuleContract.version,
             kind: .revoke,
@@ -259,61 +274,6 @@ struct ConversationModuleTests {
         )
 
         try controlRequest.validate(for: manifest)
-    }
-
-    @Test("Geometry demo input is a neutral allowlisted synthetic fixture")
-    @MainActor
-    func geometryFixtureIsClosedAndValid() throws {
-        let manifest = ConversationModuleAllowlist.geometryRecorderManifest
-        let fixture = RouterChatSession.syntheticFixtureInput(for: manifest)
-        let geometryRequest = ConversationModuleRequest(
-            contractVersion: ConversationModuleContract.version,
-            kind: .turn,
-            moduleID: manifest.moduleID,
-            requestID: "request_00000000-0000-0000-0000-000000000011",
-            turnID: "turn_00000000-0000-0000-0000-000000000011",
-            sequence: 1,
-            floor: ConversationFloorGrant(
-                state: .granted,
-                moduleID: manifest.moduleID,
-                token: floor.token
-            ),
-            transcriptProvider: .syntheticFixture,
-            narration: "Synthetic geometry narration",
-            context: .empty,
-            events: fixture.events,
-            window: fixture.window,
-            provenance: ConversationModuleProvenance(
-                sourceID: manifest.provenanceSourceID,
-                buildDigest: provenance.buildDigest
-            )
-        )
-
-        try geometryRequest.validate(for: manifest)
-        #expect(fixture.events.count == 1)
-        #expect(fixture.events.first?.placeholder == .canvasRegion)
-        #expect(fixture.window?.bindingID == "verbal-orders.synthetic.geometry-canvas")
-    }
-
-    @Test("Relative XY UI fixture is explicit, bounded, and test-only")
-    @MainActor
-    func relativeXYFixtureIsClosedAndValid() throws {
-        let manifest = ConversationModuleAllowlist.relativeXYRecorderManifest
-        let productionFallback = RouterChatSession.syntheticFixtureInput(for: manifest)
-        let fixture = RouterChatSession.syntheticFixtureInput(
-            for: manifest,
-            includeRelativeXY: true
-        )
-
-        #expect(productionFallback.events.isEmpty)
-        #expect(productionFallback.window == nil)
-        #expect(fixture.events.count == 1)
-        #expect(fixture.events.first?.kind == .normalizedPointer)
-        #expect(fixture.events.first?.normalizedX == 0.2)
-        #expect(fixture.events.first?.normalizedY == 0.3)
-        #expect(fixture.window?.bindingID == "verbal-orders.neutral.selected-window")
-        #expect(fixture.window?.width == 935)
-        #expect(fixture.window?.height == 598)
     }
 
     @Test("Unknown response and nested health fields fail closed")

@@ -843,62 +843,11 @@ enum ConversationModuleAllowlist {
         allowedWindowBindingIDs: []
     )
 
-    static let geometryRecorderManifest = ConversationModuleManifest(
-        contractVersion: ConversationModuleContract.version,
-        moduleID: "example.verbal-orders.synthetic-geometry-recorder",
-        displayName: "Synthetic geometry recorder",
-        capabilities: [
-            .narration,
-            .normalizedPointerEvents,
-            .navigationKeys,
-            .placeholderEvents,
-            .neutralWindowContext,
-            .checkpoints,
-            .proposedActions,
-        ],
-        privacy: .hostControlled,
-        provenanceSourceID: "example.project-verbal-orders.geometry-recorder",
-        allowedTranscriptProviders: [.onDevice, .syntheticFixture],
-        allowedWindowBindingIDs: [
-            "verbal-orders.synthetic.geometry-canvas",
-        ]
-    )
-
-    static let relativeXYRecorderManifest = ConversationModuleManifest(
-        contractVersion: ConversationModuleContract.version,
-        moduleID: "example.verbal-orders.relative-xy-recorder",
-        displayName: "Relative XY recorder",
-        capabilities: [
-            .narration,
-            .normalizedPointerEvents,
-            .navigationKeys,
-            .rawKeyboardEvents,
-            .scrollEvents,
-            .neutralWindowContext,
-            .checkpoints,
-            .proposedActions,
-        ],
-        privacy: .hostControlled,
-        provenanceSourceID: "example.project-verbal-orders.relative-xy-recorder",
-        allowedTranscriptProviders: [.onDevice, .syntheticFixture],
-        allowedWindowBindingIDs: [
-            "verbal-orders.neutral.selected-window",
-        ]
-    )
-
     static func liveRegistrations() -> [ConversationModuleRegistration] {
         [
             ConversationModuleRegistration(
                 manifest: syntheticManifest,
                 transport: SyntheticConversationModule()
-            ),
-            ConversationModuleRegistration(
-                manifest: geometryRecorderManifest,
-                transport: LoopbackConversationModuleClient()
-            ),
-            ConversationModuleRegistration(
-                manifest: relativeXYRecorderManifest,
-                transport: LoopbackConversationModuleClient()
             ),
         ]
     }
