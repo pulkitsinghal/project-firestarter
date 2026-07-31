@@ -5,9 +5,64 @@ with an on-screen **overlay**: the local vision model's read is *drawn* on top o
 the screen as labeled boxes, and the clinician corrects it visually and by typing.
 Every correction feeds the same PHI-free, on-device learning loop.
 
-This is **slice 1** — a bounded first cut for owner review. It ships the overlay,
-pointer + typed correction, and the "what I'm learning" feed, and it *architects*
-(does not build) the voice layer.
+**Slice 1** shipped the overlay, pointer + typed correction, and the "what I'm
+learning" feed against a **synthetic** read, and *architected* (did not build) the
+voice layer.
+
+**Slice 2 (this change) makes the read REAL.** A **Capture / Read screen** button
+enumerates the owner's on-screen windows with ScreenCaptureKit, auto-suggests the
+**Citrix Viewer** window, captures one downscaled frame of the picked window, and
+feeds it to the **LOCAL** qwen2.5vl model over localhost Ollama. The model's
+candidate regions become the overlay's real read; the owner then confirms /
+relabels / drags / types exactly as in slice 1, into the same on-device store.
+The synthetic model still drives the demo and every test — no real screen is ever
+captured or read in development or CI.
+
+### Real capture (slice 2)
+
+- `ScreenCaptureService` (`ScreenCapture.swift`) wraps ScreenCaptureKit:
+  `listWindows()` (`SCShareableContent`) → `[CaptureCandidateWindow]` (a Sendable
+  value type; the `SCWindow` never escapes), and `captureBase64(windowID:)`
+  (`SCScreenshotManager`) → a downscaled base64 JPEG. `CitrixWindowHeuristic`
+  auto-suggests the Citrix Viewer window; `FrameDownscale` caps the longest edge;
+  `FrameEncoder` serializes the frame.
+- `OllamaScreenReader.read(base64Frame:…)` POSTs the frame to
+  `http://localhost:11434` and parses the reply into a `ScreenReadout`.
+- `ScreenCaptureController` is the button's state machine (list → auto-capture /
+  choose → capture → read → deliver). Its seams are injected, so the whole flow is
+  unit-tested with a synthetic frame and no screen access.
+- `ScreenTrainerSession.applyLiveReadout(_:)` swaps the synthetic default for the
+  real read and narrates it — **without** persisting a correction (a read is the
+  model's guess; the owner's confirm/relabel is what teaches the store).
+- **Screen Recording** needs **no** Hardened Runtime entitlement — it is TCC-gated
+  like Input Monitoring, and the grant binds to the app's stable **signed** code
+  identity, so a Developer ID build grants it once and it persists. An advisory
+  `NSScreenCaptureUsageDescription` documents intent (macOS shows a generic
+  prompt).
+
+### Owner steps to run the real read
+
+1. **Grant Screen Recording to the installed, Developer-ID-signed
+   `/Applications/Operations Floater.app`** ahead of time: System Settings ▸
+   Privacy & Security ▸ Screen Recording ▸ enable Operations Floater. Because the
+   grant binds to the signed identity, do this on the *signed* app (not a
+   disposable ad-hoc build, whose grant will not carry over).
+2. Build + sign + notarize this branch with the owner's Developer ID via
+   `scripts/sign-and-notarize.sh` and install it over `/Applications` (same
+   identity ⇒ the Screen Recording grant carries over; relaunch if prompted).
+3. Open the overlay: **Operations Floater ▸ Screen Trainer Overlay** (`⌘T`).
+4. Click **Capture / Read screen**. It auto-suggests the **Citrix Viewer** window
+   (or shows a chooser); pick it. The overlay draws the model's **real** read.
+5. Confirm / relabel / drag the boxes, or type a note. The **"what I'm learning"**
+   panel updates and the correction is stored on-device.
+
+Verify the capture→encode→local-model→readout wiring with a **synthetic** frame
+(no window capture, no PHI):
+
+```bash
+swift run OperationsFloater --capture-selftest            # hits the local model
+swift run OperationsFloater --capture-selftest --capture-selftest-no-model  # encode only
+```
 
 ## PHI boundary (absolute)
 
@@ -59,10 +114,13 @@ frame (synthetic in dev; real only at runtime, local-only, then deleted)
   → nearest-centroid memory improves                          ScreenTrainerMemory  (== watchful_memory.py)
 ```
 
-`OllamaScreenReader` is **wired, not productionized**: the request/parse seams are
-pure and tested, but the capture + network call runs only on the clinician's
-machine at runtime. The synthetic model (`SyntheticScreenTrainerModel`) drives the
-demo and every test, so the whole loop runs offline with no capture and no PHI.
+As of slice 2 the capture + localhost inference is **wired and callable**
+(`ScreenCaptureService` + `OllamaScreenReader.read`), but it runs ONLY on the
+owner's machine when he clicks **Capture / Read screen** and points it at a
+window. The synthetic model (`SyntheticScreenTrainerModel`) still drives the demo
+and every automated test, and `--capture-selftest` exercises the real
+encode→model→parse path with a synthetic frame, so development and CI run offline
+with no real capture and no PHI.
 
 ## One loop, many inputs (voice is architected, not built)
 
@@ -94,8 +152,8 @@ swift run OperationsFloater \
 ## What's next (owner reviews slice 1 first)
 
 - **Voice** — the architected layer above.
-- **Live capture wiring** — connect the runtime capture step to `OllamaScreenReader`
-  on-device (kept out of this slice to hold the PHI boundary during development).
+- ~~Live capture wiring~~ — **done in slice 2** (ScreenCaptureKit → local model).
+  Next: continuous / interval re-capture and per-frame confidence gating.
 - **Embedding backfill** — attach the local `nomic-embed-text` embedding on each
   correction so `ScreenTrainerMemory` recall runs natively, exactly as the Python
   loop does today.
