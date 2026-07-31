@@ -52,6 +52,28 @@
   Hardened Runtime entitlement (TCC-gated, like Input Monitoring); adds an
   advisory `NSScreenCaptureUsageDescription`. Verified end-to-end with a
   **synthetic** frame via `--capture-selftest` (no real capture in dev/CI).
+- **Screen Trainer — author-your-own overlay LAYER system (Photoshop-style).**
+  Add a layer model the clinician authors on top of the model's read: each
+  `OverlayLayer` carries `{id, normalizedRect, label, purpose, actionLaneIndex,
+  groupID, visible}` — position, a name, a free-text PURPOSE (why the step
+  exists), a slot in the ACTION LANE (workflow click order), a group, and its own
+  show/hide. `OverlayGroup`s organize layers by clinical context (e.g. inpatient
+  / outpatient) with per-group show/hide. `OverlayComposition` is the pure value
+  type holding the whole document with all Photoshop-style semantics as pure
+  functions (effective visibility = own flag AND group visible; `renderableLayers`
+  excludes anything hidden; `actionLaneSequence` orders by workflow slot; add /
+  reorder / regroup / edit / remove). New `ScreenTrainerLayers.swift` (model +
+  `OverlayCompositionStore` single-document JSON persistence +
+  `OverlayCompositionSession`) and `ScreenTrainerLayersPanel.swift` (the panel +
+  `AuthoredOverlaysLayer`, which reuses the `NormalizedRect` box-drawing plumbing
+  and draws exactly the renderable layers). The overlay now shows a **LAYERS**
+  panel: list groups + layers, toggle visibility per-item and per-group, reorder,
+  and an **add overlay** affordance that authors a component with a label,
+  purpose, action-lane slot, and group. Persistence is PHI-free by construction —
+  only author-supplied labels, purposes, normalized positions, workflow-order
+  indices, group names, and visibility; no frame, pixels, or screen text. This is
+  the semantic-knowledge-graph seed the context-toggle, mermaid-graph, and
+  agentic-composition slices build on next.
 - Add a local-only, read-only receipt-feed 1.1 source with strict shape,
   duplicate-key, provenance, file-type, size, and SHA-256 validation.
 - Read content-addressed `current` first and use LKG only when current fails

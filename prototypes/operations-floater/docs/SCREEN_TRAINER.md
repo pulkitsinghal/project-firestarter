@@ -149,13 +149,48 @@ swift run OperationsFloater \
   --trainer-demo-label results-review
 ```
 
-## What's next (owner reviews slice 1 first)
+## Author-your-own overlay LAYER system (Photoshop-style)
 
-- **Voice** — the architected layer above.
-- ~~Live capture wiring~~ — **done in slice 2** (ScreenCaptureKit → local model).
-  Next: continuous / interval re-capture and per-frame confidence gating.
+Beyond correcting the model's read, the clinician **authors his own overlays** and
+stacks them on top, managed Photoshop-style. This is the foundation for the
+semantic knowledge-graph of the EHR UI that the later agentic layer plans over.
+
+- **Data model** (`ScreenTrainerLayers.swift`). An `OverlayLayer` is one authored
+  component: `{id, normalizedRect, label, purpose, actionLaneIndex, groupID,
+  visible}` — WHERE it sits, WHAT it is (`label`), WHY it exists (`purpose`, free
+  text), WHEN it happens (`actionLaneIndex`, its slot in the workflow
+  click-sequence), which clinical context it belongs to (`groupID`), and its own
+  show/hide. `OverlayGroup`s (e.g. `inpatient` / `outpatient`) collect layers with
+  per-group show/hide. `OverlayComposition` is the pure document holding the whole
+  stack, with all Photoshop semantics as pure functions:
+  - `isEffectivelyVisible` = the layer's own flag **AND** its group's flag.
+  - `renderableLayers` returns EXACTLY what draws (hidden layers and layers in
+    hidden groups are excluded) — the render guarantee lives in the model, not the
+    view.
+  - `actionLaneSequence` orders every layer by its workflow slot — the sequence the
+    agentic layer will plan over.
+  - `addLayer` / `addGroup` / `toggleLayer` / `toggleGroup` / `moveLayer` /
+    `moveGroup` / `assignLayer` / `updateLayer` / `removeLayer` / `removeGroup`.
+- **Layers panel** (`ScreenTrainerLayersPanel.swift`). Lists groups and their
+  layers, each with a show/hide eye and reorder controls, plus an **add overlay**
+  affordance: label + purpose + action-lane slot + group. `AuthoredOverlaysLayer`
+  reuses the `NormalizedRect` box-drawing plumbing and draws only
+  `renderableLayers` — hidden layers never draw.
+- **Persistence** (`OverlayCompositionStore`). A single PHI-free JSON document
+  beside the correction store under Application Support, git-ignored, holding only
+  author-supplied labels, purposes, normalized positions, workflow-order indices,
+  group names, and visibility. No frame, pixels, or screen text — never PHI, the
+  same posture as the typed correction note.
+
+## What's next
+
+- **Context toggle** — surface groups as first-class clinical-context switches in
+  the overlay (show only the active context's layers).
+- **Mermaid graph** — export the authored layers + action lanes as the EHR-UI
+  knowledge graph.
+- **Agentic composition** — plan click-sequences over `actionLaneSequence` to
+  accomplish untaught goals, behind a hard propose-confirm safety gate.
+- **Voice** — the architected correction layer above.
 - **Embedding backfill** — attach the local `nomic-embed-text` embedding on each
   correction so `ScreenTrainerMemory` recall runs natively, exactly as the Python
   loop does today.
-- **Per-region workflow inference** and richer element vocabulary as the owner
-  confirms the interaction feels right.
