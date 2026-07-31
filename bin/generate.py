@@ -196,6 +196,7 @@ def main() -> int:
         "orchestrator_session",
         "service_supervisor",
         "browser_automation_policy",
+        "encrypted_local_areas",
     ):
         if values.get(f"include_{addon}") == "yes":
             overlaid = False
