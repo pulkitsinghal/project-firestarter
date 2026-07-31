@@ -1,4 +1,5 @@
 import Combine
+import CoreGraphics
 import Foundation
 import SwiftUI
 
@@ -679,6 +680,11 @@ final class RouterChatSession: ObservableObject {
     @Published private(set) var critiques: [UUID: RouterChatCritique] = [:]
     @Published private(set) var reviewingMessageIDs: Set<UUID> = []
     @Published private(set) var recorderTrace = RecorderPipelineTrace.idle
+    /// Drives the one-click "Record a session" window picker. The floor is never
+    /// granted until a window is chosen here, which satisfies the recorder's
+    /// existing "choose a visible window first" guard and kills the old
+    /// chicken-and-egg where the picker was unreachable before the floor.
+    @Published var isChoosingRecordingWindow = false
 
     let modules: ConversationModuleHostSession
     let geometryCapture: NeutralGeometryCaptureSession
@@ -696,18 +702,31 @@ final class RouterChatSession: ObservableObject {
     private var moduleContextTurns: [ConversationModuleContextTurn] = []
     private var allowsRelativeXYTestFixture = false
     private var pendingVoiceMessageID: UUID?
+    // Screen Recording is not enforced by the recorder (Input Monitoring is), but
+    // window-owner names are richer with it, so the one-click flow offers to
+    // request it. Injectable so unit tests never touch the real TCC prompt.
+    private let screenRecordingPreflight: () -> Bool
+    private let screenRecordingRequest: () -> Bool
 
     init(
         transport: any RouterChatTransport = RouterChatClient(),
         recorderNormalizer: any RecorderNarrationNormalizing = RouterChatClient(),
         modules: ConversationModuleHostSession = ConversationModuleHostSession(),
         geometryCapture: NeutralGeometryCaptureSession =
-            NeutralGeometryCaptureSession()
+            NeutralGeometryCaptureSession(),
+        screenRecordingPreflight: @escaping () -> Bool = {
+            CGPreflightScreenCaptureAccess()
+        },
+        screenRecordingRequest: @escaping () -> Bool = {
+            CGRequestScreenCaptureAccess()
+        }
     ) {
         self.transport = transport
         self.recorderNormalizer = recorderNormalizer
         self.modules = modules
         self.geometryCapture = geometryCapture
+        self.screenRecordingPreflight = screenRecordingPreflight
+        self.screenRecordingRequest = screenRecordingRequest
         moduleObservation = modules.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -1174,6 +1193,73 @@ final class RouterChatSession: ObservableObject {
         }
     }
 
+    /// One-click entry point for "Record a session". Ensures the assistant is
+    /// enabled and the Relative XY recorder is selected, proactively requests the
+    /// permissions the recorder needs, refreshes the window list, and then presents
+    /// the window picker. Crucially, no floor is granted here — that happens only
+    /// after the user picks a window in ``chooseRecordingWindow(_:voice:)``, which
+    /// is exactly what the recorder's "choose a visible window first" guard
+    /// requires. This is what removes the old chicken-and-egg.
+    func beginOneClickRecording() async {
+        // A recording (or its paused state) is already live — surface it, don't
+        // restart or reopen the picker.
+        if geometryCapture.mode == .recording || geometryCapture.mode == .paused {
+            return
+        }
+        lastError = nil
+        if !isEnabled {
+            await enable()
+        }
+        // Clear any prior review/idle floor so the fresh grant in the activation
+        // transaction cannot collide with an already-granted floor.
+        if modules.activeFloor != nil {
+            await revokeModuleFloor()
+        }
+        if modules.selectedModuleID
+            != ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID {
+            selectConversationTarget(
+                ConversationModuleAllowlist.relativeXYRecorderManifest.moduleID
+            )
+        }
+        requestRecordingPermissions()
+        isChoosingRecordingWindow = true
+    }
+
+    /// Re-requests the recorder's permissions and refreshes the window list. Wired
+    /// to the picker's "Request again" and "Refresh" affordances so a permission
+    /// denial never dead-ends: the user grants access, taps again, and continues.
+    func requestRecordingPermissions() {
+        if !geometryCapture.inputMonitoringAvailable {
+            geometryCapture.requestInputMonitoring()
+        }
+        if !screenRecordingPreflight() {
+            _ = screenRecordingRequest()
+        }
+        geometryCapture.refreshWindows()
+    }
+
+    /// Whether macOS Screen Recording is granted. Window enumeration works without
+    /// it; the picker uses this only to explain why owner names may be sparse.
+    var isScreenRecordingAvailable: Bool {
+        screenRecordingPreflight()
+    }
+
+    /// Completes the one-click flow: bind the chosen window, dismiss the picker, and
+    /// grant the floor + start voice and geometry recording together through the
+    /// existing, transactional activation path.
+    func chooseRecordingWindow(
+        _ windowID: CGWindowID,
+        voice: VoiceConversationSession
+    ) async {
+        geometryCapture.select(windowID: windowID)
+        isChoosingRecordingWindow = false
+        await activateSelectedRecorder(with: voice)
+    }
+
+    func cancelRecordingWindowSelection() {
+        isChoosingRecordingWindow = false
+    }
+
     func selectConversationTarget(_ moduleID: String?) {
         guard modules.activeFloor == nil,
               modules.selectedModuleID != moduleID else {
@@ -1347,17 +1433,18 @@ final class RouterChatSession: ObservableObject {
 
 struct RouterChatPanel: View {
     @ObservedObject var session: RouterChatSession
-    @StateObject private var voice: VoiceConversationSession
+    @ObservedObject var voice: VoiceConversationSession
     let metrics: DashboardLayoutMetrics
     @Binding var isCollapsed: Bool
 
     init(
         session: RouterChatSession,
+        voice: VoiceConversationSession,
         metrics: DashboardLayoutMetrics,
         isCollapsed: Binding<Bool> = .constant(false)
     ) {
         _session = ObservedObject(wrappedValue: session)
-        _voice = StateObject(wrappedValue: VoiceConversationSession())
+        _voice = ObservedObject(wrappedValue: voice)
         _isCollapsed = isCollapsed
         self.metrics = metrics
     }
@@ -2161,5 +2248,337 @@ struct RouterChatPanel: View {
         case .offline:
             .orange
         }
+    }
+}
+
+/// The PRIMARY, one-click path to recording. A single prominent button enables the
+/// assistant, selects the Relative XY recorder, requests permissions, and presents
+/// a window picker — after which the floor is granted and voice + geometry
+/// recording start together. The detailed conversation-floor controls in
+/// ``RouterChatPanel`` remain available underneath as the advanced path.
+struct RecorderQuickStartCard: View {
+    @ObservedObject var session: RouterChatSession
+    @ObservedObject var voice: VoiceConversationSession
+    let metrics: DashboardLayoutMetrics
+    @Binding var assistantCollapsed: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                Image(systemName: "record.circle")
+                    .foregroundStyle(isRecordingActive ? .red : .secondary)
+                Text("RECORD A SESSION")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                stateBadge
+            }
+
+            content
+
+            Text(
+                "One click starts voice narration and selected-window geometry "
+                    + "recording together. Only mouse, scroll, and key-code geometry "
+                    + "is captured — never pixels, characters, titles, or screenshots."
+            )
+            .font(.system(size: 9))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            if let error = session.lastError, !isRecordingActive {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(
+                    Color.red.opacity(isRecordingActive ? 0.5 : 0.22),
+                    lineWidth: 1
+                )
+        )
+        .sheet(isPresented: $session.isChoosingRecordingWindow) {
+            RecordingWindowPickerSheet(
+                session: session,
+                voice: voice,
+                assistantCollapsed: $assistantCollapsed
+            )
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .operationsFloaterStartRecording
+            )
+        ) { _ in
+            start()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Record a session")
+    }
+
+    private var isRecordingActive: Bool {
+        switch session.geometryCapture.mode {
+        case .recording, .paused:
+            true
+        default:
+            false
+        }
+    }
+
+    @ViewBuilder
+    private var stateBadge: some View {
+        switch session.geometryCapture.mode {
+        case .recording:
+            badge("RECORDING", .red)
+        case .paused:
+            badge("PAUSED", .orange)
+        case .review:
+            badge("REVIEW", .secondary)
+        case .disarmed, .armed:
+            EmptyView()
+        }
+    }
+
+    private func badge(_ text: String, _ color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.14), in: Capsule())
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch session.geometryCapture.mode {
+        case .disarmed, .armed:
+            Button(action: start) {
+                Label("Record a session", systemImage: "record.circle.fill")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 3)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .controlSize(.large)
+            .accessibilityHint(
+                "Choose a window, then start voice and geometry recording."
+            )
+        case .recording:
+            HStack(spacing: 8) {
+                Text("\(session.geometryCapture.capturedEvents.count) events")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button("Pause") { pause() }
+                    .controlSize(.small)
+                Button("Stop & review") { stopAndReview() }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+            }
+            expandHint("Full controls and JSON export are in the Assistant panel below.")
+        case .paused:
+            HStack(spacing: 8) {
+                Text("Recording paused")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Spacer(minLength: 0)
+                Button("Resume") { resume() }
+                    .controlSize(.small)
+                Button("Stop & review") { stopAndReview() }
+                    .controlSize(.small)
+            }
+            expandHint("Full controls and JSON export are in the Assistant panel below.")
+        case .review:
+            HStack(spacing: 8) {
+                Text("Recording ready to review")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button("New recording") { start() }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+            }
+            expandHint("Review the captured events and export the JSON in the Assistant panel below.")
+        }
+    }
+
+    private func expandHint(_ text: String) -> some View {
+        Button {
+            assistantCollapsed = false
+        } label: {
+            HStack(spacing: 4) {
+                Text(text)
+                Image(systemName: "chevron.down")
+            }
+            .font(.system(size: 9))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .accessibilityHint("Opens the Assistant panel with the full recorder controls.")
+    }
+
+    private func start() {
+        assistantCollapsed = false
+        Task { await session.beginOneClickRecording() }
+    }
+
+    private func pause() {
+        voice.pause()
+        session.geometryCapture.pause()
+    }
+
+    private func resume() {
+        session.geometryCapture.resume()
+        voice.resume()
+    }
+
+    private func stopAndReview() {
+        voice.stop()
+        session.geometryCapture.stop()
+    }
+}
+
+/// The window picker presented FIRST by the one-click flow, before any floor is
+/// granted. Choosing a row binds the window and immediately starts recording.
+struct RecordingWindowPickerSheet: View {
+    @ObservedObject var session: RouterChatSession
+    @ObservedObject var voice: VoiceConversationSession
+    @Binding var assistantCollapsed: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Choose a window to record")
+                    .font(.headline)
+                Text(
+                    "Recording captures mouse, scroll, and key-code geometry from "
+                        + "only the window you pick — never pixels, characters, "
+                        + "titles, OCR, or screenshots."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            permissionNotes
+            windowList
+
+            HStack {
+                Button("Refresh") { session.requestRecordingPermissions() }
+                Spacer()
+                Button("Cancel") {
+                    session.cancelRecordingWindowSelection()
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 470, height: 430)
+    }
+
+    @ViewBuilder
+    private var permissionNotes: some View {
+        if !session.geometryCapture.inputMonitoringAvailable {
+            noteRow(
+                systemImage: "keyboard.badge.ellipsis",
+                text: "Allow Operations Floater in Privacy & Security → Input "
+                    + "Monitoring, then choose a window (or Refresh) to start."
+            )
+        }
+        if !session.isScreenRecordingAvailable {
+            noteRow(
+                systemImage: "rectangle.on.rectangle",
+                text: "Window names stay sparse until Screen Recording is granted "
+                    + "in Privacy & Security → Screen Recording. Recording still "
+                    + "captures geometry only."
+            )
+        }
+    }
+
+    private func noteRow(systemImage: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.orange)
+            Text(text)
+                .font(.caption2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button("Request again") { session.requestRecordingPermissions() }
+                .controlSize(.mini)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private var windowList: some View {
+        if session.geometryCapture.availableWindows.isEmpty {
+            VStack(spacing: 6) {
+                Image(systemName: "macwindow.badge.plus")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text("No windows found.")
+                    .font(.caption.weight(.semibold))
+                Text("Open the app you want to record, then Refresh.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 170)
+        } else {
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(session.geometryCapture.availableWindows) { window in
+                        Button {
+                            pick(window.id)
+                        } label: {
+                            HStack(spacing: 9) {
+                                Image(systemName: "macwindow")
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(window.ownerName)
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(1)
+                                    Text(
+                                        "\(Int(window.bounds.width))"
+                                            + "×\(Int(window.bounds.height))"
+                                    )
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                .quinary,
+                                in: RoundedRectangle(cornerRadius: 8)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Record \(window.displayName)")
+                    }
+                }
+            }
+            .frame(maxHeight: 230)
+        }
+    }
+
+    private func pick(_ windowID: CGWindowID) {
+        assistantCollapsed = false
+        Task { await session.chooseRecordingWindow(windowID, voice: voice) }
+        dismiss()
     }
 }
