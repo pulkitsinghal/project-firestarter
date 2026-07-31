@@ -13,11 +13,18 @@
 	  alternative (drop Input Monitoring to stay sandboxed).
 
 	  The only entitlement required for the recommended path is the Hardened
-	  Runtime microphone resource-access exception. Speech Recognition and Input
-	  Monitoring carry no entitlement; they are gated purely by TCC at runtime
-	  (NSSpeechRecognitionUsageDescription / Privacy & Security -> Input
-	  Monitoring). Network and user-selected file access are unrestricted once the
-	  sandbox is removed, so the former sandbox-only keys are dropped as no-ops.
+	  Runtime microphone resource-access exception. Speech Recognition, Input
+	  Monitoring, and Screen Recording carry no entitlement; they are gated purely
+	  by TCC at runtime (NSSpeechRecognitionUsageDescription / Privacy & Security
+	  -> Input Monitoring / Privacy & Security -> Screen Recording). Network and
+	  user-selected file access are unrestricted once the sandbox is removed, so
+	  the former sandbox-only keys are dropped as no-ops.
+
+	  Screen Recording (the Screen Trainer's ScreenCaptureKit capture) needs NO
+	  Hardened Runtime entitlement: there is no screen-capture resource-access key.
+	  Like Input Monitoring, the grant binds to the app's stable signed code
+	  identity, so a Developer ID (direct) build grants it ONCE and it persists
+	  across relaunches; a disposable ad-hoc build's grant does not carry over.
 	-->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>

@@ -168,6 +168,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApplication.shared.terminate(nil)
             return
         }
+        if CaptureSelfTest.isRequested() {
+            // Exercise the real capture-encode → local-model → readout wiring with a
+            // SYNTHETIC in-memory frame (no window capture, no PHI), then exit.
+            NSApplication.shared.setActivationPolicy(.accessory)
+            Task {
+                await CaptureSelfTest.run()
+                NSApplication.shared.terminate(nil)
+            }
+            return
+        }
         guard claimSingleInstance() else { return }
         configureMainMenu()
         showDashboard(nil)

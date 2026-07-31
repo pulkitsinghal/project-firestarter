@@ -33,6 +33,25 @@
   **Companion Style** app menu. Extends the headless preview with an optional
   `--companion-style` flag and adds a committed Nova mood-gallery still-frame.
 
+- **Screen Trainer — real screen capture (ScreenCaptureKit).** Replace the
+  synthetic default read with a real one: a **Capture / Read screen** button in
+  the overlay enumerates on-screen windows (`SCShareableContent`), auto-suggests
+  the **Citrix Viewer** window, captures one **downscaled** frame of the picked
+  window (`SCScreenshotManager`), and sends it to the **LOCAL** qwen2.5vl model
+  over localhost Ollama (`OllamaScreenReader.read`). The model's candidate
+  regions become the overlay's real read, which the owner confirms / relabels /
+  drags / types into the same on-device store (slice-1 loop unchanged). New
+  `ScreenCapture.swift` (`ScreenCaptureService`, `CitrixWindowHeuristic`,
+  `FrameDownscale`, `FrameEncoder`, live `OllamaScreenReader.read`) and
+  `ScreenCaptureController` state machine; `ScreenTrainerSession.applyLiveReadout`
+  swaps the read without persisting a correction. PHI boundary held: a frame is
+  produced only on the owner's Mac, held in memory, sent only to
+  `http://localhost:11434`, and dropped the instant inference returns — never
+  written to disk, logged, embedded, or placed in the store; window titles are
+  used only for the owner's local picker label. Screen Recording needs **no**
+  Hardened Runtime entitlement (TCC-gated, like Input Monitoring); adds an
+  advisory `NSScreenCaptureUsageDescription`. Verified end-to-end with a
+  **synthetic** frame via `--capture-selftest` (no real capture in dev/CI).
 - Add a local-only, read-only receipt-feed 1.1 source with strict shape,
   duplicate-key, provenance, file-type, size, and SHA-256 validation.
 - Read content-addressed `current` first and use LKG only when current fails
