@@ -20,6 +20,7 @@
   "include_orchestrator_session": ["no", "yes"],
   "include_service_supervisor": ["no", "yes"],
   "include_browser_automation_policy": ["no", "yes"],
+  "include_local_ollama": ["no", "yes"],
   "include_encrypted_local_areas": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
@@ -37,6 +38,11 @@
   "port_redis": "6380",
   "port_api": "8010",
   "port_web": "3010",
+
+  "ollama_host": "127.0.0.1",
+  "ollama_port": "11434",
+  "ollama_model": "llama3.2",
+  "ollama_embed_model": "nomic-embed-text",
 
   "year": "2026"
 }

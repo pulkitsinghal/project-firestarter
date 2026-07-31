@@ -158,6 +158,35 @@ jobs:
           test ! -e "$OUT/off-by-default/private"
           echo "✓ encrypted local areas verified; off by default"
 
+      - name: Verify the local-ollama add-on contract
+        run: |
+          set -euo pipefail
+          # Off by default, every-stack stamp with tokens substituted, and the
+          # stamped client's offline transport self-test (no network).
+          python3 -B -m unittest -v tests.test_local_ollama_contract
+
+          OUT="$(mktemp -d)"
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" \
+              --set include_local_ollama=yes \
+              --output "$OUT/$ex"
+            test -f "$OUT/$ex/local-ollama/python/local_ollama_client.py"
+            test -f "$OUT/$ex/local-ollama/swift/LocalOllamaClient.swift"
+            test -f "$OUT/$ex/docs/LOCAL_OLLAMA.md"
+            # Stamped Python client parses and passes its offline self-test.
+            python3 -m py_compile "$OUT/$ex/local-ollama/python/local_ollama_client.py"
+            python3 -B "$OUT/$ex/local-ollama/python/selftest.py"
+          done
+          if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::token leak in local-ollama add-on output"; exit 1
+          fi
+
+          python3 bin/generate.py --defaults --output "$OUT/off-by-default"
+          test ! -e "$OUT/off-by-default/local-ollama"
+          echo "✓ local ollama client verified; off by default"
+
       - name: Stamp the optional k8s add-on for server-backed stacks
         run: |
           set -euo pipefail
