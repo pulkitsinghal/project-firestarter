@@ -1,0 +1,40 @@
+#!/bin/sh
+#
+# pre-commit — encrypted_local_areas SUPERSET of template/.githooks/pre-commit.
+#
+# Runs TWO gates, in order:
+#   1. The fail-closed git-crypt guard (host git plumbing): refuses to commit
+#      plaintext into an encrypted area when the key isn't loaded. Always runs.
+#   2. The base precommit gate: `make precommit` (all lint/type/test in Docker)
+#      when the staged diff touches source. Skipped for docs-only changes.
+#
+# Enable per-checkout via:
+#   make hook-install                 # git config core.hooksPath .githooks
+# Skip once with: git commit --no-verify
+#
+# NOTE (maintainers): step 2 below is a mirror of template/.githooks/pre-commit.
+# If that base gate changes, mirror the change here too.
+
+# --- 1) git-crypt guard (encrypted_local_areas) -----------------------------
+# bash is required for the guard; if it is missing we skip the guard (fail-open
+# on availability, never on its verdict) so ordinary commits still work.
+if [ -f scripts/git-crypt-guard.sh ] && command -v bash >/dev/null 2>&1; then
+    bash scripts/git-crypt-guard.sh || exit $?
+fi
+
+# --- 2) base precommit gate (mirror of template/.githooks/pre-commit) --------
+CHANGED=$(git diff --cached --name-only --diff-filter=ACMR)
+
+# Source globs across the supported stacks. Add yours here if it differs.
+if echo "$CHANGED" | grep -qE '^(backend|frontend|app|splash|services)/|(pyproject\.toml|package\.json|pubspec\.yaml)$'; then
+    echo "▶ pre-commit: running precommit gates (Docker)..."
+    make precommit
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echo ""
+        echo "✗ pre-commit failed (exit $rc). Fix issues or run with --no-verify to skip."
+        exit $rc
+    fi
+fi
+
+exit 0
