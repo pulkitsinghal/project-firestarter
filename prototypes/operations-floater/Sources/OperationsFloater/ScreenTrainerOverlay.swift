@@ -178,6 +178,28 @@ final class ScreenTrainerSession: ObservableObject {
         )
     }
 
+    /// Replace the current readout with a fresh REAL read from the local model
+    /// (produced from a just-captured, already-discarded frame). Clears the
+    /// selection and narrates the read in the "what I'm learning" feed. NOTHING is
+    /// persisted here: a read is the model's first guess, not a correction — the
+    /// owner's confirm / relabel / drag is what teaches the on-device store. This
+    /// is how the synthetic default is replaced by the model's real read.
+    func applyLiveReadout(_ readout: ScreenReadout) {
+        self.readout = readout
+        selectedRegionID = nil
+        eventOrdinal += 1
+        learningEvents.append(
+            LearningEvent(
+                id: "learn-\(eventOrdinal)",
+                modality: .pointer,
+                summary: "read screen → \(readout.workflow.displayName) "
+                    + "(\(readout.signature.displayName)) · \(readout.regions.count) regions",
+                detail: "local model read — confirm or relabel to teach it",
+                timeText: Self.timeFormatter.string(from: clock())
+            )
+        )
+    }
+
     /// The single funnel every modality routes through: append a learning-feed
     /// event and, when the correction teaches the memory, persist a PHI-free
     /// exemplar to the on-device store.
@@ -252,6 +274,120 @@ protocol ScreenTrainerVoiceIntake {
     var isListening: Bool { get }
     func startListening()
     func stopListening()
+}
+
+// MARK: - Real capture controller (drives the "Capture / Read screen" button)
+
+/// Orchestrates the real read: list windows → auto-suggest / pick the Citrix
+/// Viewer window → capture one downscaled frame → local-model inference → hand
+/// the readout to the session. The capture / read seams are injected so the
+/// controller's state machine is unit-testable with a synthetic frame and never
+/// touches a real screen in dev or CI. It holds no frame and no PHI: the base64
+/// frame lives only inside `run(_:)` and is dropped when inference returns.
+@MainActor
+final class ScreenCaptureController: ObservableObject {
+    enum Phase: Equatable {
+        case idle
+        case listing
+        case choosing([CaptureCandidateWindow])
+        case capturing(String)
+        case reading(String)
+        case done(String)
+        case failed(String)
+    }
+
+    @Published private(set) var phase: Phase = .idle
+    @Published private(set) var lastLatencyText: String?
+
+    /// Hands a fresh real readout to the session (typically `applyLiveReadout`).
+    private let deliver: (ScreenReadout) -> Void
+    private let listWindows: () async throws -> [CaptureCandidateWindow]
+    private let capture: (CGWindowID) async throws -> (base64: String, pixelWidth: Int, pixelHeight: Int)
+    private let read: (String, Int, Int) async throws -> ScreenReadout
+    private let now: () -> Date
+
+    init(
+        deliver: @escaping (ScreenReadout) -> Void,
+        listWindows: @escaping () async throws -> [CaptureCandidateWindow] =
+            { try await ScreenCaptureService.listWindows() },
+        capture: @escaping (CGWindowID) async throws
+            -> (base64: String, pixelWidth: Int, pixelHeight: Int) =
+            { try await ScreenCaptureService.captureBase64(windowID: $0) },
+        read: @escaping (String, Int, Int) async throws -> ScreenReadout =
+            { try await OllamaScreenReader.read(base64Frame: $0, windowWidth: $1, windowHeight: $2) },
+        now: @escaping () -> Date = Date.init
+    ) {
+        self.deliver = deliver
+        self.listWindows = listWindows
+        self.capture = capture
+        self.read = read
+        self.now = now
+    }
+
+    var isBusy: Bool {
+        switch phase {
+        case .listing, .capturing, .reading: return true
+        case .idle, .choosing, .done, .failed: return false
+        }
+    }
+
+    var isAuthorized: Bool { ScreenCaptureService.isAuthorized() }
+
+    /// "Capture / Read screen": enumerate windows, then auto-capture the suggested
+    /// Citrix window, or present a chooser when Citrix is not found. The UI calls
+    /// this; the awaitable core is `performBeginCapture()` (used directly in tests).
+    func beginCapture() {
+        guard !isBusy else { return }
+        Task { [weak self] in await self?.performBeginCapture() }
+    }
+
+    /// Capture and read a specific chosen window (UI entry; `run(_:)` is the core).
+    func choose(_ window: CaptureCandidateWindow) {
+        guard !isBusy else { return }
+        Task { [weak self] in await self?.run(window) }
+    }
+
+    /// Refresh the window chooser (e.g. after opening Citrix).
+    func refreshWindows() { beginCapture() }
+
+    /// Awaitable core of `beginCapture()`: list windows and route to auto-capture
+    /// or the chooser. Kept non-private so the state machine is unit-testable with
+    /// injected seams and a synthetic frame — no real screen access.
+    func performBeginCapture() async {
+        phase = .listing
+        do {
+            let candidates = try await listWindows()
+            if let citrix = CitrixWindowHeuristic.suggested(from: candidates) {
+                await run(citrix)
+            } else if candidates.isEmpty {
+                phase = .failed(
+                    "No capturable windows found. Grant Screen Recording and try again.")
+            } else {
+                phase = .choosing(candidates)
+            }
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    func run(_ window: CaptureCandidateWindow) async {
+        let label = window.applicationName
+        phase = .capturing(label)
+        let start = now()
+        do {
+            let frame = try await capture(window.id)
+            phase = .reading(label)
+            let readout = try await read(frame.base64, frame.pixelWidth, frame.pixelHeight)
+            // `frame.base64` is not retained past here — nothing is persisted.
+            deliver(readout)
+            let latency = now().timeIntervalSince(start)
+            lastLatencyText = String(format: "read in %.1fs", latency)
+            phase = .done(
+                "\(readout.workflow.displayName) · \(readout.regions.count) regions")
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
+    }
 }
 
 /// Which corner of a region a drag handle adjusts.
@@ -383,10 +519,12 @@ struct ScreenTrainerRegionsLayer: View {
 /// the EHR; here it is a pure SwiftUI view so it also renders headlessly.
 struct ScreenTrainerOverlayView: View {
     @ObservedObject var session: ScreenTrainerSession
+    @ObservedObject var captureController: ScreenCaptureController
 
     var body: some View {
         VStack(spacing: 0) {
             banner
+            ScreenTrainerCaptureBar(controller: captureController)
             GeometryReader { geometry in
                 ScreenTrainerRegionsLayer(
                     readout: session.readout,
@@ -577,6 +715,114 @@ struct LearningPanel: View {
     }
 }
 
+// MARK: - Capture bar (the real "read my screen" control)
+
+/// The overlay's real-capture control: a "Capture / Read screen" button, a live
+/// status line, and — when the Citrix window is not auto-found — a window
+/// chooser. Every path drives `ScreenCaptureController`; nothing here holds a
+/// frame or any PHI.
+struct ScreenTrainerCaptureBar: View {
+    @ObservedObject var controller: ScreenCaptureController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Button {
+                    controller.beginCapture()
+                } label: {
+                    Label("Capture / Read screen", systemImage: "camera.viewfinder")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .controlSize(.small)
+                .disabled(controller.isBusy)
+
+                statusView
+
+                Spacer()
+
+                if !controller.isAuthorized {
+                    Label("Screen Recording off", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.orange)
+                }
+                if let latency = controller.lastLatencyText {
+                    Text(latency)
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            }
+
+            if case .choosing(let windows) = controller.phase {
+                chooser(windows)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.black.opacity(0.72))
+    }
+
+    @ViewBuilder
+    private var statusView: some View {
+        switch controller.phase {
+        case .idle:
+            Text("Reads the picked window with the local model — nothing leaves this Mac.")
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.6))
+        case .listing:
+            busy("Finding windows…")
+        case .choosing:
+            Text("Pick the window to read:")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.8))
+        case .capturing(let label):
+            busy("Capturing \(label)…")
+        case .reading(let label):
+            busy("Local model reading \(label)…")
+        case .done(let summary):
+            Label("Read: \(summary)", systemImage: "checkmark.seal.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.green)
+        case .failed(let message):
+            Label(message, systemImage: "xmark.octagon.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(.orange)
+                .lineLimit(2)
+        }
+    }
+
+    private func busy(_ text: String) -> some View {
+        HStack(spacing: 5) {
+            ProgressView().controlSize(.mini)
+            Text(text).font(.system(size: 9)).foregroundStyle(.white.opacity(0.8))
+        }
+    }
+
+    private func chooser(_ windows: [CaptureCandidateWindow]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(windows.prefix(12)) { window in
+                    Button {
+                        controller.choose(window)
+                    } label: {
+                        HStack(spacing: 4) {
+                            if window.isCitrixViewer {
+                                Image(systemName: "star.fill").font(.system(size: 8))
+                            }
+                            Text(window.pickerLabel)
+                                .font(.system(size: 9))
+                                .lineLimit(1)
+                        }
+                    }
+                    .controlSize(.mini)
+                    .tint(window.isCitrixViewer ? .yellow : nil)
+                }
+            }
+            .padding(.vertical, 1)
+        }
+        .frame(maxHeight: 26)
+    }
+}
+
 // MARK: - Overlay window (transparent, always-on-top, click-through toggle)
 
 /// Hosts the overlay in a borderless, transparent, floating window that can join
@@ -587,9 +833,18 @@ struct LearningPanel: View {
 final class ScreenTrainerOverlayWindowController {
     private var window: NSWindow?
     private let session: ScreenTrainerSession
+    private let captureController: ScreenCaptureController
 
     init(session: ScreenTrainerSession) {
         self.session = session
+        // Wire the real-capture controller to feed the model's read into the
+        // session, replacing the synthetic default. Deliver hops to the main
+        // actor because `ScreenCaptureController` is @MainActor.
+        self.captureController = ScreenCaptureController(
+            deliver: { [weak session] readout in
+                session?.applyLiveReadout(readout)
+            }
+        )
     }
 
     @discardableResult
@@ -614,7 +869,7 @@ final class ScreenTrainerOverlayWindowController {
     }
 
     private func makeWindow() -> NSWindow {
-        let size = NSSize(width: 720, height: 620)
+        let size = NSSize(width: 720, height: 664)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless],
@@ -629,7 +884,10 @@ final class ScreenTrainerOverlayWindowController {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(
-            rootView: ScreenTrainerOverlayView(session: session)
+            rootView: ScreenTrainerOverlayView(
+                session: session,
+                captureController: captureController
+            )
         )
         window.center()
         self.window = window
