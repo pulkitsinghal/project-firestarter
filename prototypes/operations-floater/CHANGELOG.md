@@ -2,6 +2,18 @@
 
 ## 1.2.0 (build 3) — unreleased
 
+- Resolve the sandbox-vs-Input-Monitoring conflict: adopt Developer ID (direct)
+  distribution with the Hardened Runtime and **without** the App Sandbox, so the
+  Relative XY recorder's cross-process Input Monitoring works. Correct
+  `OperationsFloater.entitlements` to the minimal set (Hardened Runtime
+  microphone exception only) and set `ENABLE_APP_SANDBOX: NO` in `project.yml`.
+- Add `scripts/sign-and-notarize.sh` (owner-run, credential-free, parameterized):
+  codesign `--options runtime` + entitlements + secure timestamp -> notarytool
+  submit `--wait` -> stapler staple -> verify (`spctl`, `codesign --verify
+  --deep --strict`, `stapler validate`).
+- Add `docs/SIGNING.md` with the sandbox-vs-Input-Monitoring analysis, the
+  sandboxed-alternative tradeoff, and the owner checklist (Developer ID cert,
+  notary profile, build, sign, first-launch TCC grants).
 - Add **Ember**, a dismissible, vector-drawn corner companion that mirrors the
   canonical snapshot: it naps when the queue is empty, focuses while lanes run,
   briefly celebrates when work reaches the finished lane, and shows concern on a
