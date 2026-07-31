@@ -21,8 +21,8 @@ The native app first polls only the fixed loopback Router metrics endpoint at
 when it is a verified canonical `local` snapshot. It sends no credentials,
 cookies, dashboard state, or private file content, and follows no redirect.
 
-An optional runtime snapshot may also be placed in the app's sandboxed
-Application Support container as `OperationsFloater/dashboard-state.json`.
+An optional runtime snapshot may also be placed in the app's
+Application Support directory as `OperationsFloater/dashboard-state.json`.
 That local path is resolved by the app at runtime and is never committed or
 transmitted. The native adapter rejects unknown contract fields and rejects
 every `local-only` record unless it is marked `verified`. Invalid or missing
@@ -69,7 +69,7 @@ snapshot remains schema version `1.0`.
 - An explicit user launch opens visibly in front but defaults **Keep in front**
   to off and stays on one macOS Desktop. Pinning and showing the same window on
   every Desktop are never implicit.
-- The app holds one process-scoped lease in its sandboxed Application Support
+- The app holds one process-scoped lease in its Application Support
   directory. A direct second launch activates the existing bundle instance and
   exits before starting another recorder host.
 - A deliberate `--background-ui-test` launch mode leaves **Keep in front** off,
@@ -179,8 +179,12 @@ snapshot remains schema version `1.0`.
   remains the authoritative egress guard.
 - The default 620-by-640 window shows a dense two-column operational grid and
   remains usable down to a 380-by-480 compact single-column layout.
-- The application target is sandboxed, uses hardened runtime, and includes a
-  macOS app icon, encryption declaration, and productivity category.
+- The application target uses the Hardened Runtime and is distributed directly
+  with a Developer ID (not sandboxed), and includes a macOS app icon, encryption
+  declaration, and productivity category. The App Sandbox is deliberately off
+  because the Relative XY recorder needs cross-process Input Monitoring, which
+  the sandbox blocks. See [docs/SIGNING.md](docs/SIGNING.md) for the
+  sandbox-vs-Input-Monitoring analysis, entitlements, and owner signing steps.
 - The supported release shape is one signed main app with no login item,
   launch agent, daemon, privileged helper, or updater. Input Monitoring belongs
   to that app's stable code identity; unsigned and ad-hoc routine builds are

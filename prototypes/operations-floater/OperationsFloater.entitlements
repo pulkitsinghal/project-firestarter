@@ -2,13 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<!--
+	  Distribution posture: Developer ID (direct) + Hardened Runtime, NOT sandboxed.
+
+	  Operations Floater's Relative XY recorder calls CGRequestListenEventAccess()
+	  to observe another application's mouse/scroll/key-code stream (Input
+	  Monitoring). The App Sandbox structurally blocks cross-process event
+	  monitoring, so com.apple.security.app-sandbox is intentionally ABSENT here.
+	  See docs/SIGNING.md for the sandbox-vs-Input-Monitoring analysis and the
+	  alternative (drop Input Monitoring to stay sandboxed).
+
+	  The only entitlement required for the recommended path is the Hardened
+	  Runtime microphone resource-access exception. Speech Recognition and Input
+	  Monitoring carry no entitlement; they are gated purely by TCC at runtime
+	  (NSSpeechRecognitionUsageDescription / Privacy & Security -> Input
+	  Monitoring). Network and user-selected file access are unrestricted once the
+	  sandbox is removed, so the former sandbox-only keys are dropped as no-ops.
+	-->
 	<key>com.apple.security.device.audio-input</key>
-	<true/>
-	<key>com.apple.security.files.user-selected.read-write</key>
-	<true/>
-	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
 </plist>
