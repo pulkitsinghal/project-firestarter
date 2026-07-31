@@ -555,6 +555,7 @@ struct ScreenTrainerOverlayView: View {
             correctionBar
             LearningPanel(session: session)
             ScreenTrainerLayersPanel(session: layerSession)
+            LearnedGraphPanel(session: layerSession)
         }
     }
 
@@ -1027,6 +1028,8 @@ struct ScreenTrainerDemoView: View {
                     LearningPanel(session: session, interactive: false)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                     ScreenTrainerLayersPanel(session: layerSession, interactive: false)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    LearnedGraphPanel(session: layerSession, interactive: false)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .frame(width: 360)

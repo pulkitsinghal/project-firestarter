@@ -179,15 +179,50 @@ semantic knowledge-graph of the EHR UI that the later agentic layer plans over.
 - **Persistence** (`OverlayCompositionStore`). A single PHI-free JSON document
   beside the correction store under Application Support, git-ignored, holding only
   author-supplied labels, purposes, normalized positions, workflow-order indices,
-  group names, and visibility. No frame, pixels, or screen text — never PHI, the
-  same posture as the typed correction note.
+  group names, visibility, and the relationship edge set (below). No frame, pixels,
+  or screen text — never PHI, the same posture as the typed correction note.
+
+## Knowledge graph + mermaid (what I've learned)
+
+The authored overlays are the **nodes** of the EHR-UI knowledge graph; this slice
+adds the **edges** and makes the whole graph expressible AND editable as mermaid —
+the owner's ask: *"that goes in a 'what I've learned' area — originally as a
+statement and as `a tab -(houses)-> b button` … a mermaid-metadata language I can
+quickly visualize and edit."*
+
+- **Typed relationships** (`ScreenTrainerMermaid.swift`). An `OverlayRelationship`
+  is one directed edge: `{id, fromLayerID, toLayerID, kind}`. `kind` is
+  `OverlayRelationshipKind` — an **extensible** token (well-knowns: `houses`,
+  `navigatesTo`, `opens`, `triggers`, `partOf`, `precedes`; new kinds may be coined
+  in the text). `OverlayComposition` gains pure value functions:
+  `addRelationship` (validates endpoints exist + differ, de-dupes), `removeRelationship`,
+  `updateRelationship`, `pruneDanglingRelationships`; `removeLayer` now also prunes
+  any edge that touched it, so the edge set never dangles.
+- **Mermaid export** (`mermaidExport()`). Deterministic `flowchart TD`: each group is
+  a `subgraph`, each overlay a node (`label` in the node, `purpose` + hidden state as
+  structured `%%` comments), each relationship a labeled edge (`a -->|houses| b`),
+  with the action-lane order reflected by node ordering and a trailing note. Stable
+  output — no timestamps, everything emitted in a position-independent order.
+- **Mermaid import** (`applyingMermaid(_:)`). Parses a reasonable subset of
+  `graph`/`flowchart` (subgraphs, quoted/bare nodes, `-->`/`---` edges with `|label|`
+  or `-- label -->`, unmodeled directives ignored) and **merges onto** the current
+  model: nodes matched by token so renames / re-grouping / purpose edits update in
+  place, brand-new ids create nodes, and the edge set becomes exactly the text.
+  `export → import → export` is stable. On unparseable input it returns a specific
+  `OverlayMermaidError` and **never mutates** the model.
+- **"What I've learned" panel** (`LearnedGraphPanel`). Shows the graph BOTH as plain
+  statements (`learnedStatements`) AND as the editable mermaid text, with **Apply**
+  (commit edits) and **Refresh from graph**. The session (`OverlayCompositionSession`)
+  keeps `mermaidDraft` mirrored to the model and exposes `applyMermaid()`.
+- **PHI-free.** Edges carry only layer IDs and a content-free kind; the mermaid text
+  carries only labels, purposes, group names, and kinds. Persisted in the same
+  git-ignored JSON document (backward-compatible: a pre-relationships doc decodes
+  with an empty edge set).
 
 ## What's next
 
 - **Context toggle** — surface groups as first-class clinical-context switches in
   the overlay (show only the active context's layers).
-- **Mermaid graph** — export the authored layers + action lanes as the EHR-UI
-  knowledge graph.
 - **Agentic composition** — plan click-sequences over `actionLaneSequence` to
   accomplish untaught goals, behind a hard propose-confirm safety gate.
 - **Voice** — the architected correction layer above.

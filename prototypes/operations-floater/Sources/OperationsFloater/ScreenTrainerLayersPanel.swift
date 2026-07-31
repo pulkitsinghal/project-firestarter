@@ -349,3 +349,119 @@ struct ScreenTrainerLayersPanel: View {
         showAddForm = false
     }
 }
+
+// MARK: - "What I've learned" panel (statements + editable mermaid)
+
+/// The knowledge-graph view the owner asked for: what the trainer has learned about
+/// the EHR UI, shown BOTH as plain statements ("Open orders tab navigates to Admission
+/// order set") AND as an editable mermaid graph he can visualize and hand-edit. Apply
+/// commits the edited mermaid back into the semantic model; a bad edit is rejected with
+/// a message and never corrupts the graph. Reuses the Layers panel's styling. The live
+/// overlay uses the editable `TextEditor`; the headless demo renders the mermaid as
+/// static text (SwiftUI editors do not rasterize offscreen).
+struct LearnedGraphPanel: View {
+    @ObservedObject var session: OverlayCompositionSession
+    var interactive: Bool = true
+
+    private var composition: OverlayComposition { session.composition }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            header
+            statements
+            Divider().overlay(Color.white.opacity(0.15))
+            mermaidSection
+            phiFootnote
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.black.opacity(0.80))
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "brain.head.profile").font(.system(size: 10))
+            Text("WHAT I'VE LEARNED")
+                .font(.system(size: 9, weight: .bold))
+            Spacer()
+            Text("\(composition.layers.count) nodes · \(composition.relationships.count) links")
+                .font(.system(size: 9).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.6))
+        }
+    }
+
+    @ViewBuilder
+    private var statements: some View {
+        let lines = session.learnedStatements
+        if lines.isEmpty {
+            Text("Nothing yet. Author overlays and link them (e.g. a tab houses a button) "
+                + "to build the graph.")
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.55))
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .top, spacing: 5) {
+                        Text("•").foregroundStyle(.white.opacity(0.5))
+                        Text(line)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mermaidSection: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 10))
+            Text("MERMAID — edit the graph, then Apply")
+                .font(.system(size: 9, weight: .bold))
+            Spacer()
+        }
+        .foregroundStyle(.white.opacity(0.85))
+
+        if interactive {
+            TextEditor(text: $session.mermaidDraft)
+                .font(.system(size: 10, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 120, maxHeight: 220)
+                .padding(6)
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            HStack(spacing: 8) {
+                Button("Apply edits") { session.applyMermaid() }
+                    .controlSize(.small)
+                Button("Refresh from graph") { session.refreshMermaidFromModel() }
+                    .controlSize(.small)
+                Spacer()
+            }
+            if let error = session.mermaidError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            Text(session.mermaidDraft)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(6)
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    private var phiFootnote: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "checkmark.shield.fill").font(.system(size: 9))
+            Text("The graph stores only your labels, purposes & relationship types — "
+                + "on-device, never PHI.")
+                .font(.system(size: 9))
+        }
+        .foregroundStyle(.green.opacity(0.7))
+    }
+}

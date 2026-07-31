@@ -108,10 +108,42 @@ struct OverlayComposition: Equatable, Codable, Sendable {
     /// Every authored layer. Panel/z order is this array order; the action-lane
     /// ordering is derived from `actionLaneIndex` independently.
     var layers: [OverlayLayer]
+    /// The knowledge-graph EDGE set: typed relationships between authored overlays
+    /// (the layers above are the nodes). See `OverlayRelationship`. Kept content-free
+    /// exactly like everything else here — only layer IDs and a relationship kind.
+    var relationships: [OverlayRelationship]
 
-    init(groups: [OverlayGroup] = [], layers: [OverlayLayer] = []) {
+    init(
+        groups: [OverlayGroup] = [],
+        layers: [OverlayLayer] = [],
+        relationships: [OverlayRelationship] = []
+    ) {
         self.groups = groups
         self.layers = layers
+        self.relationships = relationships
+    }
+
+    // Backward-compatible decoding: a document written by the layer-only slice (#72)
+    // has no `relationships` key. Decode it as an empty edge set rather than failing,
+    // so upgrading never drops a previously authored composition. Encoding always
+    // writes the key (as `[]` when empty), keeping the on-disk shape explicit.
+    private enum CodingKeys: String, CodingKey {
+        case groups, layers, relationships
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.groups = try container.decodeIfPresent([OverlayGroup].self, forKey: .groups) ?? []
+        self.layers = try container.decodeIfPresent([OverlayLayer].self, forKey: .layers) ?? []
+        self.relationships =
+            try container.decodeIfPresent([OverlayRelationship].self, forKey: .relationships) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(groups, forKey: .groups)
+        try container.encode(layers, forKey: .layers)
+        try container.encode(relationships, forKey: .relationships)
     }
 
     /// An empty document — the default before the clinician authors anything.
@@ -239,9 +271,11 @@ struct OverlayComposition: Equatable, Codable, Sendable {
         layers[index] = layer
     }
 
-    /// Remove a layer.
+    /// Remove a layer. Any relationship touching it is dropped too, so the
+    /// knowledge-graph edge set can never dangle onto a node that no longer exists.
     mutating func removeLayer(_ id: String) {
         layers.removeAll { $0.id == id }
+        relationships.removeAll { $0.fromLayerID == id || $0.toLayerID == id }
     }
 
     /// Remove a group; its layers become ungrouped (never silently deleted).
@@ -322,6 +356,23 @@ struct OverlayComposition: Equatable, Codable, Sendable {
                     actionLaneIndex: 0,
                     groupID: outpatient.id
                 ),
+            ],
+            // A couple of illustrative edges so the knowledge graph — and its mermaid
+            // rendering — show relationships out of the box. Generic workflow order,
+            // no real screen, no PHI.
+            relationships: [
+                OverlayRelationship(
+                    id: "rel-open-to-set",
+                    fromLayerID: "layer-open-orders",
+                    toLayerID: "layer-order-set",
+                    kind: .navigatesTo
+                ),
+                OverlayRelationship(
+                    id: "rel-set-to-sign",
+                    fromLayerID: "layer-order-set",
+                    toLayerID: "layer-sign",
+                    kind: .precedes
+                ),
             ]
         )
     }
@@ -386,6 +437,13 @@ final class OverlayCompositionSession: ObservableObject {
     @Published private(set) var composition: OverlayComposition
     /// The authored layer currently selected in the panel (for edit / highlight).
     @Published var selectedLayerID: String?
+    /// The editable mermaid rendering of the graph, shown in the "What I've learned"
+    /// panel. Two-way: it is regenerated from the model after every mutation, and the
+    /// owner's edits are committed back via `applyMermaid()`.
+    @Published var mermaidDraft: String = ""
+    /// The message from the last failed `applyMermaid()`, or `nil` when the text is
+    /// clean. A failed import never mutates the model — this is the only side effect.
+    @Published private(set) var mermaidError: String?
 
     private let store: OverlayCompositionStore?
 
@@ -395,8 +453,10 @@ final class OverlayCompositionSession: ObservableObject {
     ) {
         // A saved document wins over the seed; otherwise use the provided initial
         // composition (the app seeds `.starter`, tests pass their own).
-        self.composition = store?.load() ?? composition
+        let initial = store?.load() ?? composition
+        self.composition = initial
         self.store = store
+        self.mermaidDraft = initial.mermaidExport()
     }
 
     var selectedLayer: OverlayLayer? {
@@ -464,6 +524,56 @@ final class OverlayCompositionSession: ObservableObject {
 
     func select(_ id: String?) { selectedLayerID = id }
 
+    // MARK: Relationships (knowledge-graph edges)
+
+    /// The plain-statement narration of the graph for the "What I've learned" view.
+    var learnedStatements: [String] { composition.learnedStatements }
+
+    /// Link two authored overlays with a typed relationship. Returns `nil` when the
+    /// endpoints are invalid (missing or identical).
+    @discardableResult
+    func addRelationship(
+        from: String,
+        to: String,
+        kind: OverlayRelationshipKind
+    ) -> OverlayRelationship? {
+        var created: OverlayRelationship?
+        mutate { created = $0.addRelationship(from: from, to: to, kind: kind) }
+        return created
+    }
+
+    func removeRelationship(_ id: String) { mutate { $0.removeRelationship(id) } }
+    func updateRelationship(_ relationship: OverlayRelationship) {
+        mutate { $0.updateRelationship(relationship) }
+    }
+
+    // MARK: Mermaid two-way bridge
+
+    /// Re-render the editable mermaid text from the current model, discarding any
+    /// uncommitted edits. The panel's "Refresh from graph" affordance.
+    func refreshMermaidFromModel() {
+        mermaidDraft = composition.mermaidExport()
+        mermaidError = nil
+    }
+
+    /// Commit the owner's edited mermaid text to the model. On success the composition
+    /// is replaced, persisted, and the text re-canonicalized; on failure the model is
+    /// left untouched and `mermaidError` is set (fail-safe — a bad edit never corrupts
+    /// the authored graph).
+    func applyMermaid() {
+        switch composition.applyingMermaid(mermaidDraft) {
+        case .success(let updated):
+            composition = updated
+            if let selected = selectedLayerID, composition.layer(withID: selected) == nil {
+                selectedLayerID = nil
+            }
+            mermaidError = nil
+            persist()  // persists AND regenerates the canonical mermaid text
+        case .failure(let error):
+            mermaidError = error.description
+        }
+    }
+
     private func mutate(_ transform: (inout OverlayComposition) -> Void) {
         transform(&composition)
         persist()
@@ -471,5 +581,9 @@ final class OverlayCompositionSession: ObservableObject {
 
     private func persist() {
         try? store?.save(composition)
+        // Keep the editable mermaid text a faithful mirror of the model after every
+        // structural change (authoring, visibility, reorder, relationship edits).
+        mermaidDraft = composition.mermaidExport()
+        mermaidError = nil
     }
 }

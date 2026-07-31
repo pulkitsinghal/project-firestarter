@@ -74,6 +74,26 @@
   indices, group names, and visibility; no frame, pixels, or screen text. This is
   the semantic-knowledge-graph seed the context-toggle, mermaid-graph, and
   agentic-composition slices build on next.
+- **Screen Trainer — knowledge-graph relationships + mermaid round-trip.** Turn the
+  authored overlays into a real EHR-UI knowledge graph and make it editable as
+  mermaid — the "what I've learned" area the owner asked for. Add
+  `OverlayRelationship {id, fromLayerID, toLayerID, kind}` (the edge set on top of
+  the layer nodes) with an **extensible** `OverlayRelationshipKind` (well-knowns:
+  houses, navigatesTo, opens, triggers, partOf, precedes; new kinds may be coined in
+  the text). `OverlayComposition` gains pure add/remove/edit/validate relationship
+  functions (endpoints must exist and differ; identical edges de-dupe; `removeLayer`
+  prunes incident edges). New `ScreenTrainerMermaid.swift` adds `mermaidExport()` —
+  deterministic `flowchart TD` with a subgraph per group, nodes carrying label +
+  purpose (purpose/hidden as `%%` metadata), and relationships as labeled edges
+  (`a -->|houses| b`) — and `applyingMermaid(_:)`, which parses a reasonable subset of
+  mermaid and **merges onto** the current model (rename / re-group / add nodes,
+  add / remove / relabel edges). `export → import → export` is stable; malformed
+  input returns a specific `OverlayMermaidError` and never mutates the model. The
+  overlay adds a **"WHAT I'VE LEARNED"** panel (`LearnedGraphPanel`) showing the graph
+  BOTH as plain statements AND as editable mermaid with **Apply** / **Refresh**.
+  Relationships persist in the same PHI-free JSON document (backward-compatible: a
+  pre-relationships doc decodes with an empty edge set); the mermaid text carries only
+  labels, purposes, group names, and kinds — never pixels, screen text, or PHI.
 - Add a local-only, read-only receipt-feed 1.1 source with strict shape,
   duplicate-key, provenance, file-type, size, and SHA-256 validation.
 - Read content-addressed `current` first and use LKG only when current fails
