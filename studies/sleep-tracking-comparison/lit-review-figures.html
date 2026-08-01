@@ -1,0 +1,279 @@
+<style>
+  :root {
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --muted:       #898781;
+    --grid:        #e1e0d9;
+    --baseline:    #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --blue:        #2a78d6;   /* series 1 - Apple */
+    --blue-soft:   #cde2fb;
+    --orange:      #eb6834;   /* series 2 - WHOOP */
+    --good:        #0ca30c;   /* independent / pilot */
+    --warning:     #b98400;   /* verify */
+    --serious:     #c65a34;   /* manufacturer / target */
+    --track:       #edece7;
+    --shadow:      0 1px 2px rgba(11,11,11,0.05), 0 8px 24px rgba(11,11,11,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,0.12);
+      --blue:#3987e5; --blue-soft:#173657; --orange:#d95926;
+      --good:#0ca30c; --warning:#fab219; --serious:#ec835a;
+      --track:#262623; --shadow:0 1px 2px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,0.12);
+    --blue:#3987e5; --blue-soft:#173657; --orange:#d95926;
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a;
+    --track:#262623; --shadow:0 1px 2px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.35);
+  }
+
+  * { box-sizing: border-box; }
+  .sheet {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page); color: var(--ink);
+    max-width: 940px; margin: 0 auto; padding: 40px 22px 72px;
+    line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  .sheet header { border-bottom: 2px solid var(--ink); padding-bottom: 20px; }
+  .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--blue); margin: 0 0 10px; }
+  h1 { font-size: clamp(26px, 4.4vw, 40px); line-height: 1.08; font-weight: 800; margin: 0 0 12px; text-wrap: balance; letter-spacing: -0.01em; }
+  .lede { font-size: 16px; color: var(--ink-2); margin: 0; max-width: 64ch; }
+  .headmeta { margin-top: 16px; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+  .headmeta b { color: var(--ink-2); font-weight: 600; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 28px 0 0; }
+  @media (max-width: 680px) { .stats { grid-template-columns: 1fr; } }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); }
+  .stat .big { font-size: clamp(28px, 4.6vw, 38px); font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+  .stat .big.two { color: var(--blue); }
+  .stat .lab { margin-top: 9px; font-size: 13px; color: var(--ink-2); }
+  .stat .sub { margin-top: 4px; font-size: 12px; color: var(--muted); }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin: 22px 0 0; box-shadow: var(--shadow); }
+  .axis { font-size: 11.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  .panel h2 { font-size: clamp(19px, 2.6vw, 23px); line-height: 1.18; font-weight: 750; margin: 0 0 6px; text-wrap: balance; }
+  .say { font-size: 14px; color: var(--ink-2); margin: 0 0 20px; max-width: 68ch; }
+
+  .row { display: grid; grid-template-columns: 130px 1fr 56px; align-items: center; gap: 12px; margin: 9px 0; }
+  @media (max-width: 560px) { .row { grid-template-columns: 92px 1fr 52px; gap: 8px; } }
+  .rowlab { font-size: 13px; color: var(--ink); text-align: right; line-height: 1.2; }
+  .rowlab .n2 { display: block; font-size: 11px; color: var(--muted); }
+  .track { position: relative; background: var(--track); border-radius: 5px; height: 26px; overflow: hidden; }
+  .fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 5px; min-width: 3px; }
+  .fill.blue { background: var(--blue); }
+  .fill.orange { background: var(--orange); }
+  .fill.pilot { background: var(--good); }
+  .fill.target { background: transparent; width: 100%; border: 1.5px dashed var(--serious); }
+  .val { font-size: 13px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; text-align: left; }
+  .val.goal { color: var(--serious); }
+
+  .ticks { display: grid; grid-template-columns: 130px 1fr 56px; gap: 12px; margin-top: 4px; }
+  @media (max-width: 560px) { .ticks { grid-template-columns: 92px 1fr 52px; } }
+  .tickline { position: relative; height: 15px; }
+  .tickline span { position: absolute; transform: translateX(-50%); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .axiscap { text-align: center; font-size: 11.5px; color: var(--muted); grid-column: 2; margin-top: 0; }
+
+  .funds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 680px) { .funds { grid-template-columns: 1fr; } }
+  .fund { border: 1px solid var(--border); border-radius: 10px; padding: 14px; background: var(--page); }
+  .fund h3 { margin: 0 0 2px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+  .dot.good { background: var(--good); } .dot.warn { background: var(--warning); } .dot.ser { background: var(--serious); }
+  .fund .cnt { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+  .fund ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .fund li { font-size: 13px; color: var(--ink-2); padding-left: 14px; position: relative; }
+  .fund li::before { content: ""; position: absolute; left: 0; top: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--baseline); }
+  .fund li b { color: var(--ink); font-weight: 650; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0 0 16px; font-size: 13px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .swatch.blue { background: var(--blue); } .swatch.orange { background: var(--orange); }
+  .stage { margin: 14px 0; }
+  .stage .sname { font-size: 13px; font-weight: 650; margin-bottom: 6px; }
+
+  .cap { margin: 18px 0 0; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; }
+  .cap b { color: var(--ink-2); font-weight: 600; }
+
+  details { margin-top: 12px; }
+  summary { cursor: pointer; font-size: 12.5px; color: var(--blue); font-weight: 600; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .fair { background: var(--blue-soft); color: var(--ink); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; margin-top: 14px; }
+  footer { margin-top: 34px; border-top: 1px solid var(--border); padding-top: 16px; font-size: 12px; color: var(--muted); }
+  footer code { font-size: 11.5px; background: var(--track); padding: 1px 5px; border-radius: 4px; }
+</style>
+
+<div class="sheet">
+  <header>
+    <p class="eyebrow">Sleep-Wearable Accuracy Pilot &middot; Literature in figures</p>
+    <h1>How good are the Apple Watch and WHOOP at measuring sleep?</h1>
+    <p class="lede">One page, four axes. Each panel reads the published validation evidence a different way &mdash; how much data backs it, who funded it, and where the devices actually go wrong &mdash; to frame an independent study.</p>
+    <div class="headmeta">
+      <span><b>Reference standard:</b> polysomnography / EEG</span>
+      <span><b>Scope:</b> wrist wearables vs PSG</span>
+      <span><b>Full sources:</b> literature-review.md</span>
+    </div>
+  </header>
+
+  <section class="stats" aria-label="Headline numbers">
+    <div class="stat">
+      <div class="big">82.6%</div>
+      <div class="lab">How often two expert scorers agree on the same EEG.</div>
+      <div class="sub">The ceiling no device can beat &mdash; there is no perfect "truth."</div>
+    </div>
+    <div class="stat">
+      <div class="big two">95% <span style="font-size:19px;color:var(--muted);font-weight:600">vs</span> ~40%</div>
+      <div class="lab">Detects sleep well; detects wake poorly (specificity 29&ndash;52%).</div>
+      <div class="sub">Why wearables overestimate how long you slept.</div>
+    </div>
+    <div class="stat">
+      <div class="big">12&ndash;75</div>
+      <div class="lab">Subjects per validation study, mostly a single lab.</div>
+      <div class="sub">A small, best-case evidence base in healthy adults.</div>
+    </div>
+  </section>
+
+  <!-- FIGURE 1 -->
+  <figure class="panel">
+    <p class="axis">Axis 1 &mdash; Statistical power (sample size, n)</p>
+    <h2>The evidence base is small &mdash; and mostly one lab, healthy adults</h2>
+    <p class="say">Each published validation rests on a few dozen subjects &mdash; enough to spot big effects, not to settle "which device is better." A definitive study needs roughly n&nbsp;=&nbsp;100; our pilot (~12) exists to size that study.</p>
+    <div class="chart">
+      <div class="row"><div class="rowlab">Miller 2020<span class="n2">WHOOP</span></div><div class="track"><div class="fill blue" style="width:12%" title="Miller 2020 (WHOOP): n = 12"></div></div><div class="val">12</div></div>
+      <div class="row"><div class="rowlab">Chinoy 2021<span class="n2">7 devices</span></div><div class="track"><div class="fill blue" style="width:34%" title="Chinoy 2021: n = 34"></div></div><div class="val">34</div></div>
+      <div class="row"><div class="rowlab">Sensors 2024<span class="n2">3 devices</span></div><div class="track"><div class="fill blue" style="width:35%" title="Sensors 2024: n = 35"></div></div><div class="val">35</div></div>
+      <div class="row"><div class="rowlab">SLEEP Adv. 2025<span class="n2">6 devices</span></div><div class="track"><div class="fill blue" style="width:62%" title="Six-device 2025: n = 62"></div></div><div class="val">62</div></div>
+      <div class="row"><div class="rowlab">JMIR 2023<span class="n2">11 trackers, 2 sites</span></div><div class="track"><div class="fill blue" style="width:75%" title="JMIR 2023 multicenter: n = 75"></div></div><div class="val">75</div></div>
+      <div class="row"><div class="rowlab">This pilot<span class="n2">2 devices + EEG</span></div><div class="track"><div class="fill pilot" style="width:12%" title="Planned pilot: n ~ 12"></div></div><div class="val">~12</div></div>
+      <div class="row"><div class="rowlab">Powered study<span class="n2">to confirm</span></div><div class="track"><div class="fill target" title="A confirmatory study would need roughly n = 100"></div></div><div class="val goal">~100</div></div>
+      <div class="ticks" aria-hidden="true"><div></div><div class="tickline"><span style="left:0%">0</span><span style="left:25%">25</span><span style="left:50%">50</span><span style="left:75%">75</span><span style="left:100%">100</span></div><div></div></div>
+      <div class="ticks"><div></div><div class="axiscap">subjects (n)</div><div></div></div>
+    </div>
+    <p class="cap"><b>Read:</b> The green bar is our pilot &mdash; deliberately small, meant to estimate variance and feasibility; the dashed row marks the ~100 subjects a powered confirmatory study would need. A pooled <b>meta-analysis</b> (JCSM) and the <b>AASM inter-scorer program</b> (&gt;2,500 human readers) aggregate far more but are not single validation cohorts. Source: literature-review.md.</p>
+    <details>
+      <summary>Data table</summary>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Study</th><th>Devices</th><th class="num">Subjects (n)</th><th>Design</th></tr></thead>
+        <tbody>
+          <tr><td>Miller 2020</td><td>WHOOP</td><td class="num">12</td><td>1 lab, 86 sleeps</td></tr>
+          <tr><td>Chinoy 2021</td><td>7 consumer + actigraphy</td><td class="num">34</td><td>1 lab, 3 nights</td></tr>
+          <tr><td>Sensors 2024</td><td>3 (incl. Apple Watch 8)</td><td class="num">35</td><td>1 lab</td></tr>
+          <tr><td>SLEEP Advances 2025</td><td>6 wrist wearables</td><td class="num">62</td><td>1 lab, 1 night</td></tr>
+          <tr><td>JMIR 2023</td><td>11 trackers</td><td class="num">75</td><td>2 sites (multicenter)</td></tr>
+          <tr><td>This pilot (planned)</td><td>Apple + WHOOP + EEG</td><td class="num">~12</td><td>1 lab, blinded multi-reader</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </figure>
+
+  <!-- FIGURE 2 -->
+  <figure class="panel">
+    <p class="axis">Axis 2 &mdash; Independence &amp; funding</p>
+    <h2>Who paid matters &mdash; the friendliest numbers skew toward the makers</h2>
+    <p class="say">Independent, multi-site work tends to report worse device accuracy than manufacturer-linked studies run under best-case conditions. Sorting the same literature by funding makes the pattern visible.</p>
+    <div class="funds">
+      <div class="fund">
+        <h3><span class="dot good"></span>Independent</h3>
+        <p class="cnt">academic / federal / society</p>
+        <ul>
+          <li><b>Chinoy 2021</b> &mdash; federal authors</li>
+          <li><b>JMIR 2023</b> &mdash; multicenter, Korea</li>
+          <li><b>SLEEP Advances 2025</b> &mdash; 6 devices</li>
+          <li><b>Meta-analysis</b> (JCSM)</li>
+          <li><b>de Zambotti framework</b> &mdash; methods</li>
+          <li><b>AASM inter-scorer</b> program</li>
+        </ul>
+      </div>
+      <div class="fund">
+        <h3><span class="dot warn"></span>Verify disclosure</h3>
+        <p class="cnt">device-provision / ties unclear</p>
+        <ul>
+          <li><b>Miller 2020</b> &mdash; WHOOP validation</li>
+          <li><b>Sensors 2024</b> &mdash; confirm funding</li>
+        </ul>
+      </div>
+      <div class="fund">
+        <h3><span class="dot ser"></span>Manufacturer</h3>
+        <p class="cnt">vendor-authored</p>
+        <ul>
+          <li><b>Apple white paper 2025</b> &mdash; vendor internal validation, not peer-reviewed</li>
+        </ul>
+      </div>
+    </div>
+    <div class="fair"><b>Fair note:</b> manufacturer-funded does not mean wrong &mdash; it means read the methods and disclosures with extra care. The action item is to confirm each study's funding statement, not to dismiss it.</div>
+    <p class="cap"><b>Read:</b> The most device-favorable single source is vendor-authored; the toughest numbers come from independent multicenter work. This is the gap an independent, pre-registered study is designed to close. Source: literature-review.md &sect;6.</p>
+  </figure>
+
+  <!-- FIGURE 3 -->
+  <figure class="panel">
+    <p class="axis">Axis 3 &mdash; How they err (sleep vs wake)</p>
+    <h2>Great at spotting sleep, poor at spotting wake</h2>
+    <p class="say">A still-but-awake body looks like sleep to a wrist sensor. So wearables catch almost all real sleep (high sensitivity) but miss much of the time you lie awake (low specificity) &mdash; which is exactly why they <b>overestimate total sleep</b> and <b>underestimate wake</b>.</p>
+    <div class="chart">
+      <div class="row"><div class="rowlab">Detects sleep<span class="n2">sensitivity</span></div><div class="track"><div class="fill blue" style="width:95%" title="Sensitivity to sleep ~95%"></div></div><div class="val">~95%</div></div>
+      <div class="row"><div class="rowlab">Detects wake<span class="n2">specificity</span></div><div class="track"><div class="fill orange" style="left:29%;width:23%" title="Specificity for wake ranges 29-52% across devices"></div></div><div class="val">29&ndash;52%</div></div>
+      <div class="ticks" aria-hidden="true"><div></div><div class="tickline"><span style="left:0%">0</span><span style="left:25%">25</span><span style="left:50%">50</span><span style="left:75%">75</span><span style="left:100%">100</span></div><div></div></div>
+      <div class="ticks"><div></div><div class="axiscap">% of epochs correctly classified</div><div></div></div>
+    </div>
+    <p class="cap"><b>Read:</b> Epoch-by-epoch vs PSG. Sensitivity to sleep is ~95% across devices; specificity for wake is 29&ndash;52% (WHOOP 51%, Miller 2020; six-device range, SLEEP Advances 2025). The floating bar shows the specificity range. Source: literature-review.md.</p>
+    <details>
+      <summary>Data table</summary>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Measure</th><th class="num">Value</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>Sensitivity to sleep</td><td class="num">~95%</td><td>across devices</td></tr>
+          <tr><td>Specificity for wake (WHOOP)</td><td class="num">51%</td><td>Miller 2020</td></tr>
+          <tr><td>Specificity for wake (6 devices)</td><td class="num">29&ndash;52%</td><td>SLEEP Advances 2025</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </figure>
+
+  <!-- FIGURE 4 -->
+  <figure class="panel">
+    <p class="axis">Axis 4 &mdash; Where staging breaks (by stage)</p>
+    <h2>Both are only moderate at stages &mdash; and neither is uniformly strong</h2>
+    <p class="say">Sleep-stage sensitivity (share of each true stage the device labels correctly) vs PSG. Apple is strong on light and REM but weak on deep; WHOOP is more even but lowest on light. No device is reliable across the board &mdash; and these come from <b>separate</b> studies, which is why a same-night head-to-head is worth doing.</p>
+    <div class="legend">
+      <span><span class="swatch blue"></span>Apple Watch 8 <span style="color:var(--muted)">(Sensors 2024)</span></span>
+      <span><span class="swatch orange"></span>WHOOP <span style="color:var(--muted)">(Miller 2020)</span></span>
+    </div>
+    <div class="chart">
+      <div class="stage">
+        <div class="sname">Light / Core sleep</div>
+        <div class="row"><div class="rowlab">Apple</div><div class="track" style="height:22px"><div class="fill blue" style="width:86.1%" title="Apple light/core sensitivity 86.1%"></div></div><div class="val">86%</div></div>
+        <div class="row"><div class="rowlab">WHOOP</div><div class="track" style="height:22px"><div class="fill orange" style="width:62%" title="WHOOP light sensitivity 62%"></div></div><div class="val">62%</div></div>
+      </div>
+      <div class="stage">
+        <div class="sname">REM sleep</div>
+        <div class="row"><div class="rowlab">Apple</div><div class="track" style="height:22px"><div class="fill blue" style="width:82.6%" title="Apple REM sensitivity 82.6%"></div></div><div class="val">83%</div></div>
+        <div class="row"><div class="rowlab">WHOOP</div><div class="track" style="height:22px"><div class="fill orange" style="width:70%" title="WHOOP REM sensitivity 70%"></div></div><div class="val">70%</div></div>
+      </div>
+      <div class="stage">
+        <div class="sname">Deep / Slow-wave sleep</div>
+        <div class="row"><div class="rowlab">Apple</div><div class="track" style="height:22px"><div class="fill blue" style="width:50.5%" title="Apple deep sensitivity 50.5%"></div></div><div class="val">51%</div></div>
+        <div class="row"><div class="rowlab">WHOOP</div><div class="track" style="height:22px"><div class="fill orange" style="width:68%" title="WHOOP SWS sensitivity 68%"></div></div><div class="val">68%</div></div>
+      </div>
+      <div class="ticks" aria-hidden="true"><div></div><div class="tickline"><span style="left:0%">0</span><span style="left:25%">25</span><span style="left:50%">50</span><span style="left:75%">75</span><span style="left:100%">100</span></div><div></div></div>
+      <div class="ticks"><div></div><div class="axiscap">sensitivity vs PSG (%)</div><div></div></div>
+    </div>
+    <p class="cap"><b>Read:</b> Same metric (sensitivity), different studies/cohorts &mdash; treat as indicative, not a clean head-to-head. Apple's deep-sleep sensitivity (~51%) is its weak spot; WHOOP's light-sleep sensitivity (~62%) is its lowest. Sources: Sensors 2024 (Apple), Miller 2020 (WHOOP). Full refs: literature-review.md.</p>
+  </figure>
+
+  <footer>
+    <p><b>Drawn from</b> <code>studies/sleep-tracking-comparison/literature-review.md</code>, which carries the full bibliography and every study's link. Figures are indicative summaries; verify each number against the source's full text and funding disclosure before publication.</p>
+    <p style="margin-top:8px">Key sources: Chinoy 2021 (<i>SLEEP</i>) &middot; Miller 2020 (<i>J Sports Sci</i>) &middot; six-device 2025 (<i>SLEEP Advances</i>) &middot; Sensors 2024 &middot; JMIR 2023 &middot; Rosenberg &amp; Van Hout 2013 (AASM inter-scorer) &middot; consumer-wearable meta-analysis (<i>JCSM</i>).</p>
+  </footer>
+</div>
