@@ -98,7 +98,7 @@ run_preflight \
   --candidate "$first_install" \
   --expected-bundle-id "$bundle_id" \
   --expected-team-id "$team_id" \
-  | /usr/bin/grep -q 'user grants Input Monitoring once'
+  | /usr/bin/grep -q 'user grants Microphone and Speech Recognition once'
 
 incompatible="$fixture_root/Incompatible.app"
 make_app "$incompatible" "$bundle_id" 9 'identifier "com.owner.operationsfloater" and anchor different-owner'

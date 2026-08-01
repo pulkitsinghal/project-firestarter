@@ -150,7 +150,7 @@ snapshot remains schema version `1.0`.
   human and assistant bubble shows its local creation time beside the reported
   sender. Pause, stop, floor revoke, module switch, clear, and window teardown
   cancel the pending turn; transcript/session memory is ephemeral.
-- The UI warns that private or patient data must not be entered because an
+- The UI warns that private or sensitive data must not be entered because an
   already-configured Router escalation may leave the device. Router policy
   remains the authoritative egress guard.
 - The default 620-by-640 window shows a dense two-column operational grid and

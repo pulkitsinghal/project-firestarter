@@ -1208,7 +1208,7 @@ struct RouterChatPanel: View {
 
             if !session.composerAcceptsTypedInput {
                 Text(
-                    "This recorder accepts on-device voice only. Return to the dashboard "
+                    "This module accepts on-device voice only. Return to the dashboard "
                         + "to type, or use the synthetic checkpoint module for typed testing."
                 )
                 .font(.caption2.weight(.medium))
@@ -1245,7 +1245,7 @@ struct RouterChatPanel: View {
             .foregroundStyle(.tertiary)
 
             Text(
-                "Do not enter patient or private data. A configured Router "
+                "Do not enter sensitive or private data. A configured Router "
                     + "escalation may leave the device."
             )
             .font(.system(size: 9, weight: .medium))

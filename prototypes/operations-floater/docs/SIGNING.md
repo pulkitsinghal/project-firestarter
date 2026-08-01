@@ -1,58 +1,42 @@
 # Signing and notarization
 
 Operations Floater ships as a Developer ID (direct) macOS app with the Hardened
-Runtime and **without** the App Sandbox. This document explains why, what the
-entitlements are, and exactly what the owner must do. It contains no
-credentials, team identifiers, Apple IDs, or owner-specific values; every such
-value is supplied at run time and never committed (firestarter's origin is
-public).
+Runtime. This document explains the distribution posture, what the entitlements
+are, and exactly what the owner must do. It contains no credentials, team
+identifiers, Apple IDs, or owner-specific values; every such value is supplied at
+run time and never committed (firestarter's origin is public).
 
-## The sandbox vs. Input Monitoring conflict
+## Privacy-protected resources
 
-The app needs three privacy-protected resources:
+The app uses two privacy-protected resources, both for the optional voice
+conversation feature:
 
 | Resource | Trigger in the app | Gate |
 | --- | --- | --- |
 | Microphone | Voice Conversation (`AVAudioEngine` / on-device speech) | Hardened Runtime entitlement + TCC (`NSMicrophoneUsageDescription`) |
 | Speech Recognition | On-device transcription of voice turns | TCC (`NSSpeechRecognitionUsageDescription`) |
-| Input Monitoring | Relative XY recorder — `CGRequestListenEventAccess()` / `CGPreflightListenEventAccess()` in `NeutralGeometryCapture.swift` | TCC (Privacy & Security -> Input Monitoring) |
 
-The Relative XY recorder observes the **complete mouse, scroll, and key-code
-stream of another application's selected window**. That is cross-process global
-input monitoring. macOS deliberately does not allow a sandboxed process to
-monitor input directed at other applications: the App Sandbox confines a process
-to its own event stream, and `CGRequestListenEventAccess()` cannot grant a
-sandboxed app system-wide Input Monitoring. So the two requirements are mutually
-exclusive:
+Both are requested only when the user explicitly starts Voice Conversation, and
+transcripts are kept ephemeral. Everything else the app does — reading a local
+snapshot, talking to the fixed loopback Router, and importing a user-selected
+file — needs no special entitlement.
 
-- **App Sandbox on** -> Input Monitoring of other apps' windows does not work,
-  and the recorder — a headline feature — is dead.
-- **Input Monitoring required** -> the app cannot be sandboxed.
-
-The previously committed `OperationsFloater.entitlements` declared
-`com.apple.security.app-sandbox = true` (and `project.yml` set
-`ENABLE_APP_SANDBOX: YES`). That directly contradicts the recorder and the app's
-own docs, which describe the main process as the sole Input Monitoring client.
-The microphone sandbox entitlement (`com.apple.security.device.audio-input`) was
-already present, but the sandbox itself was the blocker. This is the conflict
-this change resolves.
-
-> Note: because the App Store requires the App Sandbox, an app that keeps Input
-> Monitoring **cannot** ship on the Mac App Store. Direct Developer ID
-> distribution is the only channel that supports this feature.
-
-## Recommendation: Developer ID direct + Hardened Runtime, no sandbox
+## Distribution posture: Developer ID direct + Hardened Runtime
 
 **Adopted.** Distribute the app directly (Developer ID Application certificate +
-notarization), enable the Hardened Runtime, and **do not** enable the App
-Sandbox. This preserves the microphone, Speech Recognition, and Input Monitoring
-features intact. The Hardened Runtime satisfies the notarization requirement and
-still constrains the process (code-injection, unsigned-memory-execution, and
-library-validation protections all remain on).
+notarization) with the Hardened Runtime enabled. Direct Developer ID
+distribution is the target channel rather than the Mac App Store, so the App
+Sandbox is not required and is left off; the Hardened Runtime still satisfies the
+notarization requirement and constrains the process (code-injection,
+unsigned-memory-execution, and library-validation protections all remain on).
 
-### Corrected entitlements
+> Note: the Mac App Store requires the App Sandbox. A future App Store variant
+> would enable `com.apple.security.app-sandbox`; the microphone and Speech
+> Recognition features both survive under the sandbox, so no capability is lost.
 
-`OperationsFloater.entitlements` is now:
+### Entitlements
+
+`OperationsFloater.entitlements` is:
 
 ```xml
 <key>com.apple.security.device.audio-input</key>
@@ -65,49 +49,24 @@ required before the mic can be used at all; TCC then prompts the user with the
 
 - **Speech Recognition** is TCC-gated by `NSSpeechRecognitionUsageDescription`;
   there is no Hardened Runtime entitlement for it.
-- **Input Monitoring** is TCC-gated by `CGRequestListenEventAccess()`; it needs
-  no entitlement and now works because the sandbox is gone.
 - **Network** (`127.0.0.1:11500` loopback Router) and **user-selected files**
-  (the Import Local Snapshot picker) are unrestricted without the sandbox, so
-  the former `com.apple.security.network.client` and
-  `com.apple.security.files.user-selected.read-write` keys were dropped as
-  no-ops.
+  (the Import Local Snapshot picker) are unrestricted without the sandbox.
 
-`project.yml` now sets `ENABLE_APP_SANDBOX: NO` and keeps
+`project.yml` sets `ENABLE_APP_SANDBOX: NO` and keeps
 `ENABLE_HARDENED_RUNTIME: YES` so a regenerated Xcode project matches these
 entitlements.
 
 ### One side effect: Application Support location
 
-Leaving the sandbox moves the app's storage from the per-app container
-(`~/Library/Containers/<bundle-id>/Data/Library/Application Support/`) to the
-standard `~/Library/Application Support/`. The code resolves this with
+Running outside the sandbox keeps the app's storage at the standard
+`~/Library/Application Support/` rather than a per-app container
+(`~/Library/Containers/<bundle-id>/Data/Library/Application Support/`). The code
+resolves this with
 `FileManager.default.urls(for: .applicationSupportDirectory, ...)`
 (`OperationsFloaterApp.swift`, `LocalSnapshotStore.swift`), so no code change is
-needed; the process-scoped lease, saved snapshot, and receipts simply live at
-the standard path. A migration is only relevant if a previously sandboxed build
-was already installed with real data — not the case for a first release.
-
-## Tradeoff: the sandboxed alternative
-
-If Mac App Store distribution or the stronger sandbox confinement were ever
-required, the only way to stay sandboxed is to **drop Input Monitoring** —
-remove the Relative XY recorder's cross-process event capture entirely (or
-reduce it to events inside the app's own windows, which needs no special
-permission). The sandboxed entitlements would then be:
-
-```xml
-<key>com.apple.security.app-sandbox</key><true/>
-<key>com.apple.security.device.audio-input</key><true/>
-<key>com.apple.security.network.client</key><true/>
-<key>com.apple.security.files.user-selected.read-write</key><true/>
-```
-
-Microphone and Speech Recognition survive under the sandbox; only the recorder
-is lost. Because the recorder is a defining capability of this app, the
-non-sandboxed Developer ID path is recommended. Revisit only if the product
-direction changes (e.g. an App Store build that deliberately omits the
-recorder).
+needed; the process-scoped lease, saved snapshot, and receipts live at the
+standard path. A migration is only relevant if a previously sandboxed build was
+already installed with real data — not the case for a first release.
 
 ## OWNER checklist
 
@@ -177,13 +136,8 @@ any automation in this repo. Do them on the owner's signing machine.
    ```
 
 6. **Grant TCC on first launch.** Launch the installed app and approve, when the
-   app explicitly asks:
-   - **Microphone** and **Speech Recognition** — prompted the first time Voice
-     Conversation starts.
-   - **Input Monitoring** — the app calls `CGRequestListenEventAccess()`, which
-     opens Privacy & Security -> Input Monitoring; enable Operations Floater
-     there, then retry recording. macOS cannot revoke this from inside the app;
-     removal is done in System Settings.
+   app explicitly asks, **Microphone** and **Speech Recognition** — prompted the
+   first time Voice Conversation starts.
 
    Grant these only to the signed, notarized, installed copy — never to a
    DerivedData product, SwiftPM executable, or other disposable build (each has
@@ -195,4 +149,3 @@ any automation in this repo. Do them on the owner's signing machine.
 - [Apple: Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
 - [Apple: Customizing the notarization workflow (notarytool)](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow)
 - [Apple: App Sandbox](https://developer.apple.com/documentation/security/app-sandbox)
-- [Apple: CGRequestListenEventAccess()](https://developer.apple.com/documentation/coregraphics/cgrequestlisteneventaccess%28%29)

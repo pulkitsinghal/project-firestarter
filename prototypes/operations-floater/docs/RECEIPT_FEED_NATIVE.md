@@ -37,7 +37,7 @@ integer age is greater than `thresholdSeconds`; therefore an actual age of
 
 Missing, invalid, or unavailable sources make only the receipt panel offline.
 The existing local snapshot, Router chat and review, voice/floor controls,
-Relative XY recorder, race/resource/privacy panels, keyboard behavior, and
+race/resource/privacy panels, keyboard behavior, and
 window lifecycle remain independent.
 
 ## Privacy and mutation boundary

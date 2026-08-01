@@ -21,31 +21,20 @@ Unknown fields fail closed.
 - Limits: health 16,384 bytes; response 65,536 bytes; health timeout 2 seconds;
   turn timeout 10 seconds.
 
-The allowlisted geometry adapter is:
+## Built-in reference module
 
-- module ID: `example.verbal-orders.synthetic-geometry-recorder`
-- provenance source: `example.project-verbal-orders.geometry-recorder`
-- transcript providers: `onDevice`, `syntheticFixture`
-- window binding: `verbal-orders.synthetic.geometry-canvas`
+The only module in the compiled allowlist is the deterministic synthetic
+checkpoint reference used for contract testing:
 
-The selected-window relative-coordinate adapter is:
+- module ID: `firestarter.synthetic.checkpoint`
+- display name: `Synthetic checkpoint reference`
+- provenance source: `firestarter.operations-floater.synthetic`
+- transcript providers: `typed-keyboard`, `onDevice`, `syntheticFixture`
 
-- module ID: `example.verbal-orders.relative-xy-recorder`
-- provenance source: `example.project-verbal-orders.relative-xy-recorder`
-- transcript providers: `onDevice`, `syntheticFixture`
-- generic wire binding: `verbal-orders.neutral.selected-window`
-- events: normalized mouse move/down/up/drag, normalized scroll plus bounded
-  deltas, and all keyboard down/up/modifier changes as key code, modifier flags,
-  and elapsed timing
-
-Any visible window may be selected. Application names are UI hints only and
-are not an allowlist. The actual process ID, window ID, title, and bundle
-identity are absent from the wire request and reviewed artifact; the host keeps
-the exact process/window binding in memory only to reject cross-window events.
-
-The built-in checkpoint reference additionally permits `typed-keyboard`.
-The geometry recorder does not, so the typed composer is disabled while it has
-the floor.
+It exercises the full envelope — narration, bounded context, statuses,
+checkpoints, and human-approval-gated proposed actions — without capturing any
+real content. Additional modules would each be added to the compiled allowlist
+with their own manifest, provenance, and privacy posture; none is bundled here.
 
 ## Bounds
 
@@ -62,15 +51,22 @@ the floor.
 | checkpoints | 8; summary 400 characters |
 | proposed actions | 4; title 120 characters |
 
+## Capability vocabulary
+
+A manifest declares a bounded capability set (see the schema `capabilities`
+enum): `narration`, `checkpoints`, `proposed-actions`, and an optional bounded
+input-context vocabulary of `normalized-pointer-events`, `navigation-keys`,
+`raw-keyboard-events`, `scroll-events`, `placeholder-events`, and
+`neutral-window-context`.
+
 Event sequences start at one and are contiguous within each request. Pointer
 coordinates are normalized to `0...1`. Navigation keys are closed to Tab,
 Return, Space, arrows, and Delete. Escape is intentionally absent because the
-host always reserves it for returning to the dashboard.
-
-The relative XY module additionally admits raw hardware key codes, modifiers,
-key phase, mouse button, scroll deltas, and elapsed milliseconds. It does not
-recover characters. Pointer and scroll events must be within the selected
-topmost window; keyboard events require that same selected window to be active.
+host always reserves it for returning to the dashboard. Input-context events are
+bounded metadata only: key codes, modifier flags, and elapsed timing are carried
+but printable characters are never reconstructed. Any window binding a manifest
+uses must appear in its own `allowedWindowBindingIDs` allowlist; unlisted
+bindings fail closed.
 
 ## Floor and transaction semantics
 
@@ -100,13 +96,10 @@ Every accepted manifest has exactly this privacy posture:
 - module microphone, UI, TTS, arbitrary network, persistence, screen capture,
   input injection, and executable replay: `false`
 
-The synthetic recorder receives only bounded narration, closed normalized
-events, and an allowlisted neutral synthetic window binding. The relative XY
-recorder receives only bounded narration, selected-window normalized input
-events, key codes, modifiers, and timing. It may return calibrated
-checkpoints, at most one question, statuses, and proposals. Every proposed
-action must set `humanApprovalRequired: true`; executable replay is not part of
-this contract.
+A module receives only bounded narration, closed normalized events, and an
+allowlisted window binding. It may return calibrated checkpoints, at most one
+question, statuses, and proposals. Every proposed action must set
+`humanApprovalRequired: true`; executable replay is not part of this contract.
 
 The host's voice mode is off by default. Start is explicit and may trigger the
 macOS Microphone and Speech Recognition prompts. Production transcription sets
