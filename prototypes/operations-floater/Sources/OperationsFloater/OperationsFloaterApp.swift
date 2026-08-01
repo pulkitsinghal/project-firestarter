@@ -47,7 +47,7 @@ struct DashboardLaunchConfiguration: Equatable {
 ///
 /// Launch Services normally reopens an existing application instance, but a
 /// direct executable launch or `open -n` can bypass that behavior. The lock
-/// keeps those alternate launch paths from creating a second recorder host.
+/// keeps those alternate launch paths from creating a second application instance.
 final class SingleInstanceLease {
     private let descriptor: Int32
 
@@ -234,7 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 title: "Operations Floater Did Not Start",
                 message:
                     "The app could not establish its single-instance lock. "
-                    + "No recorder or helper was started."
+                    + "No background helper was started."
             )
             NSApplication.shared.terminate(nil)
             return false

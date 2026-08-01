@@ -182,10 +182,10 @@ struct GuidePresentationTests {
         )
         let entitlements = try #require(value as? [String: Any])
 
-        // Developer ID (direct) + Hardened Runtime, NOT sandboxed: the Relative XY
-        // recorder needs cross-process Input Monitoring, which the App Sandbox
-        // blocks. So the only entitlement is the microphone resource-access
-        // exception; the former sandbox-only keys are intentionally absent. See
+        // Developer ID (direct) + Hardened Runtime, not sandboxed for direct
+        // distribution. The only entitlement is the microphone resource-access
+        // exception used by the voice conversation feature; the former
+        // sandbox-only keys are intentionally absent. See
         // OperationsFloater.entitlements and docs/SIGNING.md.
         #expect(entitlements.count == 1)
         #expect(entitlements["com.apple.security.device.audio-input"] as? Bool == true)

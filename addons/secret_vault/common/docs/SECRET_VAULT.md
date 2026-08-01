@@ -129,7 +129,7 @@ Stores/restores a repo's git-crypt symmetric key under the conventional name
 ```
 
 This is the primary use case: keys that decrypt the encrypted `knowledge/**`
-paths (clinic / EHR IP). Because it is generic, the same tool secures any secret.
+paths. Because it is generic, the same tool secures any secret.
 
 ## Recovery
 

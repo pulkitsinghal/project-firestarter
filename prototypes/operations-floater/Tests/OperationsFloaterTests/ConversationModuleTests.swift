@@ -57,7 +57,7 @@ struct ConversationModuleTests {
         }
     }
 
-    @Test("The contract accepts any selected window and the complete input vocabulary")
+    @Test("The contract accepts the neutral window binding and the bounded input vocabulary")
     func neutralInputVocabulary() throws {
         let manifest = neutralInputManifest
         #expect(

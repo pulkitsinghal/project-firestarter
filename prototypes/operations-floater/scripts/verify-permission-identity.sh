@@ -177,7 +177,7 @@ fi
 
 if [[ -z "$installed_app" ]]; then
   printf '%s\n' \
-    "permission-identity preflight: PASS: signed first-install candidate; user grants Input Monitoring once after installation"
+    "permission-identity preflight: PASS: signed first-install candidate; user grants Microphone and Speech Recognition once after installation"
   exit 0
 fi
 

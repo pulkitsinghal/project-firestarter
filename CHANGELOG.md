@@ -119,7 +119,7 @@ All notable changes to the firestarter template. See
   evidence stages.
 - Operations Floater 1.1.0 (build 2) permission/install lifecycle: a read-only
   designated-requirement compatibility preflight, helper-free bundle audit,
-  one-instance recorder host, transactional **Give floor** rollback, and
+  single-instance app host, transactional **Give floor** rollback, and
   synthetic tests that never sign, install, launch, or request TCC access.
   Routine validation is bundle-free on the active macOS profile because Xcode
   26.5 still invokes `lsregister` despite
