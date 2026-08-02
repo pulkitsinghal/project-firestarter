@@ -24,6 +24,7 @@ assigning `ROOT_ORCHESTRATOR_ROLE=trusted-project-hook`, confirm that the exact
 installed version exposes `pm_proxy_verify_runtime`, `pm_proxy_doctor`,
 `pm_proxy_status`, `pm_proxy_prepare_launch`,
 `pm_proxy_record_launch_receipt`, `pm_proxy_lifecycle_watchdog`,
+`pm_proxy_reconcile_expired_lease`,
 `pm_proxy_close_and_refill`, `pm_proxy_watchdog_refill`,
 `pm_proxy_slot_status`, `pm_proxy_record_refill_receipt`, and
 `pm_proxy_record_archive_receipt`, then run typed `doctor`. Firestarter does not

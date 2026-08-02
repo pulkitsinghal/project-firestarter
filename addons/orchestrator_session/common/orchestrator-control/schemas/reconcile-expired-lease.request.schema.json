@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/reconcile-expired-lease-request-1.0.schema.json",
+  "title": "reconcile-expired-lease request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interface_version",
+    "request_id",
+    "task_id",
+    "policy_snapshot_revision",
+    "expected_lease_epoch",
+    "expected_fencing_token",
+    "expected_owner_claim_id",
+    "expected_external_thread_id",
+    "expected_lease_expires_at",
+    "now"
+  ],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "policy_snapshot_revision": {"type": "integer", "minimum": 1},
+    "expected_lease_epoch": {"type": "integer", "minimum": 1},
+    "expected_fencing_token": {"type": "integer", "minimum": 1},
+    "expected_owner_claim_id": {"type": "string"},
+    "expected_external_thread_id": {"type": "string"},
+    "expected_lease_expires_at": {"type": "string"},
+    "now": {"type": "string"}
+  }
+}

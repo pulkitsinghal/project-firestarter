@@ -1,6 +1,6 @@
 # PM Proxy Orchestrator
 
-Version `0.3.1` is a source-only agent-CLI plugin for Firestarter control-plane
+Version `0.3.2` is a source-only agent-CLI plugin for Firestarter control-plane
 interface `1.0`. It makes task reservation, policy receipts, approval routing,
 fenced handback, successor creation, and queue recycling operational without
 installing anything globally.
@@ -39,6 +39,13 @@ The plugin includes a local stdio MCP server exposing only typed verifier,
 doctor, reserve/receipt, lifecycle, close/refill, status, and archive-receipt
 operations. It has no network client, app connector, shell executor, generic
 filesystem tool, or arbitrary-command field.
+
+The typed `pm_proxy_reconcile_expired_lease` operation retires only the exact
+receipt-fenced owner after its stored lease deadline. It advances the task to a
+tombstone fence, marks the claim expired, and releases logical capacity without
+takeover, handback, closure, archive, successor creation, or refill. Status can
+accept an explicit UTC clock so stale and expired evidence is never inferred
+from an unknown evaluation time.
 
 The plugin manifest explicitly binds `mcpServers` to `./.mcp.json`. This is a
 safety invariant, not packaging metadata: Codex can discover the default

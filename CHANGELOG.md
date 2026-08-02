@@ -6,6 +6,11 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- PM-proxy exact expired-lease retirement: a closed ticket-derived request can
+  invalidate the stale fence, expire its owner claim, and release capacity
+  without takeover, extension, handback, closure, archive, successor creation,
+  or refill. Explicit-clock status distinguishes the durable `EXPIRED`
+  tombstone from unknown-clock and no-active-claim states.
 - PM-proxy under-capacity exact replacement: a clean terminal handback may
   atomically exchange its receipt-backed predecessor for one fenced successor
   even when other configured slots are already idle. The transaction snapshots

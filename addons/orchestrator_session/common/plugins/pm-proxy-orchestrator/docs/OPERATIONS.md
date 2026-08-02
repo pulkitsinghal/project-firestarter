@@ -68,6 +68,14 @@ periodically. A mirror ID is denied before the Firestarter mutation command.
 Use
 `classify-decision` for every approval question.
 
+When a ticket's stored lease has already expired and ownership must only be
+retired, call `reconcile-expired-lease` with that ticket, a unique request ID,
+and an explicit UTC clock. The bridge derives the task, claim, external receipt,
+epoch, fence, and deadline from the ticket; it does not accept a replacement
+payload and does not rewrite the ticket. A successful result must say
+`EXPIRED`, `capacity_released: true`, and false for closure, archive, and refill.
+It is not a takeover, extension, handback, or task-platform archive.
+
 If the task platform surfaces any second task with the same delegated envelope,
 call `reconcile-external-task` with its external ID. Only the ID recorded in the
 ticket receipt may proceed. Apply the returned `STOP_READ_ONLY`,
