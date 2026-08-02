@@ -15,14 +15,15 @@ from typing import Any
 
 MAX_BYTES = 1_048_576
 EXPECTED = {
-    "model": "coordinator-model",
-    "model_reasoning_effort": "high",
-    "service_tier": "priority",
+    "model": "gpt-5.6-sol",
+    "model_reasoning_effort": "xhigh",
+    "service_tier": "fast",
     "fast_mode": True,
     "multi_agent": True,
-    "default_subagent_model": "coordinator-model",
-    "default_subagent_reasoning_effort": "high",
+    "default_subagent_model": "gpt-5.6-sol",
+    "default_subagent_reasoning_effort": "xhigh",
 }
+EFFECTIVE_SERVICE_TIER = "priority"
 RUNTIME_KEYS = {
     "model",
     "model_reasoning_effort",
@@ -162,7 +163,7 @@ def verify_runtime(value: dict[str, Any]) -> dict[str, Any]:
     expected_runtime = {
         "model": EXPECTED["model"],
         "model_reasoning_effort": EXPECTED["model_reasoning_effort"],
-        "service_tier": EXPECTED["service_tier"],
+        "service_tier": EFFECTIVE_SERVICE_TIER,
         "fast_mode": EXPECTED["fast_mode"],
         "service_tier_attestation": source,
         "tier_provenance": expected_provenance,
@@ -211,7 +212,7 @@ def main() -> int:
                 "root": {
                     "model": relevant["model"],
                     "reasoning_effort": relevant["model_reasoning_effort"],
-                    "service_tier": relevant["service_tier"],
+                    "service_tier": EFFECTIVE_SERVICE_TIER,
                     "fast_mode": relevant["fast_mode"],
                     "service_tier_attestation": runtime[
                         "service_tier_attestation"
@@ -222,7 +223,7 @@ def main() -> int:
                     "reasoning_effort": relevant[
                         "default_subagent_reasoning_effort"
                     ],
-                    "service_tier": relevant["service_tier"],
+                    "service_tier": EFFECTIVE_SERVICE_TIER,
                     "fast_mode": relevant["fast_mode"],
                 },
                 "multi_agent": relevant["multi_agent"],

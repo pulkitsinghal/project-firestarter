@@ -112,7 +112,12 @@ def load_refill(path_value: str) -> dict[str, Any]:
     return request
 
 
-def slot_truth(status: dict[str, Any], refill: dict[str, Any]) -> dict[str, Any]:
+def slot_truth(
+    status: dict[str, Any],
+    refill: dict[str, Any],
+    *,
+    reserved_task_ids: set[str] | None = None,
+) -> dict[str, Any]:
     tasks = status.get("tasks")
     if not isinstance(tasks, list):
         raise bridge.BridgeError("MACHINE_RESPONSE_INVALID", "status tasks are incompatible")
@@ -121,8 +126,13 @@ def slot_truth(status: dict[str, Any], refill: dict[str, Any]) -> dict[str, Any]
         for task in tasks
         if isinstance(task, dict) and task.get("state") in ACTIVE_OR_RESERVED
     )
+    reserved = reserved_task_ids or set()
     runnable = sorted(
-        (candidate for candidate in refill["candidates"]),
+        (
+            candidate
+            for candidate in refill["candidates"]
+            if candidate["task_id"] not in reserved
+        ),
         key=lambda item: (-item["priority"], item["task_id"]),
     )
     capacity = refill["configured_capacity"]
@@ -190,7 +200,11 @@ def schedule(
             selected_task_id=recycle_result.get("selected_task_id"),
         )
     )
-    current = slot_truth(bridge.run_cli(cli, state_dir, "status"), refill)
+    current = slot_truth(
+        bridge.run_cli(cli, state_dir, "status"),
+        refill,
+        reserved_task_ids=set(saga.get("reserved_task_ids", [])),
+    )
     launches: list[dict[str, Any]] = []
     candidates = sorted(refill["candidates"], key=lambda item: (-item["priority"], item["task_id"]))
     already = set(saga.get("reserved_task_ids", []))
@@ -224,7 +238,11 @@ def schedule(
                 "applicable_rule_ids": ticket["applicable_rule_ids"],
             }
         )
-        current = slot_truth(bridge.run_cli(cli, state_dir, "status"), refill)
+        current = slot_truth(
+            bridge.run_cli(cli, state_dir, "status"),
+            refill,
+            reserved_task_ids=set(saga.get("reserved_task_ids", [])),
+        )
     if launches:
         saga["outcome"] = "SUCCESSOR_RESERVED"
     elif current["deficit"] == 0 and saga.get("reserved_task_ids"):
@@ -252,7 +270,11 @@ def schedule(
         saga["events"].append(
             event("EMPTY", refill["now"], refill["terminal_observation"]["evidence_refs"])
         )
-    final = slot_truth(bridge.run_cli(cli, state_dir, "status"), refill)
+    final = slot_truth(
+        bridge.run_cli(cli, state_dir, "status"),
+        refill,
+        reserved_task_ids=set(saga.get("reserved_task_ids", [])),
+    )
     if final["failure_state"] and len(saga.get("reserved_task_ids", [])) < len(refill["candidates"]):
         saga["events"].append(
             event("CAPACITY_DEFICIT", refill["now"], refill["terminal_observation"]["evidence_refs"], **final)

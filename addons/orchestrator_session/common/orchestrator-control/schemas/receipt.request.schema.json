@@ -33,12 +33,12 @@
         "parent_attestation_present"
       ],
       "properties": {
-        "root_model": {"const": "coordinator-model"},
-        "root_reasoning_effort": {"const": "high"},
+        "root_model": {"const": "gpt-5.6-sol"},
+        "root_reasoning_effort": {"const": "xhigh"},
         "root_service_tier": {"const": "priority"},
         "root_fast_mode": {"const": true},
-        "worker_model": {"const": "coordinator-model"},
-        "worker_reasoning_effort": {"const": "high"},
+        "worker_model": {"const": "gpt-5.6-sol"},
+        "worker_reasoning_effort": {"const": "xhigh"},
         "worker_service_tier": {"const": "priority"},
         "worker_fast_mode": {"const": true},
         "service_tier_attestation": {

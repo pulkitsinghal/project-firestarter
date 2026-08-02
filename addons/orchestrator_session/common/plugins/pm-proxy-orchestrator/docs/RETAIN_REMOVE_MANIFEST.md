@@ -4,8 +4,8 @@
 
 - Plugin source, repo-local marketplace, semantic version, changelog, and
   license.
-- Operational skill, bridge, dispatcher adoption adapter, contract reference,
-  and user/operator docs.
+- Operational skill, bridge, typed local MCP server, dispatcher/lifecycle hook
+  adapters, contract reference, and user/operator docs.
 - Deterministic unit, integration, adversarial, race, privacy, and crash tests.
 - Source archive, Firestarter overlay bundle, narrow integration patch, hashes,
   and validation report.
@@ -16,6 +16,8 @@
   prompts.
 - Synthetic test state directories and tickets.
 - Python bytecode caches and extracted pinned reference trees.
+- Ephemeral `.mcp-requests` contents; keep only the empty private directory when
+  an active session still uses it.
 - Task-owned integration worktrees after the later Firestarter PR merges and
   exact merged-default retest passes.
 

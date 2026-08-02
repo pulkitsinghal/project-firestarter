@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/dispatcher-adoption-request-1.0.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interface_version",
+    "request_id",
+    "adoption_mode",
+    "plugin_version",
+    "proofs",
+    "now"
+  ],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "adoption_mode": {"const": "COVERED_PATH_GUARDRAIL"},
+    "plugin_version": {"type": "string", "pattern": "^0\\.3\\.(?:0|1)(?:\\+codex\\.[0-9]{14})?$"},
+    "proofs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pre_tool_denial_verified",
+        "typed_mcp_control_verified",
+        "reserved_create_admission_verified",
+        "lifecycle_debt_clear_verified",
+        "archive_refill_fence_verified",
+        "no_side_effect_canary_verified",
+        "hosted_paths_uncovered",
+        "universal_coverage_claimed"
+      ],
+      "properties": {
+        "pre_tool_denial_verified": {"const": true},
+        "typed_mcp_control_verified": {"const": true},
+        "reserved_create_admission_verified": {"const": true},
+        "lifecycle_debt_clear_verified": {"const": true},
+        "archive_refill_fence_verified": {"const": true},
+        "no_side_effect_canary_verified": {"const": true},
+        "hosted_paths_uncovered": {"const": true},
+        "universal_coverage_claimed": {"const": false}
+      }
+    },
+    "now": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z$"}
+  }
+}

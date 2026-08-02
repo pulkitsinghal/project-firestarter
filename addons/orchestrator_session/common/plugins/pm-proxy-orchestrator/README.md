@@ -1,6 +1,6 @@
 # PM Proxy Orchestrator
 
-Version `0.3.0` is a source-only agent-CLI plugin for Firestarter control-plane
+Version `0.3.1` is a source-only agent-CLI plugin for Firestarter control-plane
 interface `1.0`. It makes task reservation, policy receipts, approval routing,
 fenced handback, successor creation, and queue recycling operational without
 installing anything globally.
@@ -11,10 +11,13 @@ private state directory at use time. See `docs/OPERATIONS.md` and
 `docs/INSTALL_UPDATE_ROLLBACK.md`.
 
 Schema `1.2` adds duration controls and a root-role guard adapter. The package
-also bundles a supported `PreToolUse` hook with status
-`COVERED_PATH_GUARDRAIL`. It can deny covered local/MCP calls before dispatch
-after trusted installation, but hosted paths, opt-outs, reauthorization gaps,
-and non-spoofable root identity remain unresolved. See
+also bundles supported `PreToolUse` and `PostToolUse` hooks with status
+`COVERED_PATH_GUARDRAIL`. A trusted project hook can deny covered task-domain
+calls before dispatch, require a fresh exact Firestarter ticket for task
+creation, fence archive behind a satisfied refill saga, and require a successful
+lifecycle-watchdog call after each covered read/wait before another status or
+lifecycle action. Hosted paths, opt-outs, reauthorization gaps, and universal
+non-spoofable caller identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
 
 Bridge/ticket `1.3` accepts control schema `1.3`, requires the exact root and
@@ -26,5 +29,22 @@ internal subagents: workers are visible peer tasks, root is excluded from worker
 capacity, and closure follows handback → release → blocked re-audit → successor
 receipt or terminal proof → archive.
 
-No network client, MCP server, app connector, shell executor, or
-arbitrary-command field is included.
+An exact one-for-one closure replacement preserves the predecessor's
+receipt-backed occupancy even when the pool was already under configured
+capacity. The selected successor must still be reserved in the same SQLite
+transaction and receipted before predecessor archive; unrelated idle slots stay
+visible and do not turn that already-reserved successor back into runnable work.
+
+The plugin includes a local stdio MCP server exposing only typed verifier,
+doctor, reserve/receipt, lifecycle, close/refill, status, and archive-receipt
+operations. It has no network client, app connector, shell executor, generic
+filesystem tool, or arbitrary-command field.
+
+The plugin manifest explicitly binds `mcpServers` to `./.mcp.json`. This is a
+safety invariant, not packaging metadata: Codex can discover the default
+`hooks/hooks.json` independently, while a bundled MCP server must be declared by
+the manifest. The Firestarter overlay therefore never stamps a project-level
+`.codex/hooks.json` or assigns the trusted root role. Install the complete
+plugin, verify the required `pm_proxy_*` tools in a hook-untrusted bootstrap
+task, and only then trust the exact hook and perform covered-path adoption. See
+`docs/INSTALL_UPDATE_ROLLBACK.md` for partial-activation recovery.

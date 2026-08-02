@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.3.1 - 2026-08-01
+
+- Allow a fenced terminal handback to reserve an exact one-for-one successor
+  while the receipt-backed worker pool is already below configured capacity.
+  The closure transaction must preserve pre-release occupancy; missing,
+  duplicate, overlapping, or unfenced successors still roll back atomically.
+- Mark an exact reserved candidate as no longer runnable, transition its
+  capacity saga on its own canonical receipt instead of unrelated global slot
+  occupancy, and keep genuinely unsupplied idle slots visible.
+
 - Add PM bridge/ticket 1.3 for exact root/worker runtime policy and launch
   attestation, including truthful `runtime` versus desktop-app
   `config-verified` priority-tier provenance and fail-closed API-key/drift handling.
@@ -10,6 +20,23 @@
   terminal proof → archive sequence.
 - Make root coordination-only with visible peer workers, no internal subagents,
   and root excluded from configured worker capacity.
+- Add a local stdio MCP control surface so an enforced root can run only typed
+  verifier, doctor, launch/receipt, heartbeat, lifecycle, close/refill, status,
+  and archive-receipt operations without a general shell or filesystem tool.
+- Gate covered task creation on one fresh exact ticket, gate archive on a
+  satisfied refill saga, and add a PostToolUse lifecycle-debt fence that blocks
+  repeat reads/waits and status/refill/archive actions until the exact worker's
+  lifecycle watchdog succeeds.
+- Bind the bundled MCP server explicitly through the plugin manifest, prohibit
+  overlay-level root-hook activation, and document two-phase adoption plus
+  owner-controlled recovery so hooks cannot silently precede reservation tools.
+- Bound both hook lock waits, record lifecycle debt before observations,
+  reject unsafe lock files, prune only terminal admission records, and prevent
+  archive readmission after its receipt so stale state cannot hang or exhaust
+  the dispatcher.
+- Keep the closed dispatcher-adoption schema aligned with the exact 0.3.1
+  plugin version, admit only the MCP registry's exact typed tool names, and
+  clear lifecycle debt only from the documented successful result wrapper.
 
 ## 0.3.0 - 2026-07-28
 

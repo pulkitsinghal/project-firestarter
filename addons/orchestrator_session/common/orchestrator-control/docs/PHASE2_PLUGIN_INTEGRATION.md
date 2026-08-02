@@ -94,8 +94,9 @@ not authority.
 ## Mandatory startup/runtime attestation
 
 The project and packaged orchestrator template both check in `.codex/config.toml`
-with these exact root and spawn defaults: a coordinator model, a reasoning
-effort, `service_tier = "priority"`, `fast_mode = true`, and `multi_agent = true`.
+with these exact root and spawn defaults: `gpt-5.6-sol`, `xhigh`, config value
+`service_tier = "fast"` (effective request tier `priority`),
+`fast_mode = true`, and `multi_agent = true`.
 Startup must run `bin/verify-orchestrator-runtime` against the exact trusted
 project and the current user's agent-CLI configuration before any worker launch.
 An untrusted project, missing value, drift, or conflicting override is a hard
@@ -239,9 +240,13 @@ output.
     **handback → capacity release → blocked-work re-audit** before it reserves
     the successor and create outbox, records `EMPTY`/`OWNER_GATED` with evidence
     when appropriate, and starts the archive outbox. All of those effects commit
-    in one SQLite transaction. If runnable work exists but active-or-reserved
-    slots do not equal configured capacity, status exposes
-    `CAPACITY_INVARIANT_FAILED` and archival remains fenced.
+    in one SQLite transaction. A one-for-one successor must preserve the
+    receipt-backed occupancy observed before predecessor release. When the pool
+    was full, that still means configured capacity; when unrelated slots were
+    already idle, the exact replacement may preserve the lower occupancy while
+    the unsupplied deficit remains visible. A missing, duplicate, overlapping,
+    or unreserved replacement exposes `CAPACITY_INVARIANT_FAILED`, rolls back,
+    and keeps archival fenced.
 11. Create the successor from the returned verbatim prompt and record its exact
     launch receipt. This completes the exact sequence
     **successor receipt → predecessor archive**. Only then may

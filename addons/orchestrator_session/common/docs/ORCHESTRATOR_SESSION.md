@@ -20,7 +20,7 @@ Enable it at stamp time:
 | `AGENTS.orchestrator.md` | Thin paste-able `AGENTS.md` addendum that makes the Bill the durable policy source. |
 | `orchestrator-control/` | Versioned generic policy ledger, schema-1.3 local SQLite authority, mandatory `root_role_guard.py`, evidence-derived lifecycle watchdog, duration-calibrated worker lanes, stable JSON CLI, schemas, security-hardened dashboard, and Phase-2 skill/plugin wrapper contract. |
 | `.agents/plugins/marketplace.json` | Repo-local marketplace entry for the validated `pm-proxy-orchestrator` source plugin; it is not a personal installation. |
-| `plugins/pm-proxy-orchestrator/` | Operational bridge, skill, closure/refill saga, docs, synthetic task-tool stub, and deterministic privacy/adversarial/race tests. |
+| `plugins/pm-proxy-orchestrator/` | Operational bridge, skill, typed MCP server, lifecycle hooks, closure/refill saga, docs, synthetic task-tool stub, and deterministic privacy/adversarial/race tests. Its manifest explicitly binds `mcpServers` to `./.mcp.json`; the add-on does not stamp an armed project hook. |
 | `decisions-board/decisions.json` | Legacy-compatible starter display data. It is a view, not task or approval authority. |
 | `decisions-board/decisions.html` | A self-contained dark-mode-aware compatibility viewer with CSP and an HTTP(S)-only link allowlist. |
 
@@ -39,8 +39,9 @@ Before the root coordinates any task:
 1. Start from the exact project root and require that exact path to be
    `trusted` in the agent CLI's machine-local config. The checked-in
    `.codex/config.toml` and machine config must both resolve to the coordinator
-   and worker runtime defaults (a model, a reasoning effort, and
-   `service_tier = "priority"`), with `fast_mode` and `multi_agent` enabled.
+   and worker runtime defaults (`gpt-5.6-sol`, `xhigh`, and config value
+   `service_tier = "fast"`, which maps to effective request tier `priority`),
+   with `fast_mode` and `multi_agent` enabled.
 2. Capture a bounded launch attestation for the effective root model, reasoning
    effort, fast mode, authentication mode, and service-tier provenance. Model
    and effort values must come from the launch/runtime surface. Use
@@ -69,8 +70,20 @@ Before the root coordinates any task:
    release, blocked-work re-audit, successor receipt or terminal-empty proof,
    then predecessor archive.
 
-For enforced task creation, initialize the private local authority and require
-the Phase-2 wrapper flow:
+Before enforcement, install the complete plugin and use a new hook-untrusted
+bootstrap task to verify that the exact `pm_proxy_*` MCP tools are discovered and
+typed `doctor` succeeds. The default plugin hook can be discovered independently
+of an MCP server, so the explicit manifest pointer and this bootstrap order are
+mandatory. Never stamp `.codex/hooks.json` or assign
+`ROOT_ORCHESTRATOR_ROLE=trusted-project-hook` from this add-on. A firing hook
+with no reservation tools is partial activation: restore the prior project hook
+state outside the blocked task, restart, and repair the plugin before adoption.
+The hook ledgers must also use bounded nonblocking owner-only locks, record
+observation debt before dispatch, prune only ticket-proven terminal admissions,
+and reject archive replay after its exact receipt.
+
+For enforced task creation after that gate, initialize the private local
+authority and require the Phase-2 wrapper flow:
 
 ```bash
 python orchestrator-control/orchestrator_control.py \
