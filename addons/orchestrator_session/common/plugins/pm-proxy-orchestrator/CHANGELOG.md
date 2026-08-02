@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.3.2 - 2026-08-02
+
+- Add an exact ticket-derived expired-lease reconciliation tool that advances
+  to a tombstone fence, marks only the stale owner claim expired, releases
+  logical capacity, and proves that it created no handback, closure, archive,
+  successor, or refill.
+- Accept an explicit status clock and report reconciled leases as `EXPIRED`,
+  while keeping plugin hooks a voluntary covered-path guardrail rather than
+  claiming universal dispatcher enforcement.
+
 ## 0.3.1 - 2026-08-01
 
 - Allow a fenced terminal handback to reserve an exact one-for-one successor

@@ -227,9 +227,12 @@ output.
    `PM_PROXY` is absorbed. Validation/unknown-action failures are DENY-to-
    orchestrator, not owner prompts.
 8. Use `record-heartbeat` for the current fenced, receipt-backed external worker.
-   Use `takeover-lease`
-   only after the recorded lease expires. Old fences immediately lose
-   heartbeat, mutation, and handback authority.
+   If the recorded lease expires and no successor ownership is authorized, use
+   `reconcile-expired-lease` with the exact stored ticket evidence. It advances
+   to an `EXPIRED` tombstone fence and releases capacity without takeover,
+   extension, handback, closure, archive, successor, or refill. Use
+   `takeover-lease` only for an explicitly authorized ownership transfer. Old
+   fences immediately lose heartbeat, mutation, and handback authority.
 9. Treat closure and refill as one saga. Normalize `completed`, `archived`, and
    observed `interrupted/notLoaded` with a valid clean handback as terminal.
    Before `record-handback`, reconcile live external state and call
@@ -287,7 +290,9 @@ The wrapper is ready to become mandatory only after its integration suite proves
   mutation;
 - wrapper crashes before and after each create, receipt, closure, successor, and
   archive boundary converge without duplicate tasks, notifications, or claims;
-- expired-lease takeover rejects the stale worker's later heartbeat/handback;
+- expired-lease retirement rejects early or mismatched requests, is idempotent,
+  creates no close/archive/refill artifacts, releases exact capacity, and
+  rejects the stale worker's later heartbeat/handback;
 - `HOSTED_CI_BILLING_BLOCK` routes to PM proxy with unexecuted status and no
   owner prompt;
 - legacy dashboard import never creates a typed owner gate or active task; and

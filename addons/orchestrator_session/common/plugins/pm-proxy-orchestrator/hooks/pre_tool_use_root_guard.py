@@ -70,6 +70,7 @@ ROOT_CONTROL_PLANE_MCP_ALLOW = {
     "mcp__pm_proxy_orchestrator__pm_proxy_record_dispatcher_adoption",
     "mcp__pm_proxy_orchestrator__pm_proxy_record_launch_receipt",
     "mcp__pm_proxy_orchestrator__pm_proxy_record_refill_receipt",
+    "mcp__pm_proxy_orchestrator__pm_proxy_reconcile_expired_lease",
     "mcp__pm_proxy_orchestrator__pm_proxy_slot_status",
     "mcp__pm_proxy_orchestrator__pm_proxy_status",
     "mcp__pm_proxy_orchestrator__pm_proxy_verify_runtime",

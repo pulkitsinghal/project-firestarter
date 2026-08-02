@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import fcntl
 import hashlib
 import json
@@ -85,6 +86,7 @@ def default_state() -> dict[str, Any]:
         "tasks": {},
         "outbox": {},
         "handbacks": {},
+        "lease_expirations": {},
         "recycle_revision": 0,
     }
 
@@ -350,6 +352,62 @@ def main() -> int:
             task["updated_at"] = request["now"]
             authority.commit()
             return emit(command, {"task_id": task["task_id"], "state": "RUNNING"})
+
+        if command == "reconcile-expired-lease":
+            request_id = request.get("request_id")
+            existing = state.setdefault("lease_expirations", {}).get(request_id)
+            if existing is not None:
+                replay = dict(existing)
+                replay["replayed"] = True
+                return emit(command, replay)
+            task = state["tasks"].get(request.get("task_id"))
+            if not task or task["state"] not in {"RUNNING", "BLOCKED"}:
+                return deny("TASK_STATE_INVALID", "task cannot be retired", 3)
+            expected = {
+                "policy_snapshot_revision": task["policy_snapshot_revision"],
+                "expected_lease_epoch": task["lease_epoch"],
+                "expected_fencing_token": task["fencing_token"],
+                "expected_owner_claim_id": "claim-" + task["task_id"],
+                "expected_external_thread_id": task["external_thread_id"],
+                "expected_lease_expires_at": task["lease_expires_at"],
+            }
+            if any(request.get(key) != value for key, value in expected.items()):
+                return deny("FENCE_STALE", "expired lease receipt is stale", 2)
+            now = dt.datetime.fromisoformat(request["now"].replace("Z", "+00:00"))
+            expires = dt.datetime.fromisoformat(
+                task["lease_expires_at"].replace("Z", "+00:00")
+            )
+            if now < expires:
+                return deny("LEASE_NOT_EXPIRED", "worker lease is still live", 3)
+            retired_fence = task["fencing_token"]
+            tombstone_fence = max(
+                (item["fencing_token"] for item in state["tasks"].values()),
+                default=retired_fence,
+            ) + 1
+            task["state"] = "EXPIRED"
+            task["fencing_token"] = tombstone_fence
+            task["updated_at"] = request["now"]
+            result = {
+                "task_id": task["task_id"],
+                "external_thread_id": task["external_thread_id"],
+                "state": "EXPIRED",
+                "claim_id": expected["expected_owner_claim_id"],
+                "claim_status": "expired",
+                "lease_expires_at": task["lease_expires_at"],
+                "retired_lease_epoch": task["lease_epoch"],
+                "retired_fencing_token": retired_fence,
+                "tombstone_fencing_token": tombstone_fence,
+                "capacity_released": True,
+                "closure_created": False,
+                "archive_created": False,
+                "refill_created": False,
+                "required_action": "NONE",
+                "replayed": False,
+            }
+            state["lease_expirations"][request_id] = result
+            state["revision"] += 1
+            authority.commit()
+            return emit(command, result)
 
         if command == "classify-decision":
             action = request.get("action_type")

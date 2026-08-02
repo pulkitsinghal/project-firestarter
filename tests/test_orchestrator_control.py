@@ -1983,6 +1983,176 @@ class ControlPlaneTests(unittest.TestCase):
             takeover["result"]["fencing_token"], old["fencing_token"]
         )
 
+    def test_expired_lease_reconciliation_retires_exact_owner_only(self) -> None:
+        prepared = self.run_cli("prepare-launch", self.prepare("expired"))
+        self.run_cli("record-launch-receipt", self.receipt(prepared, "expired"))
+        envelope = prepared["result"]["envelope"]
+        required = envelope["receipt_required"]
+        request = {
+            "interface_version": "1.0",
+            "request_id": "expire-exact-owner",
+            "task_id": required["task_id"],
+            "policy_snapshot_revision": required["policy_snapshot_revision"],
+            "expected_lease_epoch": required["lease_epoch"],
+            "expected_fencing_token": required["fencing_token"],
+            "expected_owner_claim_id": envelope["owner_claim_id"],
+            "expected_external_thread_id": "thread-expired",
+            "expected_lease_expires_at": "2026-07-29T18:00:00Z",
+            "now": "2026-07-29T18:00:00Z",
+        }
+
+        before = dict(request)
+        before.update(
+            {
+                "request_id": "expire-too-early",
+                "now": "2026-07-29T17:59:59Z",
+            }
+        )
+        denied = self.run_cli(
+            "reconcile-expired-lease", before, expected=3
+        )
+        self.assertEqual("LEASE_NOT_EXPIRED", denied["error"]["code"])
+
+        mismatched = dict(request)
+        mismatched.update(
+            {
+                "request_id": "expire-wrong-claim",
+                "expected_owner_claim_id": "claim:not-the-owner",
+            }
+        )
+        denied = self.run_cli(
+            "reconcile-expired-lease", mismatched, expected=2
+        )
+        self.assertEqual("STALE_FENCE", denied["error"]["code"])
+
+        forbidden_extension = {
+            "interface_version": "1.0",
+            "request_id": "extend-expired-owner",
+            "task_id": required["task_id"],
+            "policy_snapshot_revision": required["policy_snapshot_revision"],
+            "lease_epoch": required["lease_epoch"],
+            "fencing_token": required["fencing_token"],
+            "external_thread_id": "thread-expired",
+            "lease_expires_at": "2026-07-29T20:00:00Z",
+            "now": "2026-07-29T18:00:00Z",
+        }
+        denied = self.run_cli(
+            "record-heartbeat", forbidden_extension, expected=3
+        )
+        self.assertEqual("LEASE_EXPIRED", denied["error"]["code"])
+
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            connection.execute(
+                """INSERT INTO lifecycle_watchdog(
+                     task_id,lifecycle_state,worker_status,
+                     completion_signals_json,evidence_refs_json,
+                     remaining_work_json,progress_ref,progress_observed_at,
+                     handback_deadline_checks,handback_deadline_limit,
+                     required_action,interrupt_receipt_id,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    required["task_id"],
+                    "COMPLETION_CANDIDATE",
+                    "completed",
+                    "[]",
+                    "[]",
+                    '["send handback"]',
+                    None,
+                    None,
+                    1,
+                    2,
+                    "REQUEST_HANDBACK",
+                    None,
+                    LATER,
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        retired = self.run_cli("reconcile-expired-lease", request)["result"]
+        self.assertEqual("EXPIRED", retired["state"])
+        self.assertEqual("expired", retired["claim_status"])
+        self.assertEqual(required["fencing_token"], retired["retired_fencing_token"])
+        self.assertGreater(
+            retired["tombstone_fencing_token"], required["fencing_token"]
+        )
+        self.assertTrue(retired["capacity_released"])
+        self.assertFalse(retired["closure_created"])
+        self.assertFalse(retired["archive_created"])
+        self.assertFalse(retired["refill_created"])
+        self.assertEqual("NONE", retired["required_action"])
+        self.assertFalse(retired["replayed"])
+
+        replay = self.run_cli("reconcile-expired-lease", request)["result"]
+        self.assertTrue(replay["replayed"])
+        self.assertEqual(
+            retired["tombstone_fencing_token"],
+            replay["tombstone_fencing_token"],
+        )
+        second_request = dict(request)
+        second_request["request_id"] = "expire-second-request"
+        duplicate = self.run_cli(
+            "reconcile-expired-lease", second_request, expected=3
+        )
+        self.assertEqual("LEASE_ALREADY_RECONCILED", duplicate["error"]["code"])
+
+        status = self.run_cli(
+            "status", now="2026-07-29T18:00:01Z"
+        )["result"]
+        task = status["tasks"][0]
+        self.assertEqual("EXPIRED", task["state"])
+        self.assertEqual("EXPIRED", task["freshness"]["state"])
+        self.assertTrue(task["freshness"]["stale"])
+        self.assertFalse(task["capacity_eligible"])
+        self.assertEqual("EXPIRED", task["lifecycle"]["lifecycle_state"])
+        self.assertEqual("NONE", task["lifecycle"]["required_action"])
+        self.assertFalse(task["lifecycle"]["status_claim_allowed"])
+        self.assertEqual(0, status["worker_capacity"]["active_or_reserved_count"])
+        self.assertEqual([], status["lifecycle_watchdog"]["reconciliation_required_task_ids"])
+        self.assertEqual([], status["capacity"])
+        self.assertEqual(
+            ["CREATE_THREAD"], [row["kind"] for row in status["outbox"]]
+        )
+
+        stale_heartbeat = {
+            "interface_version": "1.0",
+            "request_id": "expired-heartbeat",
+            "task_id": required["task_id"],
+            "policy_snapshot_revision": required["policy_snapshot_revision"],
+            "lease_epoch": required["lease_epoch"],
+            "fencing_token": required["fencing_token"],
+            "external_thread_id": "thread-expired",
+            "lease_expires_at": "2026-07-29T20:00:00Z",
+            "now": "2026-07-29T19:00:00Z",
+        }
+        denied = self.run_cli(
+            "record-heartbeat", stale_heartbeat, expected=3
+        )
+        self.assertEqual("TASK_STATE_INVALID", denied["error"]["code"])
+
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            self.assertEqual(
+                ("expired", required["fencing_token"]),
+                connection.execute(
+                    "SELECT status,fencing_token FROM owner_claims WHERE task_id=?",
+                    (required["task_id"],),
+                ).fetchone(),
+            )
+            self.assertEqual(
+                0, connection.execute("SELECT count(*) FROM handbacks").fetchone()[0]
+            )
+            self.assertEqual(
+                1,
+                connection.execute(
+                    "SELECT count(*) FROM events WHERE type='LEASE_EXPIRED_RECONCILED'"
+                ).fetchone()[0],
+            )
+        finally:
+            connection.close()
+
     def test_killed_sqlite_writer_releases_lock_without_partial_revision(self) -> None:
         before = self.run_cli("status")["result"]["revision"]
         writer = subprocess.Popen(

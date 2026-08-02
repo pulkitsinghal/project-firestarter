@@ -22,6 +22,7 @@ SCHEMAS = {
     "prepare-launch.response.schema.json": "prepare-launch-response-1.0.schema.json",
     "receipt.request.schema.json": "receipt-request-1.0.schema.json",
     "heartbeat.request.schema.json": "heartbeat-request-1.0.schema.json",
+    "reconcile-expired-lease.request.schema.json": "reconcile-expired-lease-request-1.0.schema.json",
     "classify-decision.request.schema.json": "classify-decision-request-1.0.schema.json",
     "classify-decision.response.schema.json": "classify-decision-response-1.0.schema.json",
     "record-handback.request.schema.json": "record-handback-request-1.0.schema.json",
@@ -43,6 +44,10 @@ SCHEMAS = {
     "record-duration-observation.response.schema.json": "record-duration-observation-response-1.0.schema.json",
     "root-role-guard.request.schema.json": "root-role-guard-request-1.0.schema.json",
     "root-role-guard.response.schema.json": "root-role-guard-response-1.0.schema.json",
+    "lifecycle-watchdog.request.schema.json": "lifecycle-watchdog-request-1.0.schema.json",
+    "lifecycle-watchdog.response.schema.json": "lifecycle-watchdog-response-1.0.schema.json",
+    "dispatcher-adoption.request.schema.json": "dispatcher-adoption-request-1.0.schema.json",
+    "dispatcher-adoption.response.schema.json": "dispatcher-adoption-response-1.0.schema.json",
 }
 
 

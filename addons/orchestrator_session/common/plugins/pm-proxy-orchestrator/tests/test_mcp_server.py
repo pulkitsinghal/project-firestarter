@@ -7,7 +7,14 @@ import sys
 import unittest
 from pathlib import Path
 
-from tests.support import BRIDGE, iso, launch_request, private_temp, recycle_request
+from tests.support import (
+    BRIDGE,
+    config_verified_runtime_attestation,
+    iso,
+    launch_request,
+    private_temp,
+    recycle_request,
+)
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -167,6 +174,48 @@ class McpServerTest(unittest.TestCase):
         self.assertEqual("avatar-rig", payload["result"]["task_id"])
         self.assertTrue((self.state / "avatar-rig.ticket.json").is_file())
         self.assertFalse(list((self.state / ".mcp-requests").glob("*.json")))
+
+        receipted = self.call(
+            "pm_proxy_record_launch_receipt",
+            {
+                **self.common(),
+                "ticket_id": "avatar-rig",
+                "external_thread_id": "thread-avatar-rig",
+                "runtime_attestation": config_verified_runtime_attestation(),
+                "request_id": "receipt-avatar-rig",
+                "now": iso(minutes=1),
+            },
+        )
+        self.assertIsNot(receipted["result"].get("isError"), True, receipted)
+        ticket = self.state / "avatar-rig.ticket.json"
+        original_ticket = ticket.read_bytes()
+        retired = self.call(
+            "pm_proxy_reconcile_expired_lease",
+            {
+                **self.common(),
+                "ticket_id": "avatar-rig",
+                "request_id": "expire-avatar-rig",
+                "now": iso(minutes=31),
+            },
+        )
+        self.assertIsNot(retired["result"].get("isError"), True, retired)
+        retirement = retired["result"]["structuredContent"]["result"]
+        self.assertEqual("EXPIRED", retirement["state"])
+        self.assertTrue(retirement["capacity_released"])
+        self.assertFalse(retirement["closure_created"])
+        self.assertFalse(retirement["archive_created"])
+        self.assertFalse(retirement["refill_created"])
+        self.assertEqual(original_ticket, ticket.read_bytes())
+
+        evaluated = self.call(
+            "pm_proxy_status", {**self.common(), "now": iso(minutes=31)}
+        )
+        status_value = evaluated["result"]["structuredContent"]["result"]
+        self.assertEqual(0, status_value["worker_capacity"]["active_or_reserved_count"])
+        expired_task = next(
+            item for item in status_value["tasks"] if item["task_id"] == "avatar-rig"
+        )
+        self.assertEqual("EXPIRED", expired_task["freshness"]["state"])
 
     def test_state_escape_and_unknown_fields_fail_closed(self) -> None:
         outside = self.root / "outside"

@@ -80,6 +80,7 @@ LIFECYCLE_SCHEMAS = {
     "lifecycle-watchdog.response.schema.json": "lifecycle-watchdog-response-1.0.schema.json",
     "dispatcher-adoption.request.schema.json": "dispatcher-adoption-request-1.0.schema.json",
     "dispatcher-adoption.response.schema.json": "dispatcher-adoption-response-1.0.schema.json",
+    "reconcile-expired-lease.request.schema.json": "reconcile-expired-lease-request-1.0.schema.json",
 }
 
 SECRET_KEYS = {
@@ -424,6 +425,7 @@ def run_cli(
         "classify-decision",
         "record-heartbeat",
         "takeover-lease",
+        "reconcile-expired-lease",
         "record-handback",
         "record-archive-receipt",
         "capacity-watchdog",
@@ -440,10 +442,11 @@ def run_cli(
         raise BridgeError("COMMAND_DENIED", "command is not allowlisted", exit_status=2)
     argv = [sys.executable, str(cli), "--state-dir", str(state_dir), command]
     stdin_text = None
+    if command in {"init", "status"} and now is not None:
+        argv.extend(["--now", now])
     if command == "init":
         if now is None:
             raise BridgeError("SCHEMA_INVALID", "init requires --now", exit_status=2)
-        argv.extend(["--now", now])
     elif request is not None:
         argv.extend(["--request", "-"])
         stdin_text = canonical(request)
@@ -857,7 +860,7 @@ def require_fresh_unreceipted(ticket: dict[str, Any], now: str) -> None:
         raise BridgeError("RECEIPT_STALE", "launch receipt deadline expired", exit_status=2)
 
 
-def require_active_receipt(ticket: dict[str, Any], now: str) -> None:
+def require_committed_receipt(ticket: dict[str, Any]) -> dict[str, Any]:
     receipt = ticket.get("receipt")
     if not isinstance(receipt, dict) or set(receipt) != {
         "external_thread_id",
@@ -865,7 +868,12 @@ def require_active_receipt(ticket: dict[str, Any], now: str) -> None:
         "runtime_attestation",
     }:
         raise BridgeError("RECEIPT_MISSING", "committed exact launch receipt is required", exit_status=2)
-    if parse_time(now) > parse_time(ticket["lease_expires_at"]):
+    return receipt
+
+
+def require_active_receipt(ticket: dict[str, Any], now: str) -> None:
+    require_committed_receipt(ticket)
+    if parse_time(now) >= parse_time(ticket["lease_expires_at"]):
         raise BridgeError("RECEIPT_STALE", "worker lease expired; takeover or reconcile", exit_status=2)
 
 
@@ -1017,12 +1025,18 @@ def build_parser() -> argparse.ArgumentParser:
     takeover.add_argument("--ticket", required=True)
     takeover.add_argument("--request", required=True)
 
+    expired = sub.add_parser("reconcile-expired-lease")
+    expired.add_argument("--ticket", required=True)
+    expired.add_argument("--request-id", required=True)
+    expired.add_argument("--now", required=True)
+
     archive = sub.add_parser("record-archive-receipt")
     archive.add_argument("--ticket", required=True)
     archive.add_argument("--request-id", required=True)
     archive.add_argument("--now", required=True)
 
-    sub.add_parser("status")
+    status = sub.add_parser("status")
+    status.add_argument("--now")
     return parser
 
 
@@ -1040,7 +1054,11 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     if operation == "doctor":
         return success("doctor", health)
     if operation == "status":
-        return success("status", run_cli(cli, state_dir, "status"))
+        if args.now is not None:
+            parse_time(args.now)
+        return success(
+            "status", run_cli(cli, state_dir, "status", now=args.now)
+        )
 
     if operation == "root-action":
         if not schema_at_least(health["schema_version"], (1, 2)):
@@ -1537,6 +1555,72 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         ticket["last_heartbeat_at"] = request["now"]
         replace_ticket(path, ticket)
         return success("takeover-lease", result)
+
+    if operation == "reconcile-expired-lease":
+        parse_time(args.now)
+        _, ticket = load_ticket(args.ticket)
+        receipt = require_committed_receipt(ticket)
+        if parse_time(args.now) < parse_time(ticket["lease_expires_at"]):
+            raise BridgeError(
+                "LEASE_NOT_EXPIRED",
+                "worker lease is still live",
+                exit_status=3,
+            )
+        if not isinstance(ticket.get("owner_claim_id"), str):
+            raise BridgeError(
+                "RECEIPT_INVALID",
+                "expired-lease reconciliation requires an exact owner claim",
+                exit_status=2,
+            )
+        request = {
+            "interface_version": INTERFACE_VERSION,
+            "request_id": args.request_id,
+            "task_id": ticket["task_id"],
+            "policy_snapshot_revision": ticket["policy_snapshot_revision"],
+            "expected_lease_epoch": ticket["lease_epoch"],
+            "expected_fencing_token": ticket["fencing_token"],
+            "expected_owner_claim_id": ticket["owner_claim_id"],
+            "expected_external_thread_id": receipt["external_thread_id"],
+            "expected_lease_expires_at": ticket["lease_expires_at"],
+            "now": args.now,
+        }
+        result = run_cli(
+            cli,
+            state_dir,
+            "reconcile-expired-lease",
+            request=request,
+        )
+        exact = {
+            "task_id": ticket["task_id"],
+            "external_thread_id": receipt["external_thread_id"],
+            "state": "EXPIRED",
+            "claim_id": ticket["owner_claim_id"],
+            "claim_status": "expired",
+            "lease_expires_at": ticket["lease_expires_at"],
+            "retired_lease_epoch": ticket["lease_epoch"],
+            "retired_fencing_token": ticket["fencing_token"],
+            "capacity_released": True,
+            "closure_created": False,
+            "archive_created": False,
+            "refill_created": False,
+            "required_action": "NONE",
+        }
+        if any(result.get(key) != value for key, value in exact.items()):
+            raise BridgeError(
+                "MACHINE_RESPONSE_INVALID",
+                "expired-lease result does not match the exact ticket tombstone",
+            )
+        if (
+            set(result) != set(exact) | {"tombstone_fencing_token", "replayed"}
+            or not isinstance(result["tombstone_fencing_token"], int)
+            or result["tombstone_fencing_token"] <= ticket["fencing_token"]
+            or not isinstance(result["replayed"], bool)
+        ):
+            raise BridgeError(
+                "MACHINE_RESPONSE_INVALID",
+                "expired-lease result fence or fields are incompatible",
+            )
+        return success("reconcile-expired-lease", result)
 
     if operation == "record-archive-receipt":
         parse_time(args.now)

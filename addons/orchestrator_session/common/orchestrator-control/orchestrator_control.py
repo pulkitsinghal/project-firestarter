@@ -130,6 +130,7 @@ TASK_STATES = {
     "LAUNCH_PENDING",
     "RUNNING",
     "BLOCKED",
+    "EXPIRED",
     "CLOSING",
     "CLOSED",
     "ARCHIVE_PENDING",
@@ -1078,6 +1079,13 @@ CREATE TABLE IF NOT EXISTS lifecycle_watchdog_requests (
   request_id TEXT PRIMARY KEY,
   request_hash TEXT NOT NULL,
   task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS lease_expirations (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
   result_json TEXT NOT NULL,
   recorded_at TEXT NOT NULL
 );
@@ -3492,6 +3500,209 @@ class Plane:
         finally:
             connection.close()
 
+    def reconcile_expired_lease(self, raw: Any) -> dict[str, Any]:
+        request = validate_expired_lease_reconciliation(raw)
+        request_hash = digest(request)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            # Existing schema-1.3 state directories are upgraded only when this
+            # explicit reconciliation is requested. Failed requests roll this
+            # DDL back with the rest of the transaction.
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS lease_expirations (
+                     request_id TEXT PRIMARY KEY,
+                     request_hash TEXT NOT NULL,
+                     task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+                     result_json TEXT NOT NULL,
+                     recorded_at TEXT NOT NULL
+                   )"""
+            )
+            existing = connection.execute(
+                """SELECT request_hash,result_json FROM lease_expirations
+                   WHERE request_id=?""",
+                (request["request_id"],),
+            ).fetchone()
+            if existing is not None:
+                if existing["request_hash"] != request_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "expired-lease request ID was reused",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                replay = json.loads(existing["result_json"])
+                task = connection.execute(
+                    "SELECT state,fencing_token FROM tasks WHERE task_id=?",
+                    (replay["task_id"],),
+                ).fetchone()
+                claim = connection.execute(
+                    "SELECT status FROM owner_claims WHERE claim_id=?",
+                    (replay["claim_id"],),
+                ).fetchone()
+                if (
+                    task is None
+                    or task["state"] != "EXPIRED"
+                    or task["fencing_token"] != replay["tombstone_fencing_token"]
+                    or claim is None
+                    or claim["status"] != "expired"
+                ):
+                    fail(
+                        "STATE_CORRUPT",
+                        "expired-lease tombstone no longer matches authority",
+                        exit_status=EXIT_STATE,
+                    )
+                replay["replayed"] = True
+                connection.commit()
+                return replay
+
+            prior = connection.execute(
+                "SELECT request_id FROM lease_expirations WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if prior is not None:
+                fail(
+                    "LEASE_ALREADY_RECONCILED",
+                    "task lease was already retired by another request",
+                    exit_status=EXIT_CONFLICT,
+                    details={"recorded_request_id": prior["request_id"]},
+                )
+
+            task = connection.execute(
+                "SELECT * FROM tasks WHERE task_id=?", (request["task_id"],)
+            ).fetchone()
+            if task is None or task["state"] not in {"RUNNING", "BLOCKED"}:
+                fail(
+                    "TASK_STATE_INVALID",
+                    "task is not eligible for expired-lease reconciliation",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if (
+                task["policy_revision"]
+                != request["policy_snapshot_revision"]
+                or task["lease_epoch"] != request["expected_lease_epoch"]
+                or task["fencing_token"] != request["expected_fencing_token"]
+            ):
+                fail("STALE_FENCE", "expired-lease expectation is stale")
+            if task["external_thread_id"] != request["expected_external_thread_id"]:
+                fail(
+                    "EXTERNAL_RECEIPT_MISMATCH",
+                    "expired-lease external task does not match authority",
+                    exit_status=EXIT_CONFLICT,
+                )
+
+            claim = connection.execute(
+                "SELECT * FROM owner_claims WHERE claim_id=? AND task_id=?",
+                (request["expected_owner_claim_id"], request["task_id"]),
+            ).fetchone()
+            if claim is None or claim["status"] != "active":
+                fail("STALE_FENCE", "active ownership claim is missing")
+            if (
+                claim["lease_epoch"] != request["expected_lease_epoch"]
+                or claim["fencing_token"] != request["expected_fencing_token"]
+                or claim["expires_at"] != request["expected_lease_expires_at"]
+            ):
+                fail("STALE_FENCE", "expired-lease claim expectation is stale")
+
+            launch = connection.execute(
+                "SELECT receipt_json FROM launches WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if not launch or not launch["receipt_json"]:
+                fail(
+                    "EXTERNAL_RECEIPT_REQUIRED",
+                    "expired-lease reconciliation requires a canonical launch receipt",
+                )
+            receipt_external_id = json.loads(launch["receipt_json"])[
+                "external_thread_id"
+            ]
+            if receipt_external_id != request["expected_external_thread_id"]:
+                fail(
+                    "EXTERNAL_RECEIPT_MISMATCH",
+                    "launch receipt external task does not match authority",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if utc_instant(claim["expires_at"]) > utc_instant(request["now"]):
+                fail(
+                    "LEASE_NOT_EXPIRED",
+                    "ownership lease is still live",
+                    exit_status=EXIT_CONFLICT,
+                )
+
+            tombstone_fence = self.next_fence(connection)
+            connection.execute(
+                """UPDATE tasks SET state='EXPIRED',fencing_token=?,updated_at=?
+                   WHERE task_id=?""",
+                (tombstone_fence, request["now"], request["task_id"]),
+            )
+            connection.execute(
+                "UPDATE owner_claims SET status='expired' WHERE claim_id=?",
+                (request["expected_owner_claim_id"],),
+            )
+            connection.execute(
+                """UPDATE lifecycle_watchdog
+                   SET lifecycle_state='EXPIRED',remaining_work_json=NULL,
+                       required_action='NONE',updated_at=?
+                   WHERE task_id=?""",
+                (request["now"], request["task_id"]),
+            )
+            result = {
+                "task_id": request["task_id"],
+                "external_thread_id": request["expected_external_thread_id"],
+                "state": "EXPIRED",
+                "claim_id": request["expected_owner_claim_id"],
+                "claim_status": "expired",
+                "lease_expires_at": request["expected_lease_expires_at"],
+                "retired_lease_epoch": request["expected_lease_epoch"],
+                "retired_fencing_token": request["expected_fencing_token"],
+                "tombstone_fencing_token": tombstone_fence,
+                "capacity_released": True,
+                "closure_created": False,
+                "archive_created": False,
+                "refill_created": False,
+                "required_action": "NONE",
+                "replayed": False,
+            }
+            connection.execute(
+                """INSERT INTO lease_expirations(
+                     request_id,request_hash,task_id,result_json,recorded_at
+                   ) VALUES(?,?,?,?,?)""",
+                (
+                    request["request_id"],
+                    request_hash,
+                    request["task_id"],
+                    canonical(result),
+                    request["now"],
+                ),
+            )
+            self.event(
+                connection,
+                request["now"],
+                request["task_id"],
+                request["request_id"],
+                "LEASE_EXPIRED_RECONCILED",
+                "LEASE_EXPIRED",
+                ["BR-OWNER-001", "BR-REPORT-001"],
+                task["state"],
+                "EXPIRED",
+                {
+                    "claim_id": request["expected_owner_claim_id"],
+                    "retired_lease_epoch": request["expected_lease_epoch"],
+                    "retired_fencing_token": request["expected_fencing_token"],
+                    "tombstone_fencing_token": tombstone_fence,
+                    "capacity_released": True,
+                    "closure_created": False,
+                    "archive_created": False,
+                    "refill_created": False,
+                },
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def reconcile_external_task(self, raw: Any) -> dict[str, Any]:
         request = validate_external_task(raw)
         connection = self.connect()
@@ -3854,6 +4065,21 @@ class Plane:
             canonical_external_id = self.require_external_receipt(
                 connection, request
             )
+            current_claim = connection.execute(
+                """SELECT expires_at FROM owner_claims
+                   WHERE task_id=? AND status='active' AND fencing_token=?""",
+                (request["task_id"], request["fencing_token"]),
+            ).fetchone()
+            if (
+                current_claim is None
+                or utc_instant(current_claim["expires_at"])
+                <= utc_instant(request["now"])
+            ):
+                fail(
+                    "LEASE_EXPIRED",
+                    "an expired ownership lease cannot be extended",
+                    exit_status=EXIT_CONFLICT,
+                )
             connection.execute(
                 """UPDATE owner_claims SET heartbeat_at=?,expires_at=?
                    WHERE task_id=? AND status='active' AND fencing_token=?""",
@@ -4823,13 +5049,15 @@ class Plane:
                     (row["task_id"],),
                 ).fetchone()
                 claim = connection.execute(
-                    """SELECT expires_at FROM owner_claims
-                       WHERE task_id=? AND status='active'""",
+                    """SELECT status,expires_at FROM owner_claims
+                       WHERE task_id=? ORDER BY acquired_at DESC LIMIT 1""",
                     (row["task_id"],),
                 ).fetchone()
                 stale = (
                     None
-                    if now is None or claim is None
+                    if now is None
+                    or claim is None
+                    or claim["status"] not in {"active", "expired"}
                     else utc_instant(claim["expires_at"]) <= utc_instant(now)
                 )
                 tasks.append(
@@ -4861,12 +5089,19 @@ class Plane:
                             ),
                             "stale": stale,
                             "state": (
-                                "UNKNOWN_CLOCK"
-                                if now is None
+                                "EXPIRED"
+                                if row["state"] == "EXPIRED"
+                                and claim is not None
+                                and claim["status"] == "expired"
                                 else (
-                                    "NO_ACTIVE_CLAIM"
-                                    if claim is None
-                                    else ("STALE" if stale else "FRESH")
+                                    "UNKNOWN_CLOCK"
+                                    if now is None
+                                    else (
+                                        "NO_ACTIVE_CLAIM"
+                                        if claim is None
+                                        or claim["status"] != "active"
+                                        else ("STALE" if stale else "FRESH")
+                                    )
                                 )
                             ),
                         },
@@ -5137,7 +5372,7 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
         request["plugin_version"], "plugin_version", 80, single_line=True
     )
     if (
-        re.fullmatch(r"0\.3\.(?:0|1)(?:\+codex\.\d{14})?", plugin_version)
+        re.fullmatch(r"0\.3\.(?:0|1|2)(?:\+codex\.\d{14})?", plugin_version)
         is None
     ):
         fail(
@@ -6672,6 +6907,62 @@ def validate_takeover(value: Any) -> dict[str, Any]:
     }
 
 
+def validate_expired_lease_reconciliation(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "task_id",
+            "policy_snapshot_revision",
+            "expected_lease_epoch",
+            "expected_fencing_token",
+            "expected_owner_claim_id",
+            "expected_external_thread_id",
+            "expected_lease_expires_at",
+            "now",
+        },
+        label="reconcile-expired-lease request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    return {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "task_id": identifier(request["task_id"], "task_id"),
+        "policy_snapshot_revision": bounded_int(
+            request["policy_snapshot_revision"],
+            "policy_snapshot_revision",
+            1,
+            1_000_000,
+        ),
+        "expected_lease_epoch": bounded_int(
+            request["expected_lease_epoch"],
+            "expected_lease_epoch",
+            1,
+            1_000_000,
+        ),
+        "expected_fencing_token": bounded_int(
+            request["expected_fencing_token"],
+            "expected_fencing_token",
+            1,
+            2_147_483_647,
+        ),
+        "expected_owner_claim_id": identifier(
+            request["expected_owner_claim_id"], "expected_owner_claim_id"
+        ),
+        "expected_external_thread_id": identifier(
+            request["expected_external_thread_id"],
+            "expected_external_thread_id",
+        ),
+        "expected_lease_expires_at": timestamp(
+            request["expected_lease_expires_at"],
+            "expected_lease_expires_at",
+        ),
+        "now": timestamp(request["now"]),
+    }
+
+
 def validate_heartbeat(value: Any) -> dict[str, Any]:
     request = strict(
         value,
@@ -6777,6 +7068,7 @@ def parser() -> argparse.ArgumentParser:
         "capacity-watchdog",
         "lifecycle-watchdog",
         "takeover-lease",
+        "reconcile-expired-lease",
         "record-heartbeat",
         "record-duration-progress",
         "record-duration-observation",
@@ -6822,6 +7114,10 @@ def main(argv: list[str] | None = None) -> int:
             "capacity-watchdog": (plane.capacity_watchdog, "capacity-watchdog"),
             "lifecycle-watchdog": (plane.lifecycle_watchdog, "lifecycle-watchdog"),
             "takeover-lease": (plane.takeover_lease, "takeover-lease"),
+            "reconcile-expired-lease": (
+                plane.reconcile_expired_lease,
+                "reconcile-expired-lease",
+            ),
             "record-heartbeat": (plane.heartbeat, "record-heartbeat"),
             "record-duration-progress": (
                 plane.record_duration_progress,

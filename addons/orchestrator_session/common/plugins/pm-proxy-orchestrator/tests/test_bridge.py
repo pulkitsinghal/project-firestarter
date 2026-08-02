@@ -157,6 +157,58 @@ class BridgeTestCase(unittest.TestCase):
         )
         self.assertEqual(heartbeat.returncode, 0, heartbeat.stderr)
 
+    def test_expired_lease_reconciliation_uses_ticket_without_rewriting_it(self):
+        prepared, ticket = self.prepare(task_id="expired-owner")
+        self.assertEqual(0, prepared.returncode, prepared.stderr)
+        receipt = self.receipt(ticket, external_id="thread-expired-owner")
+        self.assertEqual(0, receipt.returncode, receipt.stderr)
+        original_ticket = ticket.read_bytes()
+
+        early = self.run_bridge(
+            "reconcile-expired-lease",
+            "--ticket",
+            str(ticket),
+            "--request-id",
+            "expire-too-early",
+            "--now",
+            iso(minutes=29),
+        )
+        self.assertEqual(3, early.returncode)
+        self.assertEqual("LEASE_NOT_EXPIRED", self.parsed(early)["error"]["code"])
+        self.assertEqual(original_ticket, ticket.read_bytes())
+
+        expired = self.run_bridge(
+            "reconcile-expired-lease",
+            "--ticket",
+            str(ticket),
+            "--request-id",
+            "expire-exact-owner",
+            "--now",
+            iso(minutes=30),
+        )
+        self.assertEqual(0, expired.returncode, expired.stderr)
+        result = self.parsed(expired)["result"]
+        self.assertEqual("EXPIRED", result["state"])
+        self.assertEqual("expired", result["claim_status"])
+        self.assertTrue(result["capacity_released"])
+        self.assertFalse(result["closure_created"])
+        self.assertFalse(result["archive_created"])
+        self.assertFalse(result["refill_created"])
+        self.assertEqual("NONE", result["required_action"])
+        self.assertEqual(original_ticket, ticket.read_bytes())
+
+        replay = self.run_bridge(
+            "reconcile-expired-lease",
+            "--ticket",
+            str(ticket),
+            "--request-id",
+            "expire-exact-owner",
+            "--now",
+            iso(minutes=30),
+        )
+        self.assertEqual(0, replay.returncode, replay.stderr)
+        self.assertTrue(self.parsed(replay)["result"]["replayed"])
+
     def test_stale_fabricated_and_interface_mismatch_fail_closed(self):
         prepared, ticket = self.prepare()
         self.assertEqual(prepared.returncode, 0, prepared.stderr)

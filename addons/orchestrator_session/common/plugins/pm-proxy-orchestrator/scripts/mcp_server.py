@@ -31,7 +31,7 @@ BRIDGE = (
     / "pm_proxy_bridge.py"
 )
 REFILL = BRIDGE.with_name("refill_saga.py")
-SERVER_VERSION = "0.3.1"
+SERVER_VERSION = "0.3.2"
 MAX_MESSAGE_BYTES = 2_000_000
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
@@ -303,9 +303,31 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         exact_keys(arguments, {"project_root", "state_dir"}, {"project_root", "state_dir"})
         return invoke(base + ["doctor"])
     if name == "pm_proxy_status":
-        exact_keys(arguments, {"project_root", "state_dir"}, {"project_root", "state_dir"})
+        exact_keys(arguments, {"project_root", "state_dir", "now"}, {"project_root", "state_dir"})
         root_guard(project, state, "monitor_receipt")
-        return invoke(base + ["status"])
+        command = base + ["status"]
+        if "now" in arguments:
+            command += ["--now", opaque(arguments["now"], "now")]
+        return invoke(command)
+    if name == "pm_proxy_reconcile_expired_lease":
+        exact_keys(
+            arguments,
+            {"project_root", "state_dir", "ticket_id", "request_id", "now"},
+            {"project_root", "state_dir", "ticket_id", "request_id", "now"},
+        )
+        root_guard(project, state, "deduplicate_ownership")
+        return invoke(
+            base
+            + [
+                "reconcile-expired-lease",
+                "--ticket",
+                str(ticket_path(state, arguments["ticket_id"], must_exist=True)),
+                "--request-id",
+                opaque(arguments["request_id"], "request-id"),
+                "--now",
+                opaque(arguments["now"], "now"),
+            ]
+        )
     if name == "pm_proxy_record_dispatcher_adoption":
         exact_keys(
             arguments,
@@ -534,7 +556,11 @@ TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "pm_proxy_doctor": {"description": "Validate Firestarter CLI, schemas, private state, and quarantined rules.", "inputSchema": schema({}, [])},
-    "pm_proxy_status": {"description": "Return receipt-derived orchestrator capacity and lifecycle truth.", "inputSchema": schema({}, [])},
+    "pm_proxy_status": {"description": "Return receipt-derived orchestrator capacity and lifecycle truth at an optional explicit clock.", "inputSchema": schema({"now": {"type": "string"}}, [])},
+    "pm_proxy_reconcile_expired_lease": {
+        "description": "Retire one exact expired receipt-fenced owner and release its capacity without takeover, closure, archive, or refill.",
+        "inputSchema": schema({"ticket_id": {"type": "string"}, "request_id": {"type": "string"}, "now": {"type": "string"}}, ["ticket_id", "request_id", "now"]),
+    },
     "pm_proxy_record_dispatcher_adoption": {
         "description": "Record a bounded live covered-path adoption proof while keeping universal enforcement explicitly false.",
         "inputSchema": schema({"request": {"type": "object"}}, ["request"]),

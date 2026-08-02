@@ -15,7 +15,7 @@
     "interface_version": {"const": "1.0"},
     "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
     "adoption_mode": {"const": "COVERED_PATH_GUARDRAIL"},
-    "plugin_version": {"type": "string", "pattern": "^0\\.3\\.(?:0|1)(?:\\+codex\\.[0-9]{14})?$"},
+    "plugin_version": {"type": "string", "pattern": "^0\\.3\\.(?:0|1|2)(?:\\+codex\\.[0-9]{14})?$"},
     "proofs": {
       "type": "object",
       "additionalProperties": false,
