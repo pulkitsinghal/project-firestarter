@@ -142,6 +142,7 @@ class RefillSagaTestCase(unittest.TestCase):
         self.assertEqual(len(result["launches"]), 1)
         self.assertFalse(result["slot_truth"]["failure_state"])
         self.assertEqual(result["slot_truth"]["active_or_reserved_count"], 1)
+        self.assertEqual(result["slot_truth"]["runnable_task_ids"], [])
 
         premature_archive = self.run_script(
             BRIDGE,
@@ -223,6 +224,69 @@ class RefillSagaTestCase(unittest.TestCase):
             iso(minutes=4),
         )
         self.assertEqual(archived.returncode, 0, archived.stderr)
+
+    def test_under_capacity_exact_replacement_is_not_still_runnable(self):
+        predecessor = self.start_predecessor("-target")
+        state_path = self.state / "fake-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        peer = json.loads(
+            json.dumps(state["tasks"]["task-predecessor-target"])
+        )
+        peer.update(
+            {
+                "task_id": "task-peer",
+                "source_event_key": "peer-source",
+                "outcome_key": "peer-outcome",
+                "idempotency_key": "peer-idem",
+                "fencing_token": 2,
+            }
+        )
+        peer["target"]["path"] = "/peer"
+        state["tasks"]["task-peer"] = peer
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        successor = launch_request(
+            task_id="task-under-cap-successor",
+            source_event_key="under-cap-successor-source",
+            outcome_key="under-cap-successor-outcome",
+            idempotency_key="under-cap-successor-idem",
+            prompt="SYNTHETIC_UNDER_CAP_SUCCESSOR",
+            now=iso(minutes=2),
+            lease_expires_at=iso(minutes=32),
+        )
+        handback = write_json(
+            self.root / "under-cap-handback.json",
+            handback_request(
+                task_id="task-predecessor-target",
+                handback_id="under-cap-close",
+                now=iso(minutes=2),
+            ),
+        )
+        refill = write_json(
+            self.root / "under-cap-refill.json",
+            refill_request(
+                candidates=[successor],
+                request_id="under-cap-refill",
+                capacity=4,
+            ),
+        )
+        closed = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        result = json.loads(closed.stdout)["result"]
+        self.assertEqual("SUCCESSOR_RESERVED", result["outcome"])
+        self.assertEqual(2, result["slot_truth"]["active_or_reserved_count"])
+        self.assertEqual(2, result["slot_truth"]["deficit"])
+        self.assertEqual([], result["slot_truth"]["runnable_task_ids"])
+        self.assertEqual(0, result["slot_truth"]["runnable_queue_count"])
+        self.assertIsNone(result["slot_truth"]["failure_state"])
 
     def test_invalid_interrupted_observation_and_capacity_deficit_fail_visibly(self):
         refill_value = refill_request(

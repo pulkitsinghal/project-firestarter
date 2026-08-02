@@ -43,6 +43,8 @@ REQUIRED_FILES = {
     "orchestrator-control/schemas/duration-estimate.response.schema.json",
     "orchestrator-control/schemas/duration-schedule.request.schema.json",
     "orchestrator-control/schemas/duration-schedule.response.schema.json",
+    "orchestrator-control/schemas/dispatcher-adoption.request.schema.json",
+    "orchestrator-control/schemas/dispatcher-adoption.response.schema.json",
     "orchestrator-control/schemas/effective-rules.request.schema.json",
     "orchestrator-control/schemas/heartbeat.request.schema.json",
     "orchestrator-control/schemas/lifecycle-watchdog.request.schema.json",
@@ -69,7 +71,12 @@ REQUIRED_FILES = {
     "orchestrator-control/schemas/shared.schema.json",
     "orchestrator-control/schemas/takeover-lease.request.schema.json",
     ".agents/plugins/marketplace.json",
+    "plugins/pm-proxy-orchestrator/.mcp.json",
     "plugins/pm-proxy-orchestrator/.codex-plugin/plugin.json",
+    "plugins/pm-proxy-orchestrator/hooks/hooks.json",
+    "plugins/pm-proxy-orchestrator/hooks/post_tool_use_lifecycle.py",
+    "plugins/pm-proxy-orchestrator/hooks/pre_tool_use_root_guard.py",
+    "plugins/pm-proxy-orchestrator/scripts/mcp_server.py",
     "plugins/pm-proxy-orchestrator/skills/pm-proxy-orchestrator/SKILL.md",
     "plugins/pm-proxy-orchestrator/skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py",
     "plugins/pm-proxy-orchestrator/skills/pm-proxy-orchestrator/scripts/refill_saga.py",
@@ -254,7 +261,25 @@ class OrchestratorSessionContractTests(unittest.TestCase):
             )
         )
         self.assertEqual(entry["name"], manifest["name"])
-        self.assertEqual("0.3.0", manifest["version"])
+        self.assertRegex(
+            manifest["version"],
+            r"^0\.3\.1(?:\+codex\.\d{14})?$",
+        )
+        self.assertEqual("./skills/", manifest["skills"])
+        self.assertEqual("./.mcp.json", manifest["mcpServers"])
+        mcp = json.loads((plugin_root / ".mcp.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            {
+                "mcpServers": {
+                    "pm-proxy-orchestrator": {
+                        "command": "python3",
+                        "args": ["scripts/mcp_server.py"],
+                        "cwd": ".",
+                    }
+                }
+            },
+            mcp,
+        )
         validated = subprocess.run(
             [sys.executable, str(plugin_root / "scripts" / "run_validation.py")],
             cwd=plugin_root,
@@ -287,6 +312,11 @@ class OrchestratorSessionContractTests(unittest.TestCase):
             for path in ADDON.rglob("*")
             if path.is_file()
         }
+        self.assertNotIn(
+            ".codex/hooks.json",
+            canonical_files,
+            "the add-on must not arm root enforcement before plugin MCP discovery",
+        )
         self.assertTrue(REQUIRED_FILES <= canonical_files.keys())
         for clause, required_text in REQUIRED_FAILURE_PREVENTION_CLAUSES.items():
             with self.subTest(clause=clause):

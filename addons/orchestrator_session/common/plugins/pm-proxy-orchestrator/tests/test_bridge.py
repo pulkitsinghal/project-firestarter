@@ -234,7 +234,7 @@ class BridgeTestCase(unittest.TestCase):
         self.assertEqual("1.0", stored["control_schema_version"])
         self.assertIsNone(stored["duration_estimate"])
         self.assertEqual(
-            "coordinator-model",
+            "gpt-5.6-sol",
             stored["runtime_policy"]["root_model"],
         )
 

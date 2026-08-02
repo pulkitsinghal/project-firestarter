@@ -58,10 +58,39 @@ def main() -> int:
 
     manifest_path = ROOT / ".codex-plugin/plugin.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    for unsupported in ("hooks", "apps", "mcpServers"):
+    for unsupported in ("hooks", "apps"):
         if unsupported in manifest:
             failures.append(f".codex-plugin/plugin.json: unexpected {unsupported}")
+    if manifest.get("skills") != "./skills/":
+        failures.append(".codex-plugin/plugin.json: skills path is incompatible")
+    if manifest.get("mcpServers") != "./.mcp.json":
+        failures.append(
+            ".codex-plugin/plugin.json: bundled MCP config must be declared"
+        )
+    mcp_path = ROOT / ".mcp.json"
+    if not mcp_path.is_file():
+        failures.append("declared .mcp.json missing")
+    else:
+        try:
+            mcp = json.loads(mcp_path.read_text(encoding="utf-8"))
+            expected_mcp = {
+                "mcpServers": {
+                    "pm-proxy-orchestrator": {
+                        "command": "python3",
+                        "args": ["scripts/mcp_server.py"],
+                        "cwd": ".",
+                    }
+                }
+            }
+            if mcp != expected_mcp:
+                failures.append(".mcp.json: bundled server definition is incompatible")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            failures.append(".mcp.json is structurally invalid")
     hooks_path = ROOT / "hooks/hooks.json"
+    pre_hook_path = ROOT / "hooks/pre_tool_use_root_guard.py"
+    post_hook_path = ROOT / "hooks/post_tool_use_lifecycle.py"
+    if not pre_hook_path.is_file() or not post_hook_path.is_file():
+        failures.append("bundled pre/post hook adapters are incomplete")
     if not hooks_path.is_file():
         failures.append("default hooks/hooks.json missing")
     else:
@@ -78,6 +107,20 @@ def main() -> int:
                 failures.append("hook command must be confined to bundled adapter")
             if hook.get("timeout") != 5:
                 failures.append("hook timeout must remain bounded at 5 seconds")
+            post_entries = hooks["hooks"]["PostToolUse"]
+            post_hook = post_entries[0]["hooks"][0]
+            expected_post_command = (
+                'python3 "$PLUGIN_ROOT/hooks/post_tool_use_lifecycle.py"'
+            )
+            if len(post_entries) != 1 or post_entries[0].get("matcher") != "*":
+                failures.append("PostToolUse matcher must be one catch-all entry")
+            if (
+                post_hook.get("type") != "command"
+                or post_hook.get("command") != expected_post_command
+            ):
+                failures.append("post hook command must be confined to bundled adapter")
+            if post_hook.get("timeout") != 5:
+                failures.append("post hook timeout must remain bounded at 5 seconds")
         except (KeyError, IndexError, TypeError, json.JSONDecodeError):
             failures.append("hooks/hooks.json is structurally invalid")
     marketplace = ROOT.parents[1] / ".agents/plugins/marketplace.json"

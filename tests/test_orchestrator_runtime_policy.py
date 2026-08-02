@@ -45,19 +45,19 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         self,
         *,
         trusted: bool,
-        user_model: str = "coordinator-model",
+        user_model: str = "gpt-5.6-sol",
     ) -> None:
         trust = "trusted" if trusted else "untrusted"
         self.user_config.write_text(
             f'model = "{user_model}"\n'
-            'model_reasoning_effort = "high"\n'
-            'service_tier = "priority"\n'
+            'model_reasoning_effort = "xhigh"\n'
+            'service_tier = "fast"\n'
             "[features]\n"
             "fast_mode = true\n"
             "multi_agent = true\n"
             "[agents]\n"
-            'default_subagent_model = "coordinator-model"\n'
-            'default_subagent_reasoning_effort = "high"\n'
+            'default_subagent_model = "gpt-5.6-sol"\n'
+            'default_subagent_reasoning_effort = "xhigh"\n'
             f'[projects."{self.project}"]\n'
             f'trust_level = "{trust}"\n',
             encoding="utf-8",
@@ -66,8 +66,8 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
     def write_attestation(
         self,
         *,
-        model: str = "coordinator-model",
-        effort: str = "high",
+        model: str = "gpt-5.6-sol",
+        effort: str = "xhigh",
         tier: str = "priority",
         fast_mode: bool = True,
         tier_source: str = "config-verified",
@@ -121,8 +121,8 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         policy = result["policy"]
         self.assertEqual(
             {
-                "model": "coordinator-model",
-                "reasoning_effort": "high",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "xhigh",
                 "service_tier": "priority",
                 "fast_mode": True,
                 "service_tier_attestation": "config-verified",
@@ -131,8 +131,8 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             {
-                "model": "coordinator-model",
-                "reasoning_effort": "high",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "xhigh",
                 "service_tier": "priority",
                 "fast_mode": True,
             },
@@ -153,7 +153,7 @@ class OrchestratorRuntimePolicyTests(unittest.TestCase):
         path = self.project / ".codex" / "config.toml"
         path.write_text(
             path.read_text(encoding="utf-8").replace(
-                'default_subagent_model = "coordinator-model"',
+                'default_subagent_model = "gpt-5.6-sol"',
                 'default_subagent_model = "alternate-model"',
             ),
             encoding="utf-8",

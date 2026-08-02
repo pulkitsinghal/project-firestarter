@@ -26,12 +26,12 @@ MAX_MACHINE_OUTPUT = 1_048_576
 MAX_REQUEST_BYTES = 524_288
 CLI_TIMEOUT_SECONDS = 15
 RUNTIME_POLICY_REQUIRED = {
-    "root_model": "coordinator-model",
-    "root_reasoning_effort": "high",
+    "root_model": "gpt-5.6-sol",
+    "root_reasoning_effort": "xhigh",
     "root_service_tier": "priority",
     "root_fast_mode": True,
-    "worker_model": "coordinator-model",
-    "worker_reasoning_effort": "high",
+    "worker_model": "gpt-5.6-sol",
+    "worker_reasoning_effort": "xhigh",
     "worker_service_tier": "priority",
     "worker_fast_mode": True,
     "service_tier_attestation_allowed": ["config-verified", "runtime"],
@@ -78,6 +78,8 @@ ROOT_GUARD_SCHEMAS = {
 LIFECYCLE_SCHEMAS = {
     "lifecycle-watchdog.request.schema.json": "lifecycle-watchdog-request-1.0.schema.json",
     "lifecycle-watchdog.response.schema.json": "lifecycle-watchdog-response-1.0.schema.json",
+    "dispatcher-adoption.request.schema.json": "dispatcher-adoption-request-1.0.schema.json",
+    "dispatcher-adoption.response.schema.json": "dispatcher-adoption-response-1.0.schema.json",
 }
 
 SECRET_KEYS = {
@@ -431,6 +433,7 @@ def run_cli(
         "record-duration-observation",
         "duration-estimate",
         "duration-schedule",
+        "record-dispatcher-adoption",
         "record-setup-failure",
     }
     if command not in allowed:
@@ -952,6 +955,7 @@ def build_parser() -> argparse.ArgumentParser:
         "recycle-queue",
         "duration-estimate",
         "duration-schedule",
+        "record-dispatcher-adoption",
     ):
         request_parser = sub.add_parser(name)
         request_parser.add_argument("--request", required=True)
@@ -1055,6 +1059,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "recycle-queue",
         "duration-estimate",
         "duration-schedule",
+        "record-dispatcher-adoption",
     }:
         request = load_json_file(args.request, f"{operation} request")
         if operation == "record-policy-rule":

@@ -23,8 +23,8 @@ from urllib.parse import urlsplit
 INTERFACE_VERSION = "1.0"
 SCHEMA_VERSION = "1.3"
 POLICY_SCHEMA_VERSION = "1.0"
-REQUIRED_ROOT_MODEL = "coordinator-model"
-REQUIRED_ROOT_REASONING_EFFORT = "high"
+REQUIRED_ROOT_MODEL = "gpt-5.6-sol"
+REQUIRED_ROOT_REASONING_EFFORT = "xhigh"
 REQUIRED_SERVICE_TIER = "priority"
 REQUIRED_FAST_MODE = True
 FAST_PERFORMANCE_MULTIPLIER = 1.5
@@ -1078,6 +1078,13 @@ CREATE TABLE IF NOT EXISTS lifecycle_watchdog_requests (
   request_id TEXT PRIMARY KEY,
   request_hash TEXT NOT NULL,
   task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS dispatcher_adoptions (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  body_json TEXT NOT NULL,
   result_json TEXT NOT NULL,
   recorded_at TEXT NOT NULL
 );
@@ -2226,7 +2233,28 @@ class Plane:
         active = active_count + reserved_count
         runnable = row["runnable_queue_count"]
         configured = row["configured_capacity"]
-        deficit = runnable > 0 and active != configured
+        successor_state = None
+        if row["successor_task_id"]:
+            successor = connection.execute(
+                """SELECT task.state FROM tasks AS task
+                   JOIN owner_claims AS claim ON claim.task_id=task.task_id
+                   WHERE task.task_id=? AND claim.status='active'""",
+                (row["successor_task_id"],),
+            ).fetchone()
+            successor_state = None if successor is None else successor["state"]
+        exact_successor_satisfied = (
+            row["outcome"] == "SUCCESSOR_RESERVED"
+            and successor_state in {"LAUNCH_PENDING", "RUNNING"}
+        ) or (
+            row["outcome"] == "SUCCESSOR_RECEIPTED"
+            and bool(row["successor_receipted"])
+            and successor_state == "RUNNING"
+        )
+        deficit = (
+            runnable > 0
+            and not exact_successor_satisfied
+            and active != configured
+        )
         return {
             "saga_id": row["saga_id"],
             "configured_capacity": configured,
@@ -2256,11 +2284,14 @@ class Plane:
         if row["successor_receipted"]:
             return
         active = self.active_or_reserved_count(connection)
-        outcome = (
-            "SUCCESSOR_RECEIPTED"
-            if active == row["configured_capacity"]
-            else "CAPACITY_DEFICIT"
-        )
+        successor = connection.execute(
+            """SELECT 1 FROM tasks AS task
+               JOIN owner_claims AS claim ON claim.task_id=task.task_id
+               WHERE task.task_id=? AND claim.status='active'
+                 AND task.state='RUNNING'""",
+            (request["task_id"],),
+        ).fetchone()
+        outcome = "SUCCESSOR_RECEIPTED" if successor else "CAPACITY_DEFICIT"
         connection.execute(
             """UPDATE capacity_sagas
                SET successor_receipted=1,outcome=?,updated_at=?
@@ -3076,6 +3107,8 @@ class Plane:
             task = self.checked_task(connection, request, {"RUNNING", "BLOCKED", "FAILED"})
             self.require_external_receipt(connection, request)
             before = task["state"]
+            active_before_release = self.active_or_reserved_count(connection)
+            predecessor_occupied_slot = before == "RUNNING"
             if request["disposition"] == "blocked":
                 if request["successor_request"] is not None:
                     fail("SCHEMA_INVALID", "blocked handback cannot create a successor")
@@ -3192,16 +3225,24 @@ class Plane:
                 (request["now"], request["task_id"]),
             )
             active = self.active_or_reserved_count(connection)
-            if (
-                capacity["runnable_queue_count"] > 0
-                and active != capacity["configured_capacity"]
-            ):
+            if capacity["runnable_queue_count"] > 0:
+                expected_active = min(
+                    capacity["configured_capacity"],
+                    active_before_release
+                    - int(predecessor_occupied_slot)
+                    + 1,
+                )
+            else:
+                expected_active = active
+            if capacity["runnable_queue_count"] > 0 and active != expected_active:
                 fail(
                     "REFILL_PROOF_REQUIRED",
-                    "terminal handback cannot release capacity until recycle reserves an exact replacement",
+                    "terminal handback cannot release capacity until recycle preserves the exact receipt-backed occupancy",
                     exit_status=EXIT_CONFLICT,
                     details={
                         "configured_capacity": capacity["configured_capacity"],
+                        "active_or_reserved_before_release": active_before_release,
+                        "expected_active_or_reserved_count": expected_active,
                         "active_or_reserved_count": active,
                     },
                 )
@@ -4437,9 +4478,21 @@ class Plane:
             active = self.active_or_reserved_count(connection)
             receipted = bool(row["successor_receipted"])
             if successor_task_id:
-                if receipted and active == row["configured_capacity"]:
+                successor = connection.execute(
+                    """SELECT task.state FROM tasks AS task
+                       JOIN owner_claims AS claim ON claim.task_id=task.task_id
+                       WHERE task.task_id=? AND claim.status='active'""",
+                    (successor_task_id,),
+                ).fetchone()
+                successor_state = (
+                    None if successor is None else successor["state"]
+                )
+                if receipted and successor_state == "RUNNING":
                     outcome = "SUCCESSOR_RECEIPTED"
-                elif not receipted and active == row["configured_capacity"]:
+                elif (
+                    not receipted
+                    and successor_state in {"LAUNCH_PENDING", "RUNNING"}
+                ):
                     outcome = "SUCCESSOR_RESERVED"
                 else:
                     outcome = "CAPACITY_DEFICIT"
@@ -4888,6 +4941,28 @@ class Plane:
                     or not item["lifecycle"]["status_claim_allowed"]
                 )
             )
+            adoption_row = connection.execute(
+                """SELECT request_id,body_json,result_json,recorded_at
+                   FROM dispatcher_adoptions
+                   ORDER BY recorded_at DESC,request_id DESC LIMIT 1"""
+            ).fetchone()
+            adoption = None
+            if adoption_row is not None:
+                adoption_body = json.loads(adoption_row["body_json"])
+                adoption_result = json.loads(adoption_row["result_json"])
+                adoption = {
+                    "request_id": adoption_row["request_id"],
+                    "adoption_mode": adoption_body["adoption_mode"],
+                    "plugin_version": adoption_body["plugin_version"],
+                    "recorded_at": adoption_row["recorded_at"],
+                    "proofs": adoption_body["proofs"],
+                    "covered_path_dispatcher_enforcement": adoption_result[
+                        "covered_path_dispatcher_enforcement"
+                    ],
+                    "universal_dispatcher_enforcement": adoption_result[
+                        "universal_dispatcher_enforcement"
+                    ],
+                }
             return {
                 "schema_version": self.metadata(connection, "schema_version"),
                 "revision": int(self.metadata(connection, "revision")),
@@ -4942,6 +5017,11 @@ class Plane:
                     "status_claim_allowed": not lifecycle_reconciliation_required,
                     "root_is_not_worker": True,
                     "platform_dispatcher_enforcement": False,
+                    "covered_path_dispatcher_enforcement": bool(
+                        adoption
+                        and adoption["covered_path_dispatcher_enforcement"]
+                    ),
+                    "dispatcher_adoption": adoption,
                 },
                 "outbox": [
                     dict(row)
@@ -4950,6 +5030,58 @@ class Plane:
                     )
                 ],
             }
+        finally:
+            connection.close()
+
+    def record_dispatcher_adoption(self, raw: Any) -> dict[str, Any]:
+        request = validate_dispatcher_adoption(raw)
+        request_hash = digest(request)
+        result = {
+            "request_id": request["request_id"],
+            "adoption_mode": request["adoption_mode"],
+            "plugin_version": request["plugin_version"],
+            "covered_path_dispatcher_enforcement": True,
+            "universal_dispatcher_enforcement": False,
+            "recorded_at": request["now"],
+            "replayed": False,
+        }
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                """SELECT request_hash,result_json FROM dispatcher_adoptions
+                   WHERE request_id=?""",
+                (request["request_id"],),
+            ).fetchone()
+            if existing is not None:
+                if existing["request_hash"] != request_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "dispatcher adoption request ID was reused",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                replay = json.loads(existing["result_json"])
+                replay["replayed"] = True
+                connection.commit()
+                return replay
+            connection.execute(
+                """INSERT INTO dispatcher_adoptions(
+                     request_id,request_hash,body_json,result_json,recorded_at
+                   ) VALUES(?,?,?,?,?)""",
+                (
+                    request["request_id"],
+                    request_hash,
+                    canonical(request),
+                    canonical(result),
+                    request["now"],
+                ),
+            )
+            self.bump_revision(connection)
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
         finally:
             connection.close()
 
@@ -4979,6 +5111,80 @@ class Plane:
             }
         finally:
             connection.close()
+
+
+def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "adoption_mode",
+            "plugin_version",
+            "proofs",
+            "now",
+        },
+        label="dispatcher adoption request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    if request["adoption_mode"] != "COVERED_PATH_GUARDRAIL":
+        fail(
+            "DISPATCHER_ADOPTION_INVALID",
+            "only covered-path dispatcher adoption is supported",
+        )
+    plugin_version = text(
+        request["plugin_version"], "plugin_version", 80, single_line=True
+    )
+    if (
+        re.fullmatch(r"0\.3\.(?:0|1)(?:\+codex\.\d{14})?", plugin_version)
+        is None
+    ):
+        fail(
+            "DISPATCHER_ADOPTION_INVALID",
+            "plugin version is incompatible with this adoption contract",
+        )
+    proofs = strict(
+        request["proofs"],
+        {
+            "pre_tool_denial_verified",
+            "typed_mcp_control_verified",
+            "reserved_create_admission_verified",
+            "lifecycle_debt_clear_verified",
+            "archive_refill_fence_verified",
+            "no_side_effect_canary_verified",
+            "hosted_paths_uncovered",
+            "universal_coverage_claimed",
+        },
+        label="dispatcher adoption proofs",
+    )
+    required_true = {
+        "pre_tool_denial_verified",
+        "typed_mcp_control_verified",
+        "reserved_create_admission_verified",
+        "lifecycle_debt_clear_verified",
+        "archive_refill_fence_verified",
+        "no_side_effect_canary_verified",
+        "hosted_paths_uncovered",
+    }
+    if any(proofs[key] is not True for key in required_true):
+        fail(
+            "DISPATCHER_ADOPTION_UNPROVEN",
+            "every covered-path adoption proof must be explicitly true",
+        )
+    if proofs["universal_coverage_claimed"] is not False:
+        fail(
+            "UNIVERSAL_ENFORCEMENT_UNPROVEN",
+            "covered-path adoption cannot claim universal enforcement",
+        )
+    return {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "adoption_mode": request["adoption_mode"],
+        "plugin_version": plugin_version,
+        "proofs": proofs,
+        "now": timestamp(request["now"]),
+    }
 
 
 def string_list(value: Any, label: str, *, maximum: int = 100) -> list[str]:
@@ -5403,7 +5609,16 @@ def validate_handback(value: Any) -> dict[str, Any]:
     )
     if exact_refs["base_sha"] is None:
         fail("HANDBACK_INCOMPLETE", "handback requires the exact base SHA")
-    if request["disposition"] == "completed" and any(
+    zero_change_completion = (
+        request["disposition"] == "completed"
+        and request["deployment_state"] == "not_performed"
+        and exact_refs["candidate_sha"] == exact_refs["base_sha"]
+        and all(
+            exact_refs[key] is None
+            for key in ("pr_url", "merge_sha", "default_sha")
+        )
+    )
+    if request["disposition"] == "completed" and not zero_change_completion and any(
         exact_refs[key] is None
         for key in ("candidate_sha", "pr_url", "merge_sha", "default_sha")
     ):
@@ -5413,6 +5628,7 @@ def validate_handback(value: Any) -> dict[str, Any]:
         )
     if (
         request["disposition"] == "completed"
+        and not zero_change_completion
         and exact_refs["merge_sha"] != exact_refs["default_sha"]
     ):
         fail(
@@ -6567,6 +6783,7 @@ def parser() -> argparse.ArgumentParser:
         "duration-estimate",
         "duration-schedule",
         "recycle-queue",
+        "record-dispatcher-adoption",
         "migrate-decisions",
     ):
         command = commands.add_parser(name)
@@ -6617,6 +6834,10 @@ def main(argv: list[str] | None = None) -> int:
             "duration-estimate": (plane.duration_estimate, "duration-estimate"),
             "duration-schedule": (plane.duration_schedule, "duration-schedule"),
             "recycle-queue": (plane.recycle, "recycle-queue"),
+            "record-dispatcher-adoption": (
+                plane.record_dispatcher_adoption,
+                "record-dispatcher-adoption",
+            ),
             "migrate-decisions": (plane.migrate, "migrate-decisions"),
         }
         if args.command == "init":

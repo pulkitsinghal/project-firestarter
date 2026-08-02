@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/dispatcher-adoption-response-1.0.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "adoption_mode",
+    "plugin_version",
+    "covered_path_dispatcher_enforcement",
+    "universal_dispatcher_enforcement",
+    "recorded_at",
+    "replayed"
+  ],
+  "properties": {
+    "request_id": {"type": "string"},
+    "adoption_mode": {"const": "COVERED_PATH_GUARDRAIL"},
+    "plugin_version": {"type": "string"},
+    "covered_path_dispatcher_enforcement": {"const": true},
+    "universal_dispatcher_enforcement": {"const": false},
+    "recorded_at": {"type": "string"},
+    "replayed": {"type": "boolean"}
+  }
+}

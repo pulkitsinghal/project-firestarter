@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import sqlite3
 import stat
 import subprocess
@@ -326,6 +327,75 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertTrue(all(rule["why"]["reason_code"] == "MATCHED" for rule in included))
         self.assertTrue(traced["result"]["excluded"])
 
+    def test_dispatcher_adoption_is_bounded_idempotent_and_never_universal(self) -> None:
+        initial = self.run_cli("status")["result"]["lifecycle_watchdog"]
+        self.assertFalse(initial["covered_path_dispatcher_enforcement"])
+        self.assertFalse(initial["platform_dispatcher_enforcement"])
+        manifest = json.loads(
+            (
+                ROOT
+                / "addons"
+                / "orchestrator_session"
+                / "common"
+                / "plugins"
+                / "pm-proxy-orchestrator"
+                / ".codex-plugin"
+                / "plugin.json"
+            ).read_text(encoding="utf-8")
+        )
+        plugin_version = manifest["version"]
+        adoption_schema = json.loads(
+            (
+                CONTROL_ROOT
+                / "schemas"
+                / "dispatcher-adoption.request.schema.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertIsNotNone(
+            re.fullmatch(
+                adoption_schema["properties"]["plugin_version"]["pattern"],
+                plugin_version,
+            )
+        )
+        request = {
+            "interface_version": "1.0",
+            "request_id": "dispatcher-adoption-1",
+            "adoption_mode": "COVERED_PATH_GUARDRAIL",
+            "plugin_version": plugin_version,
+            "proofs": {
+                "pre_tool_denial_verified": True,
+                "typed_mcp_control_verified": True,
+                "reserved_create_admission_verified": True,
+                "lifecycle_debt_clear_verified": True,
+                "archive_refill_fence_verified": True,
+                "no_side_effect_canary_verified": True,
+                "hosted_paths_uncovered": True,
+                "universal_coverage_claimed": False,
+            },
+            "now": NOW,
+        }
+        adopted = self.run_cli("record-dispatcher-adoption", request)["result"]
+        self.assertTrue(adopted["covered_path_dispatcher_enforcement"])
+        self.assertFalse(adopted["universal_dispatcher_enforcement"])
+        replay = self.run_cli("record-dispatcher-adoption", request)["result"]
+        self.assertTrue(replay["replayed"])
+        status = self.run_cli("status")["result"]["lifecycle_watchdog"]
+        self.assertTrue(status["covered_path_dispatcher_enforcement"])
+        self.assertFalse(status["platform_dispatcher_enforcement"])
+        self.assertEqual(
+            "COVERED_PATH_GUARDRAIL",
+            status["dispatcher_adoption"]["adoption_mode"],
+        )
+        universal = json.loads(json.dumps(request))
+        universal["request_id"] = "dispatcher-adoption-universal"
+        universal["proofs"]["universal_coverage_claimed"] = True
+        refused = self.run_cli(
+            "record-dispatcher-adoption", universal, expected=2
+        )
+        self.assertEqual(
+            "UNIVERSAL_ENFORCEMENT_UNPROVEN", refused["error"]["code"]
+        )
+
     def test_prepare_requires_receipt_and_persists_no_prompt_or_prompt_hash(self) -> None:
         marker = "private narrative without a secret pattern"
         prepared = self.run_cli("prepare-launch", self.prepare("privacy", prompt=marker))
@@ -352,8 +422,8 @@ class ControlPlaneTests(unittest.TestCase):
             "prepare-launch", self.prepare("runtime-policy-drift")
         )
         policy = prepared["result"]["envelope"]["runtime_policy"]
-        self.assertEqual("coordinator-model", policy["root"]["model"])
-        self.assertEqual("high", policy["root"]["reasoning_effort"])
+        self.assertEqual("gpt-5.6-sol", policy["root"]["model"])
+        self.assertEqual("xhigh", policy["root"]["reasoning_effort"])
         self.assertEqual("priority", policy["root"]["service_tier"])
         self.assertTrue(policy["root"]["fast_mode"])
         self.assertEqual(policy["root"], policy["worker_defaults"])
@@ -1103,6 +1173,120 @@ class ControlPlaneTests(unittest.TestCase):
         states = {item["task_id"]: item["state"] for item in final["result"]["tasks"]}
         self.assertEqual("ARCHIVED", states["task-predecessor"])
         self.assertEqual("RUNNING", states["task-successor"])
+
+    def test_under_capacity_exact_replacement_preserves_occupancy_and_archive_fence(
+        self,
+    ) -> None:
+        predecessor = self.run_cli(
+            "prepare-launch",
+            self.prepare("under-cap-predecessor", path="/docs"),
+        )
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(predecessor, "under-cap-predecessor"),
+        )
+        peer = self.run_cli(
+            "prepare-launch",
+            self.prepare("under-cap-peer", path="/src"),
+        )
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(peer, "under-cap-peer"),
+        )
+        successor = self.prepare(
+            "under-cap-successor",
+            path="/docs",
+            source_event_key="under-cap-successor-source",
+            outcome_key="under-cap-successor-outcome",
+        )
+        successor["now"] = "2026-07-28T20:00:00Z"
+        successor["lease_expires_at"] = "2026-07-29T20:00:00Z"
+        handback = self.handback(
+            predecessor,
+            "under-cap-predecessor",
+            successor=successor,
+        )
+        handback["capacity"]["configured_capacity"] = 4
+        closed = self.run_cli("record-handback", handback)
+        self.assertEqual("ARCHIVE_PENDING", closed["result"]["state"])
+        self.assertEqual(
+            "task-under-cap-successor",
+            closed["result"]["successor"]["envelope"]["task_id"],
+        )
+
+        status = self.run_cli("status")["result"]
+        self.assertEqual(2, status["worker_capacity"]["active_or_reserved_count"])
+        saga = next(
+            item
+            for item in status["capacity"]
+            if item["saga_id"] == "handback-under-cap-predecessor"
+        )
+        self.assertEqual("SUCCESSOR_RESERVED", saga["outcome"])
+        self.assertIsNone(saga["failure_state"])
+
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            connection.execute(
+                """UPDATE owner_claims SET status='released'
+                   WHERE task_id='task-under-cap-successor'"""
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        stale = self.run_cli("status")["result"]
+        stale_saga = next(
+            item
+            for item in stale["capacity"]
+            if item["saga_id"] == "handback-under-cap-predecessor"
+        )
+        self.assertEqual(
+            "CAPACITY_INVARIANT_FAILED", stale_saga["failure_state"]
+        )
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            connection.execute(
+                """UPDATE owner_claims SET status='active'
+                   WHERE task_id='task-under-cap-successor'"""
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        successor_prepared = {
+            "result": {"envelope": closed["result"]["successor"]["envelope"]}
+        }
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(
+                successor_prepared,
+                "under-cap-successor",
+                now="2026-07-28T20:01:00Z",
+            ),
+        )
+        status = self.run_cli("status")["result"]
+        saga = next(
+            item
+            for item in status["capacity"]
+            if item["saga_id"] == "handback-under-cap-predecessor"
+        )
+        self.assertEqual("SUCCESSOR_RECEIPTED", saga["outcome"])
+        self.assertIsNone(saga["failure_state"])
+        self.assertEqual(2, saga["active_or_reserved_count"])
+
+        required = predecessor["result"]["envelope"]["receipt_required"]
+        archived = self.run_cli(
+            "record-archive-receipt",
+            {
+                "interface_version": "1.0",
+                "request_id": "archive-under-cap-predecessor",
+                "task_id": required["task_id"],
+                "policy_snapshot_revision": required["policy_snapshot_revision"],
+                "lease_epoch": required["lease_epoch"],
+                "fencing_token": required["fencing_token"],
+                "now": "2026-07-28T20:02:00Z",
+            },
+        )
+        self.assertEqual("ARCHIVED", archived["result"]["state"])
 
     def test_terminal_handback_without_explicit_refill_proof_is_denied_atomically(
         self,
@@ -1961,6 +2145,33 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertNotRegex(board, r"\.href\\s*=\\s*item\\.link")
         self.assertNotIn("javascript:", dashboard.lower())
         self.assertNotIn("data:", dashboard.lower())
+
+    def test_completed_zero_change_handback_does_not_fabricate_delivery_refs(self) -> None:
+        prepared = self.run_cli(
+            "prepare-launch", self.prepare("zero-change-completion")
+        )
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(prepared, "zero-change-completion"),
+        )
+        handback = self.handback(prepared, "zero-change-completion")
+        handback["exact_refs"] = {
+            "base_sha": BASE_SHA,
+            "candidate_sha": BASE_SHA,
+            "pr_url": None,
+            "merge_sha": None,
+            "default_sha": None,
+        }
+        handback["resources"] = [
+            {
+                "id": prepared["result"]["envelope"]["owner_claim_id"],
+                "disposition": "removed",
+                "reason": "fenced zero-change owner claim released",
+                "bytes": 0,
+            }
+        ]
+        closed = self.run_cli("record-handback", handback)["result"]
+        self.assertEqual("ARCHIVE_PENDING", closed["state"])
 
     def test_sanitized_public_metadata_persists_only_in_launch_and_handback(self) -> None:
         request = self.prepare("public-metadata")

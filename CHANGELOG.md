@@ -6,6 +6,22 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- PM-proxy under-capacity exact replacement: a clean terminal handback may
+  atomically exchange its receipt-backed predecessor for one fenced successor
+  even when other configured slots are already idle. The transaction snapshots
+  and preserves pre-release occupancy, keeps full-capacity and EMPTY behavior,
+  treats only the exact reserved successor as satisfying the saga, and leaves
+  unsupplied idle slots visible without misclassifying the reserved candidate
+  as still runnable.
+- PM-proxy partial-activation protection: the plugin manifest now explicitly
+  binds its typed MCP server, static validation pins the exact server definition,
+  and the orchestrator overlay is forbidden from stamping an already-armed root
+  hook. Adoption and rollback docs require hook-untrusted MCP discovery before
+  the trusted root role is enabled.
+- PM-proxy hook deadlock hardening: pre-dispatch lifecycle intent, bounded
+  nonblocking private locks, authoritative stale-admission pruning, terminal
+  archive replay rejection, and adversarial contention/exhaustion fixtures keep
+  lock or ledger failure inside the hook deadline without silently dispatching.
 - Checked-in orchestrator root/spawn runtime defaults (a coordinator model,
   reasoning effort, and priority service tier), plus a read-only machine/project
   startup verifier. It rejects untrusted projects, config or launch drift,

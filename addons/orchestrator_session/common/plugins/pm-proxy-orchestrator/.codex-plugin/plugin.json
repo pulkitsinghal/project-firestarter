@@ -1,6 +1,6 @@
 {
   "name": "pm-proxy-orchestrator",
-  "version": "0.3.0",
+  "version": "0.3.1+codex.20260802045200",
   "description": "Fail-closed agent-CLI wrapper for the Firestarter cross-task control plane.",
   "author": {
     "name": "Firestarter contributors"
@@ -13,6 +13,7 @@
     "firestarter"
   ],
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "PM Proxy Orchestrator",
     "shortDescription": "Fail-closed cross-task control plane",

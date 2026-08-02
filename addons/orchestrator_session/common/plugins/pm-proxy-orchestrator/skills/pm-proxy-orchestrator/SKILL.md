@@ -27,6 +27,19 @@ or receipt fails.
    identity remain unproved. Never claim universal enforcement. Root must not
    spawn internal subagents; create only visible peer worker tasks, and never
    count root as worker capacity.
+   In an enforced Codex root, use only the bundled `pm_proxy_*` MCP tools for
+   verifier/control-plane work. General Bash, patch, filesystem, browser, Sites,
+   and non-control MCP calls remain denied. The exact trusted project hook also
+   requires a matching fresh ticket for covered task creation, a satisfied
+   refill saga for covered archive, and a successful lifecycle-watchdog after
+   every covered read/wait before another lifecycle or status action.
+   After the complete live deny → typed MCP → reserved create/receipt →
+   lifecycle debt/clear → close/refill/archive proof, record the bounded
+   `COVERED_PATH_GUARDRAIL` adoption through
+   `pm_proxy_record_dispatcher_adoption`. Require status to report
+   `covered_path_dispatcher_enforcement: true` while
+   `platform_dispatcher_enforcement` and universal enforcement remain false.
+   Never convert the bounded receipt into a universal claim.
 2. Run `doctor`. Stop on any failure, including missing CLI, unsupported version
    or schemas, inaccessible/corrupt/locked state, or any quarantined rule.
 3. Before filling capacity, reconcile live task facts and prepare a complete

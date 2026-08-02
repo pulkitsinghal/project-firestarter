@@ -82,6 +82,12 @@ successor exactly once and record each through `record-refill-receipt`.
 Successor receipt also requires `--runtime-attestation`; do not inherit or
 invent a tier claim merely because the predecessor was receipted.
 
+If the receipt-backed pool was already below configured capacity, an exact
+one-for-one successor preserves the occupancy observed before release rather
+than pretending unrelated idle slots are filled. The selected candidate is no
+longer runnable once atomically reserved; its own canonical receipt satisfies
+the predecessor saga, while any genuinely unsupplied deficit remains visible.
+
 Run `slot-status` for dashboard truth. Run `watchdog-refill` on startup and
 periodic heartbeat as the fallback for lost closeout messages. Use
 `record-archive-receipt` only after the refill saga permits archive and the

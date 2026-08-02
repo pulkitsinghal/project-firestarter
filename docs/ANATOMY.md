@@ -229,6 +229,22 @@ or authorize service-supervisor actions.
 | `browser_automation_policy` | `include_browser_automation_policy` (default `no`) | **Stack-agnostic** (`addons/browser_automation_policy/common/`): version 0.1 Python-stdlib, source-only policy and semantic-adapter contract. It binds proposals to task/tab/document/frame/origin/generations and exact adapter/action/effect/target-contract digests, treats page instructions as untrusted data, enforces typed actions, pre/postconditions, action-bound confirmation, reversible draft plans, atomic in-process replay state, semantic DOM-first resolution, proposal-bound Relative XY fallback, separate Citrix/remote session controls, voice intent normalization without targeting authority, and content-minimized evidence. Closed schemas and executable synthetic adversarial fixtures cover hidden/overlaid/duplicate/stale/cross-origin/shadow/dynamic targets, prompt injection, replay, navigation races, and geometry drift. It emits only a short-lived nonce/idempotency-bound policy handoff marked `executorConfigured:false`; durable ledger consumption remains a future-executor obligation, and no extension, browser/profile access, input injection, screenshot/OCR, credential, network, observer, executor, or deployment is included. | 2026-07-28 public-source browser automation checkpoint, treated as untrusted design input |
 | `local_ollama` | `include_local_ollama` (default `no`) | **Stack-agnostic** (`addons/local_ollama/common/`): the *generic* HTTP transport plumbing for a local `ollama serve` — the shape consuming projects otherwise hand-roll. Pin a model, POST a typed JSON body to `/api/generate` \| `/api/chat` \| `/api/embeddings` on `http://{{ ollama_host }}:{{ ollama_port }}`, decode a typed response, bound the timeout and response size, and raise a typed error for every failure mode. Ships a **Python** variant (`local-ollama/python/local_ollama_client.py`, stdlib `urllib` only) and a **Swift** variant (`local-ollama/swift/LocalOllamaClient.swift`, Foundation only), each with an offline mock/injected-transport self-test. **Loopback-first**: a non-loopback host is refused unless explicitly opted in; the default transport ignores env proxies and never follows a redirect, has no cache/cookies/credentials. Carries **no** prompts, domain schema, or vision/document/screen logic — that stays in the consumers. Tokens: `ollama_host`/`ollama_port`/`ollama_model`/`ollama_embed_model`. `docs/LOCAL_OLLAMA.md` is the usage + safety doc. No new deps | duplicated local-model HTTP transport across sibling consumers |
 
+### Orchestrator partial-activation gotcha
+
+| File | Purpose |
+|------|---------|
+| `plugins/pm-proxy-orchestrator/.codex-plugin/plugin.json` | Explicitly binds `mcpServers` to `./.mcp.json`; Codex can discover the default hook file without this pointer, so omitting it can activate root denial before reservation tools exist. |
+| `plugins/pm-proxy-orchestrator/.mcp.json` | Exact bounded stdio server definition for the typed `pm_proxy_*` control surface. The plugin source scan and stamping contract pin it byte-for-byte. |
+
+The add-on deliberately contains no `.codex/hooks.json`: stamping policy must
+not arm the trusted root role. Installation, MCP discovery and typed `doctor`,
+exact hook trust, role activation, and live adoption are separate ordered gates.
+If a root hook fires without callable `pm_proxy_*` tools, restore the prior
+project hook state outside that blocked task and restart before retrying.
+The pre/post hook ledgers use bounded nonblocking private locks; observations
+record debt before dispatch, terminal admissions are pruned from authoritative
+tickets, and an archive receipt permanently removes archive eligibility.
+
 To include one: `./bin/firestart.sh --set include_k8s=yes` (or answer `yes` at the
 prompt). To add a new add-on: create `addons/<name>/<stack>/` (or
 `addons/<name>/common/` if it's stack-agnostic) whose contents **mirror the
