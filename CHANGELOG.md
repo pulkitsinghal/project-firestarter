@@ -6,6 +6,12 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- PM-proxy runtime pin and automatic-control gate: one owner-private content
+  digest binds the MCP server to the exact control CLI, version, schemas,
+  root-role guard, and runtime verifier. Doctor/status/recovery remain
+  bootstrap-safe, while new launch and refill mutations require both the pin
+  and a current-version covered-path dispatcher-adoption receipt. Status never
+  upgrades this bounded proof into universal platform enforcement.
 - PM-proxy exact expired-lease retirement: a closed ticket-derived request can
   invalidate the stale fence, expire its owner claim, and release capacity
   without takeover, extension, handback, closure, archive, successor creation,

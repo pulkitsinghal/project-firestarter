@@ -94,7 +94,9 @@ gh secret set ANTHROPIC_API_KEY   # turn on the AI reviewer
   `include_browser_automation_policy=yes`). The
   orchestrator add-on includes a repo-local, source-only
   `pm-proxy-orchestrator` agent-CLI plugin marketplace plus schema-1.3
-  receipt-backed capacity, lifecycle-watchdog, and duration-lane contracts.
+  receipt-backed capacity, lifecycle-watchdog, duration-lane contracts, and a
+  content-pinned runtime gate that disables automatic launch/refill until the
+  exact current-version covered dispatcher has been proven live.
   It also stamps example root/spawn runtime defaults and a read-only startup
   verifier that distinguishes a platform-reported priority tier from
   desktop-app config verification. The root remains coordination-only: no internal

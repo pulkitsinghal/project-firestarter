@@ -10,6 +10,7 @@ bridge/refill programs without a shell, and removed before returning.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -31,9 +32,16 @@ BRIDGE = (
     / "pm_proxy_bridge.py"
 )
 REFILL = BRIDGE.with_name("refill_saga.py")
-SERVER_VERSION = "0.3.2"
+SERVER_VERSION = "0.3.3"
 MAX_MESSAGE_BYTES = 2_000_000
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+ADOPTION_VERSION = re.compile(
+    rf"^{re.escape(SERVER_VERSION)}(?:\+codex\.\d{{14}})?$"
+)
+RUNTIME_PIN_NAME = "runtime-pin.json"
+RUNTIME_PIN_VERSION = "1.0"
 
 
 class McpError(ValueError):
@@ -68,10 +76,16 @@ def opaque(value: Any, label: str) -> str:
     return value
 
 
-def absolute_project(value: Any) -> Path:
+def project_candidate(value: Any) -> Path:
     if not isinstance(value, str) or not Path(value).is_absolute():
         raise McpError("invalid-project-root")
-    root = Path(value).resolve(strict=True)
+    requested = Path(value)
+    if requested.is_symlink():
+        raise McpError("project-root-symlink")
+    try:
+        root = requested.resolve(strict=True)
+    except OSError as exc:
+        raise McpError("invalid-project-root") from exc
     try:
         firestarter_cli(root)
     except McpError:
@@ -89,7 +103,17 @@ def firestarter_cli(project: Path) -> Path:
         / "orchestrator-control"
         / "orchestrator_control.py",
     )
-    matches = [path for path in candidates if path.is_file() and not path.is_symlink()]
+    matches = []
+    for path in candidates:
+        try:
+            if (
+                path.is_file()
+                and not path.is_symlink()
+                and path.resolve(strict=True) == path
+            ):
+                matches.append(path)
+        except OSError:
+            continue
     if len(matches) != 1:
         raise McpError("firestarter-cli-missing")
     return matches[0]
@@ -105,16 +129,23 @@ def runtime_verifier(project: Path) -> Path:
         / "bin"
         / "verify-orchestrator-runtime.py",
     )
-    matches = [path for path in candidates if path.is_file() and not path.is_symlink()]
+    matches = []
+    for path in candidates:
+        try:
+            if (
+                path.is_file()
+                and not path.is_symlink()
+                and path.resolve(strict=True) == path
+            ):
+                matches.append(path)
+        except OSError:
+            continue
     if len(matches) != 1:
         raise McpError("runtime-verifier-missing")
     return matches[0]
 
 
-def private_state(value: Any) -> Path:
-    if not isinstance(value, str) or not Path(value).is_absolute():
-        raise McpError("invalid-state-dir")
-    path = Path(value).resolve(strict=True)
+def private_root() -> Path:
     configured_root = Path.home() / ".codex" / "orchestrator-state"
     try:
         if (
@@ -122,15 +153,180 @@ def private_state(value: Any) -> Path:
             or (configured_root.stat().st_mode & 0o777) != 0o700
         ):
             raise McpError("state-root-not-private")
-        allowed_root = configured_root.resolve(strict=True)
+        return configured_root.resolve(strict=True)
     except OSError as exc:
         raise McpError("state-root-not-private") from exc
+
+
+def runtime_bundle_files(project: Path) -> list[Path]:
+    cli = firestarter_cli(project)
+    control_root = cli.parent
+    candidates = [
+        cli,
+        control_root / "VERSION",
+        control_root / "root_role_guard.py",
+        runtime_verifier(project),
+        *sorted((control_root / "schemas").glob("*.json")),
+    ]
+    if len(candidates) < 5:
+        raise McpError("runtime-bundle-incomplete")
+    for path in candidates:
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError as exc:
+            raise McpError("runtime-bundle-incomplete") from exc
+        if not path.is_file() or path.is_symlink() or resolved != path:
+            raise McpError("runtime-bundle-incomplete")
+    return candidates
+
+
+def runtime_bundle_digest(project: Path) -> str:
+    digest = hashlib.sha256()
+    for path in runtime_bundle_files(project):
+        try:
+            relative = path.relative_to(project).as_posix()
+        except ValueError as exc:
+            raise McpError("runtime-bundle-escape") from exc
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        try:
+            contents = path.read_bytes()
+        except OSError as exc:
+            raise McpError("runtime-bundle-invalid") from exc
+        digest.update(hashlib.sha256(contents).digest())
+    return digest.hexdigest()
+
+
+def runtime_pin() -> tuple[Path, dict[str, Any]] | None:
+    path = private_root() / RUNTIME_PIN_NAME
+    if not path.exists():
+        return None
+    try:
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or (path.stat().st_mode & 0o777) != 0o600
+            or path.stat().st_size > 8192
+        ):
+            raise McpError("runtime-pin-not-private")
+        value = strict_json(path.read_text(encoding="utf-8"))
+    except McpError as exc:
+        if str(exc) == "runtime-pin-not-private":
+            raise
+        raise McpError("runtime-pin-invalid") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise McpError("runtime-pin-invalid") from exc
+    if not isinstance(value, dict):
+        raise McpError("runtime-pin-invalid")
+    try:
+        exact_keys(
+            value,
+            {
+                "pin_version",
+                "plugin_version",
+                "project_root",
+                "control_version",
+                "runtime_sha256",
+                "configured_at",
+            },
+            {
+                "pin_version",
+                "plugin_version",
+                "project_root",
+                "control_version",
+                "runtime_sha256",
+                "configured_at",
+            },
+        )
+    except McpError as exc:
+        raise McpError("runtime-pin-invalid") from exc
+    if (
+        value["pin_version"] != RUNTIME_PIN_VERSION
+        or value["plugin_version"] != SERVER_VERSION
+        or not isinstance(value["control_version"], str)
+        or OPAQUE.fullmatch(value["control_version"]) is None
+        or not isinstance(value["runtime_sha256"], str)
+        or SHA256.fullmatch(value["runtime_sha256"]) is None
+        or not isinstance(value["configured_at"], str)
+        or UTC.fullmatch(value["configured_at"]) is None
+    ):
+        raise McpError("runtime-pin-invalid")
+    try:
+        project = project_candidate(value["project_root"])
+    except McpError as exc:
+        raise McpError("runtime-pin-drift") from exc
+    version_path = firestarter_cli(project).parent / "VERSION"
+    try:
+        control_version = version_path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise McpError("runtime-pin-drift") from exc
+    if (
+        control_version != value["control_version"]
+        or runtime_bundle_digest(project) != value["runtime_sha256"]
+    ):
+        raise McpError("runtime-pin-drift")
+    return project, value
+
+
+def absolute_project(value: Any) -> Path:
+    pin = runtime_pin()
+    if pin is None:
+        return project_candidate(value)
+    project, _value = pin
+    if value is not None:
+        if not isinstance(value, str) or not Path(value).is_absolute():
+            raise McpError("invalid-project-root")
+        if Path(value).is_symlink():
+            raise McpError("project-root-symlink")
+        try:
+            requested = Path(value).resolve(strict=True)
+        except OSError as exc:
+            raise McpError("invalid-project-root") from exc
+        if requested != project:
+            raise McpError("runtime-project-root-mismatch")
+    return project
+
+
+def runtime_pin_summary() -> dict[str, Any]:
+    pin = runtime_pin()
+    if pin is None:
+        return {
+            "configured": False,
+            "verified": False,
+            "plugin_version": SERVER_VERSION,
+        }
+    project, value = pin
+    return {
+        "configured": True,
+        "verified": True,
+        "plugin_version": SERVER_VERSION,
+        "project_root": str(project),
+        "control_version": value["control_version"],
+        "runtime_sha256": value["runtime_sha256"],
+        "configured_at": value["configured_at"],
+    }
+
+
+def private_state(value: Any) -> Path:
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise McpError("invalid-state-dir")
+    requested = Path(value)
+    if requested.is_symlink():
+        raise McpError("state-dir-symlink")
+    try:
+        path = requested.resolve(strict=True)
+    except OSError as exc:
+        raise McpError("invalid-state-dir") from exc
+    allowed_root = private_root()
     try:
         path.relative_to(allowed_root)
     except ValueError as exc:
         raise McpError("state-dir-outside-private-root") from exc
-    if path.is_symlink() or (path.stat().st_mode & 0o777) != 0o700:
-        raise McpError("state-dir-not-private")
+    try:
+        if path.is_symlink() or (path.stat().st_mode & 0o777) != 0o700:
+            raise McpError("state-dir-not-private")
+    except OSError as exc:
+        raise McpError("invalid-state-dir") from exc
     return path
 
 
@@ -262,17 +458,69 @@ def common(arguments: Mapping[str, Any]) -> tuple[Path, Path]:
     return project, state
 
 
+def payload_result(payload: Mapping[str, Any]) -> dict[str, Any]:
+    value = payload.get("result")
+    if not isinstance(value, dict):
+        raise McpError("control-response-invalid")
+    return value
+
+
+def operational_safety(status: Mapping[str, Any]) -> dict[str, Any]:
+    pin = runtime_pin_summary()
+    lifecycle = status.get("lifecycle_watchdog")
+    if not isinstance(lifecycle, dict):
+        raise McpError("control-response-invalid")
+    adoption = lifecycle.get("dispatcher_adoption")
+    adoption_version_matches = bool(
+        isinstance(adoption, dict)
+        and isinstance(adoption.get("plugin_version"), str)
+        and ADOPTION_VERSION.fullmatch(adoption["plugin_version"]) is not None
+    )
+    covered = bool(
+        lifecycle.get("covered_path_dispatcher_enforcement")
+        and adoption_version_matches
+    )
+    ready = bool(pin["verified"] and covered)
+    return {
+        "runtime_pin_verified": pin["verified"],
+        "dispatcher_adoption_version_matches": adoption_version_matches,
+        "covered_path_dispatcher_enforcement": covered,
+        "platform_dispatcher_enforcement": False,
+        "automatic_launch_refill_allowed": ready,
+        "covered_path_automatic_launch_refill_allowed": ready,
+        "unattended_automatic_launch_refill_allowed": False,
+        "automatic_launch_refill_scope": (
+            "COVERED_PATH_ONLY" if ready else "DISABLED"
+        ),
+        "universal_dispatcher_enforcement": False,
+    }
+
+
+def require_runtime_pin(project: Path) -> None:
+    pin = runtime_pin()
+    if pin is None:
+        raise McpError("runtime-pin-required")
+    if pin[0] != project:
+        raise McpError("runtime-project-root-mismatch")
+
+
+def require_automatic_control_ready(project: Path, state: Path) -> None:
+    require_runtime_pin(project)
+    status_payload = invoke(bridge_base(project, state) + ["status"])
+    safety = operational_safety(payload_result(status_payload))
+    if safety["automatic_launch_refill_allowed"] is not True:
+        raise McpError("dispatcher-adoption-required")
+
+
 def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
     if name == "pm_proxy_verify_runtime":
         exact_keys(
             arguments,
             {"project_root", "runtime_attestation"},
-            {"project_root", "runtime_attestation"},
+            {"runtime_attestation"},
         )
-        project = absolute_project(arguments["project_root"])
-        state_root = (Path.home() / ".codex" / "orchestrator-state").resolve(
-            strict=True
-        )
+        project = absolute_project(arguments.get("project_root"))
+        state_root = private_root()
         with request_files(
             state_root, {"runtime-attestation": arguments["runtime_attestation"]}
         ) as paths:
@@ -300,20 +548,26 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
     base = bridge_base(project, state)
 
     if name == "pm_proxy_doctor":
-        exact_keys(arguments, {"project_root", "state_dir"}, {"project_root", "state_dir"})
-        return invoke(base + ["doctor"])
+        exact_keys(arguments, {"project_root", "state_dir"}, {"state_dir"})
+        payload = invoke(base + ["doctor"])
+        payload_result(payload)["runtime_pin"] = runtime_pin_summary()
+        return payload
     if name == "pm_proxy_status":
-        exact_keys(arguments, {"project_root", "state_dir", "now"}, {"project_root", "state_dir"})
+        exact_keys(arguments, {"project_root", "state_dir", "now"}, {"state_dir"})
         root_guard(project, state, "monitor_receipt")
         command = base + ["status"]
         if "now" in arguments:
             command += ["--now", opaque(arguments["now"], "now")]
-        return invoke(command)
+        payload = invoke(command)
+        status = payload_result(payload)
+        status["runtime_pin"] = runtime_pin_summary()
+        status["operational_safety"] = operational_safety(status)
+        return payload
     if name == "pm_proxy_reconcile_expired_lease":
         exact_keys(
             arguments,
             {"project_root", "state_dir", "ticket_id", "request_id", "now"},
-            {"project_root", "state_dir", "ticket_id", "request_id", "now"},
+            {"state_dir", "ticket_id", "request_id", "now"},
         )
         root_guard(project, state, "deduplicate_ownership")
         return invoke(
@@ -328,28 +582,13 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
                 opaque(arguments["now"], "now"),
             ]
         )
-    if name == "pm_proxy_record_dispatcher_adoption":
-        exact_keys(
-            arguments,
-            {"project_root", "state_dir", "request"},
-            {"project_root", "state_dir", "request"},
-        )
-        root_guard(project, state, "receive_owner_intent")
-        with request_files(state, {"adoption": arguments["request"]}) as paths:
-            return invoke(
-                base
-                + [
-                    "record-dispatcher-adoption",
-                    "--request",
-                    str(paths["adoption"]),
-                ]
-            )
     if name == "pm_proxy_prepare_launch":
         exact_keys(
             arguments,
             {"project_root", "state_dir", "ticket_id", "recycle_request", "launch_request"},
-            {"project_root", "state_dir", "ticket_id", "recycle_request", "launch_request"},
+            {"state_dir", "ticket_id", "recycle_request", "launch_request"},
         )
+        require_automatic_control_ready(project, state)
         root_guard(project, state, "prepare_visible_task")
         ticket = ticket_path(state, arguments["ticket_id"], must_exist=False)
         with request_files(
@@ -375,7 +614,7 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         exact_keys(
             arguments,
             {"project_root", "state_dir", "ticket_id", "external_thread_id", "runtime_attestation", "request_id", "now"},
-            {"project_root", "state_dir", "ticket_id", "external_thread_id", "runtime_attestation", "request_id", "now"},
+            {"state_dir", "ticket_id", "external_thread_id", "runtime_attestation", "request_id", "now"},
         )
         root_guard(project, state, "monitor_receipt")
         ticket = ticket_path(state, arguments["ticket_id"], must_exist=True)
@@ -395,7 +634,7 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         exact_keys(
             arguments,
             {"project_root", "state_dir", "ticket_id", "external_thread_id", "request_id", "lease_expires_at", "now"},
-            {"project_root", "state_dir", "ticket_id", "external_thread_id", "request_id", "lease_expires_at", "now"},
+            {"state_dir", "ticket_id", "external_thread_id", "request_id", "lease_expires_at", "now"},
         )
         root_guard(project, state, "monitor_receipt")
         ticket = ticket_path(state, arguments["ticket_id"], must_exist=True)
@@ -414,7 +653,7 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         exact_keys(
             arguments,
             {"project_root", "state_dir", "ticket_id", "external_thread_id", "request", "successor_ticket_id"},
-            {"project_root", "state_dir", "ticket_id", "external_thread_id", "request"},
+            {"state_dir", "ticket_id", "external_thread_id", "request"},
         )
         root_guard(project, state, "monitor_handback")
         ticket = ticket_path(state, arguments["ticket_id"], must_exist=True)
@@ -429,13 +668,14 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         with request_files(state, {"lifecycle": arguments["request"]}) as paths:
             return invoke(command + ["--request", str(paths["lifecycle"])])
     if name in {"pm_proxy_close_and_refill", "pm_proxy_watchdog_refill", "pm_proxy_slot_status"}:
-        required = {"project_root", "state_dir", "refill_request"}
-        allowed = set(required)
+        required = {"state_dir", "refill_request"}
+        allowed = {"project_root", *required}
         if name == "pm_proxy_close_and_refill":
             required |= {"predecessor_ticket_id", "handback_request"}
             allowed |= {"predecessor_ticket_id", "handback_request"}
         exact_keys(arguments, allowed, required)
         if name == "pm_proxy_close_and_refill":
+            require_automatic_control_ready(project, state)
             predecessor = ticket_path(
                 state, arguments["predecessor_ticket_id"], must_exist=True
             )
@@ -465,6 +705,7 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
             ]
             root_guard(project, state, "refill_capacity", evidence=evidence)
         elif name == "pm_proxy_watchdog_refill":
+            require_automatic_control_ready(project, state)
             root_guard(project, state, "prepare_visible_task")
         else:
             root_guard(project, state, "monitor_receipt")
@@ -493,7 +734,7 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         exact_keys(
             arguments,
             {"project_root", "state_dir", "saga_id", "task_id", "external_thread_id", "runtime_attestation", "request_id", "now"},
-            {"project_root", "state_dir", "saga_id", "task_id", "external_thread_id", "runtime_attestation", "request_id", "now"},
+            {"state_dir", "saga_id", "task_id", "external_thread_id", "runtime_attestation", "request_id", "now"},
         )
         root_guard(project, state, "monitor_receipt")
         with request_files(state, {"runtime": arguments["runtime_attestation"]}) as paths:
@@ -515,7 +756,7 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         exact_keys(
             arguments,
             {"project_root", "state_dir", "ticket_id", "request_id", "now"},
-            {"project_root", "state_dir", "ticket_id", "request_id", "now"},
+            {"state_dir", "ticket_id", "request_id", "now"},
         )
         root_guard(project, state, "monitor_handback")
         return invoke(
@@ -540,7 +781,7 @@ def schema(extra: dict[str, Any], required: list[str]) -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {**COMMON_PROPERTIES, **extra},
-        "required": ["project_root", "state_dir", *required],
+        "required": ["state_dir", *required],
         "additionalProperties": False,
     }
 
@@ -551,22 +792,18 @@ TOOLS: dict[str, dict[str, Any]] = {
         "inputSchema": {
             "type": "object",
             "properties": {"project_root": COMMON_PROPERTIES["project_root"], "runtime_attestation": {"type": "object"}},
-            "required": ["project_root", "runtime_attestation"],
+            "required": ["runtime_attestation"],
             "additionalProperties": False,
         },
     },
-    "pm_proxy_doctor": {"description": "Validate Firestarter CLI, schemas, private state, and quarantined rules.", "inputSchema": schema({}, [])},
-    "pm_proxy_status": {"description": "Return receipt-derived orchestrator capacity and lifecycle truth at an optional explicit clock.", "inputSchema": schema({"now": {"type": "string"}}, [])},
+    "pm_proxy_doctor": {"description": "Validate the pinned or explicitly selected Firestarter CLI, schemas, private state, and quarantined rules.", "inputSchema": schema({}, [])},
+    "pm_proxy_status": {"description": "Return receipt-derived orchestrator capacity, lifecycle truth, and automatic-control readiness at an optional explicit clock.", "inputSchema": schema({"now": {"type": "string"}}, [])},
     "pm_proxy_reconcile_expired_lease": {
         "description": "Retire one exact expired receipt-fenced owner and release its capacity without takeover, closure, archive, or refill.",
         "inputSchema": schema({"ticket_id": {"type": "string"}, "request_id": {"type": "string"}, "now": {"type": "string"}}, ["ticket_id", "request_id", "now"]),
     },
-    "pm_proxy_record_dispatcher_adoption": {
-        "description": "Record a bounded live covered-path adoption proof while keeping universal enforcement explicitly false.",
-        "inputSchema": schema({"request": {"type": "object"}}, ["request"]),
-    },
     "pm_proxy_prepare_launch": {
-        "description": "Atomically recycle the queue and reserve one visible worker before task creation.",
+        "description": "Atomically recycle the queue and reserve one visible worker only after runtime-pin and covered-dispatcher adoption proofs.",
         "inputSchema": schema({"ticket_id": {"type": "string"}, "recycle_request": {"type": "object"}, "launch_request": {"type": "object"}}, ["ticket_id", "recycle_request", "launch_request"]),
     },
     "pm_proxy_record_launch_receipt": {
@@ -582,11 +819,11 @@ TOOLS: dict[str, dict[str, Any]] = {
         "inputSchema": schema({"ticket_id": {"type": "string"}, "external_thread_id": {"type": "string"}, "request": {"type": "object"}, "successor_ticket_id": {"type": "string"}}, ["ticket_id", "external_thread_id", "request"]),
     },
     "pm_proxy_close_and_refill": {
-        "description": "Close a receipted predecessor and reserve refill in one durable saga.",
+        "description": "Close a receipted predecessor and reserve refill only after runtime-pin and covered-dispatcher adoption proofs.",
         "inputSchema": schema({"predecessor_ticket_id": {"type": "string"}, "handback_request": {"type": "object"}, "refill_request": {"type": "object"}}, ["predecessor_ticket_id", "handback_request", "refill_request"]),
     },
     "pm_proxy_watchdog_refill": {
-        "description": "Recover a capacity deficit from complete current queue evidence.",
+        "description": "Recover a capacity deficit from complete current queue evidence only after runtime-pin and covered-dispatcher adoption proofs.",
         "inputSchema": schema({"refill_request": {"type": "object"}}, ["refill_request"]),
     },
     "pm_proxy_slot_status": {

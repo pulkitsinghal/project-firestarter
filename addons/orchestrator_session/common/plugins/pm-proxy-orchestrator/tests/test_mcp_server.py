@@ -14,11 +14,13 @@ from tests.support import (
     launch_request,
     private_temp,
     recycle_request,
+    refill_request,
 )
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 SERVER = PLUGIN_ROOT / "scripts" / "mcp_server.py"
+PIN_RUNTIME = PLUGIN_ROOT / "scripts" / "configure_runtime_pin.py"
 
 
 class McpServerTest(unittest.TestCase):
@@ -67,6 +69,23 @@ class McpServerTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(0, initialized.returncode, initialized.stderr)
+        pinned = subprocess.run(
+            [
+                sys.executable,
+                str(PIN_RUNTIME),
+                "--project-root",
+                str(self.project),
+                "--now",
+                iso(),
+            ],
+            text=True,
+            capture_output=True,
+            env=self.env,
+            check=False,
+        )
+        self.assertEqual(0, pinned.returncode, pinned.stderr)
+        self.pin_path = state_root / "runtime-pin.json"
+        self.assertEqual(0o600, self.pin_path.stat().st_mode & 0o777)
         self.process = subprocess.Popen(
             [sys.executable, str(SERVER)],
             stdin=subprocess.PIPE,
@@ -113,11 +132,54 @@ class McpServerTest(unittest.TestCase):
             "state_dir": str(self.state),
         }
 
+    def record_owner_adoption(self, request: dict) -> dict:
+        request_path = self.state / ".owner-dispatcher-adoption.json"
+        descriptor = os.open(
+            request_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                descriptor = -1
+                json.dump(request, handle, sort_keys=True, separators=(",", ":"))
+                handle.write("\n")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(BRIDGE),
+                    "--cli",
+                    str(self.cli),
+                    "--state-dir",
+                    str(self.state),
+                    "record-dispatcher-adoption",
+                    "--request",
+                    str(request_path),
+                ],
+                text=True,
+                capture_output=True,
+                env=self.env,
+                check=False,
+            )
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            request_path.unlink(missing_ok=True)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        return json.loads(completed.stdout)
+
     def test_doctor_and_prepare_launch_use_typed_private_surface(self) -> None:
-        doctor = self.call("pm_proxy_doctor", self.common(), include_meta=True)
+        doctor = self.call(
+            "pm_proxy_doctor",
+            {"state_dir": str(self.state)},
+            include_meta=True,
+        )
         tool_result = doctor["result"]
         self.assertIsNot(tool_result.get("isError"), True)
         self.assertEqual("1.3", tool_result["structuredContent"]["result"]["schema_version"])
+        pin = tool_result["structuredContent"]["result"]["runtime_pin"]
+        self.assertTrue(pin["configured"])
+        self.assertTrue(pin["verified"])
         status = self.call("pm_proxy_status", self.common())
         self.assertIsNot(status["result"].get("isError"), True, status)
         plugin_version = json.loads(
@@ -142,17 +204,22 @@ class McpServerTest(unittest.TestCase):
             },
             "now": iso(),
         }
-        adopted = self.call(
-            "pm_proxy_record_dispatcher_adoption",
-            {**self.common(), "request": adoption_request},
-        )
-        self.assertIsNot(adopted["result"].get("isError"), True, adopted)
+        self.record_owner_adoption(adoption_request)
         current = self.call("pm_proxy_status", self.common())
         lifecycle = current["result"]["structuredContent"]["result"][
             "lifecycle_watchdog"
         ]
         self.assertTrue(lifecycle["covered_path_dispatcher_enforcement"])
         self.assertFalse(lifecycle["platform_dispatcher_enforcement"])
+        safety = current["result"]["structuredContent"]["result"][
+            "operational_safety"
+        ]
+        self.assertTrue(safety["runtime_pin_verified"])
+        self.assertTrue(safety["automatic_launch_refill_allowed"])
+        self.assertTrue(safety["covered_path_automatic_launch_refill_allowed"])
+        self.assertFalse(safety["unattended_automatic_launch_refill_allowed"])
+        self.assertEqual("COVERED_PATH_ONLY", safety["automatic_launch_refill_scope"])
+        self.assertFalse(safety["universal_dispatcher_enforcement"])
 
         launch = launch_request(task_id="avatar-rig")
         launch["target"]["repo_root"] = str(self.target)
@@ -217,6 +284,141 @@ class McpServerTest(unittest.TestCase):
         )
         self.assertEqual("EXPIRED", expired_task["freshness"]["state"])
 
+    def test_runtime_pin_rejects_mismatch_and_bundle_drift(self) -> None:
+        mismatched = self.call(
+            "pm_proxy_doctor",
+            {
+                "project_root": str(self.target),
+                "state_dir": str(self.state),
+            },
+        )["result"]
+        self.assertTrue(mismatched["isError"])
+        self.assertEqual(
+            "runtime-project-root-mismatch",
+            mismatched["structuredContent"]["error"]["code"],
+        )
+
+        pin = json.loads(self.pin_path.read_text(encoding="utf-8"))
+        pin["runtime_sha256"] = "0" * 64
+        self.pin_path.write_text(
+            json.dumps(pin, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        drifted = self.call(
+            "pm_proxy_doctor", {"state_dir": str(self.state)}
+        )["result"]
+        self.assertTrue(drifted["isError"])
+        self.assertEqual(
+            "runtime-pin-drift",
+            drifted["structuredContent"]["error"]["code"],
+        )
+
+    def test_runtime_pin_permissions_fail_closed(self) -> None:
+        os.chmod(self.pin_path, 0o644)
+        denied = self.call(
+            "pm_proxy_doctor", {"state_dir": str(self.state)}
+        )["result"]
+        self.assertTrue(denied["isError"])
+        self.assertEqual(
+            "runtime-pin-not-private",
+            denied["structuredContent"]["error"]["code"],
+        )
+
+    def test_runtime_pin_malformed_json_has_bounded_error(self) -> None:
+        self.pin_path.write_text("{\"pin_version\":", encoding="utf-8")
+        denied = self.call(
+            "pm_proxy_doctor", {"state_dir": str(self.state)}
+        )["result"]
+        self.assertTrue(denied["isError"])
+        self.assertEqual(
+            "runtime-pin-invalid",
+            denied["structuredContent"]["error"]["code"],
+        )
+
+    def test_dispatcher_adoption_is_not_an_mcp_self_approval_tool(self) -> None:
+        denied = self.call(
+            "pm_proxy_record_dispatcher_adoption",
+            {**self.common(), "request": {}},
+        )
+        self.assertEqual("unknown-tool", denied["error"]["message"])
+
+    def test_unpinned_bootstrap_is_read_only_and_cannot_launch(self) -> None:
+        self.pin_path.unlink()
+        doctor = self.call("pm_proxy_doctor", self.common())["result"]
+        self.assertIsNot(doctor.get("isError"), True, doctor)
+        pin = doctor["structuredContent"]["result"]["runtime_pin"]
+        self.assertFalse(pin["configured"])
+        launch = launch_request(task_id="unpinned")
+        launch["target"]["repo_root"] = str(self.target)
+        launch["target"]["remote"] = "https://github.com/example/project.git"
+        launch["context"]["repo"] = "github.com/example/project"
+        denied = self.call(
+            "pm_proxy_prepare_launch",
+            {
+                **self.common(),
+                "ticket_id": "unpinned",
+                "recycle_request": recycle_request(request_id="unpinned-recycle"),
+                "launch_request": launch,
+            },
+        )["result"]
+        self.assertTrue(denied["isError"])
+        self.assertEqual(
+            "runtime-pin-required",
+            denied["structuredContent"]["error"]["code"],
+        )
+        self.assertFalse((self.state / "unpinned.ticket.json").exists())
+
+    def test_pinned_runtime_still_requires_current_dispatcher_adoption(self) -> None:
+        status = self.call("pm_proxy_status", self.common())["result"]
+        safety = status["structuredContent"]["result"]["operational_safety"]
+        self.assertTrue(safety["runtime_pin_verified"])
+        self.assertFalse(safety["automatic_launch_refill_allowed"])
+        self.assertFalse(safety["covered_path_automatic_launch_refill_allowed"])
+        self.assertFalse(safety["unattended_automatic_launch_refill_allowed"])
+        self.assertEqual("DISABLED", safety["automatic_launch_refill_scope"])
+        launch = launch_request(task_id="unadopted")
+        launch["target"]["repo_root"] = str(self.target)
+        launch["target"]["remote"] = "https://github.com/example/project.git"
+        launch["context"]["repo"] = "github.com/example/project"
+        denied = self.call(
+            "pm_proxy_prepare_launch",
+            {
+                **self.common(),
+                "ticket_id": "unadopted",
+                "recycle_request": recycle_request(request_id="unadopted-recycle"),
+                "launch_request": launch,
+            },
+        )["result"]
+        self.assertTrue(denied["isError"])
+        self.assertEqual(
+            "dispatcher-adoption-required",
+            denied["structuredContent"]["error"]["code"],
+        )
+        self.assertFalse((self.state / "unadopted.ticket.json").exists())
+        for name, extra in (
+            ("pm_proxy_watchdog_refill", {}),
+            (
+                "pm_proxy_close_and_refill",
+                {
+                    "predecessor_ticket_id": "missing-predecessor",
+                    "handback_request": {},
+                },
+            ),
+        ):
+            blocked = self.call(
+                name,
+                {
+                    **self.common(),
+                    "refill_request": refill_request(),
+                    **extra,
+                },
+            )["result"]
+            self.assertTrue(blocked["isError"])
+            self.assertEqual(
+                "dispatcher-adoption-required",
+                blocked["structuredContent"]["error"]["code"],
+            )
+
     def test_state_escape_and_unknown_fields_fail_closed(self) -> None:
         outside = self.root / "outside"
         outside.mkdir(mode=0o700)
@@ -228,6 +430,18 @@ class McpServerTest(unittest.TestCase):
         self.assertEqual(
             "state-dir-outside-private-root",
             escaped["structuredContent"]["error"]["code"],
+        )
+
+        state_alias = self.state.parent / "state-alias"
+        state_alias.symlink_to(self.state, target_is_directory=True)
+        aliased = self.call(
+            "pm_proxy_doctor",
+            {"project_root": str(self.project), "state_dir": str(state_alias)},
+        )["result"]
+        self.assertTrue(aliased["isError"])
+        self.assertEqual(
+            "state-dir-symlink",
+            aliased["structuredContent"]["error"]["code"],
         )
 
         os.chmod(self.state.parent, 0o755)

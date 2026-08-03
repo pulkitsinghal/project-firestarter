@@ -50,6 +50,12 @@ and rewritten on the next safe mutation only when no receipt would be
 fabricated. A ticket must never contain or hash the prompt. Firestarter's
 SQLite ledger and current fence remain authoritative.
 
+MCP automatic-control operations additionally require a mode-`0600` runtime
+pin beneath the private state root. The pin binds the exact Firestarter control
+CLI, version, schemas, root-role guard, and runtime verifier by content digest.
+Doctor/status and expired-lease repair remain available for bootstrap, but an
+unconfigured, mismatched, wrong-version, or drifted pin cannot launch/refill.
+
 The visible task prompt must be the exact `prompt` returned by `prepare-launch`.
 The prompt is ephemeral and must not be copied into logs, tickets, dashboards,
 or handbacks.
@@ -68,6 +74,9 @@ Response validation intentionally fails on:
 - schema 1.2 without its duration and root-role schemas or guard script;
 - schema 1.3 without its lifecycle-watchdog schemas;
 - missing, drifted, API-key, unattested, or contradictory runtime attestation;
+- a launch/refill request without both a verified runtime pin and a matching
+  current-version covered-path dispatcher adoption;
+- any attempt by the MCP orchestrator to self-record dispatcher adoption;
 - a direct terminal handback that bypasses `close-and-refill`.
 
 ## Closure/refill extension

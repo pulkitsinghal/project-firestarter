@@ -19,6 +19,21 @@ The installed manifest must declare `"mcpServers": "./.mcp.json"`; retaining
 the default `hooks/hooks.json` without that pointer or either referenced hook
 adapter is an invalid partial installation.
 
+Before any launch/refill operation, use the installed plugin's owner-operated
+bootstrap command to pin one clean compatible Firestarter worktree:
+
+```bash
+python3 scripts/configure_runtime_pin.py \
+  --project-root /absolute/clean/firestarter-runtime
+```
+
+The command writes mode `0600`
+`~/.codex/orchestrator-state/runtime-pin.json`. The pin covers the control CLI,
+version, every schema, root-role guard, and runtime verifier. It contains no
+credential, prompt, task, or private-record data. Subsequent typed MCP calls may
+omit `project_root`; an explicit different path or any content drift fails
+closed before the control CLI runs.
+
 Use a hook-untrusted bootstrap task for discovery. Before trusting the hook or
 assigning `ROOT_ORCHESTRATOR_ROLE=trusted-project-hook`, confirm that the exact
 installed version exposes `pm_proxy_verify_runtime`, `pm_proxy_doctor`,
@@ -36,7 +51,7 @@ Treat these as separate gates:
 1. source validation and hashes;
 2. repository marketplace inclusion;
 3. plugin installation/adoption;
-4. typed MCP discovery plus exact trusted project-hook adoption;
+4. typed MCP discovery plus exact runtime pin and trusted project-hook adoption;
 5. dispatcher integration that routes every protected tool through the guard;
 6. a real host denial/create/receipt/lifecycle/archive test proving the covered
    underlying calls and fences behave exactly as claimed.
@@ -44,6 +59,8 @@ Treat these as separate gates:
 Keep root-role enforcement inactive during gates 1-3. Source and Docker tests
 must include adversarial held-lock, stale-ledger, archive-replay, malformed
 state, and missing-component cases before any candidate is installed on a host.
+Launch, close/refill, and watchdog-refill remain disabled until both the pin and
+a current-version covered-path adoption receipt exist.
 
 Passing an earlier gate does not prove a later one. This artifact performs no
 personal installation or live configuration mutation.
@@ -69,6 +86,12 @@ plugin-creator `update_plugin_cachebuster.py` helper for iterative local
 reinstalls rather than editing marketplace JSON by hand. Reinstall from the
 configured local marketplace name, then test in a new task.
 
+Every plugin version change invalidates the prior runtime pin and dispatcher
+adoption for automatic-control readiness. Re-run the pin command against the
+same reviewed clean runtime, repeat the live covered-path proof, and record a
+new adoption receipt carrying the installed version. Doctor/status and exact
+expired-lease repair remain available while automatic launch/refill is denied.
+
 For a Firestarter adoption, sync a new isolated branch from the then-current
 `master`, reapply the narrow overlay, regenerate hashes, run Firestarter's full
 all-stack contract, and open a normal PR. The included ac608 patch is retained
@@ -79,6 +102,8 @@ as historical review evidence only; do not apply it to newer source.
 Retain the prior verified source archive and hashes until the new plugin passes
 task-level smoke tests. To roll back, restore the prior extracted source tree,
 reinstall the same plugin name from the configured local marketplace, and start
-a new task. Do not roll back or replace the Firestarter SQLite state database.
+a new task. Recreate the runtime pin with that restored plugin version; never
+copy or relax a mismatched pin. Do not roll back or replace the Firestarter
+SQLite state database.
 If a new schema migration occurred, stop and follow the matching Firestarter
 rollback procedure instead of copying an older database over it.

@@ -67,7 +67,6 @@ ROOT_CONTROL_PLANE_MCP_ALLOW = {
     "mcp__pm_proxy_orchestrator__pm_proxy_lifecycle_watchdog",
     "mcp__pm_proxy_orchestrator__pm_proxy_prepare_launch",
     "mcp__pm_proxy_orchestrator__pm_proxy_record_archive_receipt",
-    "mcp__pm_proxy_orchestrator__pm_proxy_record_dispatcher_adoption",
     "mcp__pm_proxy_orchestrator__pm_proxy_record_launch_receipt",
     "mcp__pm_proxy_orchestrator__pm_proxy_record_refill_receipt",
     "mcp__pm_proxy_orchestrator__pm_proxy_reconcile_expired_lease",
