@@ -1,6 +1,6 @@
 # PM Proxy Orchestrator
 
-Version `0.3.3` is a source-only agent-CLI plugin for Firestarter control-plane
+Version `0.3.4` is a source-only agent-CLI plugin for Firestarter control-plane
 interface `1.0`. It makes task reservation, policy receipts, approval routing,
 fenced handback, successor creation, and queue recycling operational without
 installing anything globally.
@@ -19,6 +19,14 @@ lifecycle-watchdog call after each covered read/wait before another status or
 lifecycle action. Hosted paths, opt-outs, reauthorization gaps, and universal
 non-spoofable caller identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
+
+Version `0.3.4` also includes an opt-in Desktop app-server proxy. An
+owner-selected exact task ID is attested as root through a private local socket;
+other task IDs remain workers, so visible workers do not inherit a process-wide
+root role. The adapter requires current pin/doctor state and a fresh native-hook
+marker-denial proof, launches with an isolated Electron data directory, changes
+no global Codex configuration, and keeps the normal Desktop app as the recovery
+path. See `docs/DESKTOP_HOST_ADAPTER.md`.
 
 Bridge/ticket `1.3` accepts control schema `1.3`, requires the exact root and
 worker runtime policy plus a truthful launch attestation before receipt, and

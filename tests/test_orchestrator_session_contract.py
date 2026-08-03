@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import subprocess
 import sys
 import tempfile
@@ -74,10 +75,13 @@ REQUIRED_FILES = {
     ".agents/plugins/marketplace.json",
     "plugins/pm-proxy-orchestrator/.mcp.json",
     "plugins/pm-proxy-orchestrator/.codex-plugin/plugin.json",
+    "plugins/pm-proxy-orchestrator/docs/DESKTOP_HOST_ADAPTER.md",
     "plugins/pm-proxy-orchestrator/hooks/hooks.json",
+    "plugins/pm-proxy-orchestrator/hooks/host_attestation.py",
     "plugins/pm-proxy-orchestrator/hooks/post_tool_use_lifecycle.py",
     "plugins/pm-proxy-orchestrator/hooks/pre_tool_use_root_guard.py",
     "plugins/pm-proxy-orchestrator/scripts/configure_runtime_pin.py",
+    "plugins/pm-proxy-orchestrator/scripts/desktop_host_adapter.py",
     "plugins/pm-proxy-orchestrator/scripts/mcp_server.py",
     "plugins/pm-proxy-orchestrator/skills/pm-proxy-orchestrator/SKILL.md",
     "plugins/pm-proxy-orchestrator/skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py",
@@ -265,7 +269,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         self.assertEqual(entry["name"], manifest["name"])
         self.assertRegex(
             manifest["version"],
-            r"^0\.3\.3(?:\+codex\.\d{14})?$",
+            r"^0\.3\.4(?:\+codex\.\d{14})?$",
         )
         self.assertEqual("./skills/", manifest["skills"])
         self.assertEqual("./.mcp.json", manifest["mcpServers"])
@@ -304,7 +308,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         canonical_bytes = CANONICAL_BILL.read_bytes()
         canonical_text = canonical_bytes.decode("utf-8")
         self.assertEqual(
-            "1.3.3",
+            "1.3.4",
             (ADDON / "orchestrator-control" / "VERSION")
             .read_text(encoding="utf-8")
             .strip(),
@@ -355,6 +359,15 @@ class OrchestratorSessionContractTests(unittest.TestCase):
                     self.assertTrue(
                         REQUIRED_FILES <= stamped,
                         f"{stack} missing {sorted(REQUIRED_FILES - stamped)}",
+                    )
+                    adapter_mode = (
+                        output
+                        / "plugins/pm-proxy-orchestrator/scripts/desktop_host_adapter.py"
+                    ).stat().st_mode
+                    self.assertTrue(
+                        adapter_mode
+                        & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH),
+                        f"{stack} stamped a non-executable Desktop host adapter",
                     )
                     self.assertEqual(
                         canonical_bytes,

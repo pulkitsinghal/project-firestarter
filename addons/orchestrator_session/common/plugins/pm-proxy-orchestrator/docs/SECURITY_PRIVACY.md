@@ -36,6 +36,17 @@ installation, but it is not universal and has no non-spoofable root identity.
 Installation, active hook trust, covered-path runtime proof, and platform
 adoption must be proved separately.
 
+The Desktop host adapter never exports a root role to the Desktop parent or to
+the real app-server. It requires the reported local plugin source and exact
+versioned Codex cache to match in content and executable status, passes a private
+launch capability only to its proxy, validates exact content hashes and expiry,
+strips that capability before the real app-server starts, and supplies only a
+local attestation socket. The socket
+answers `ROOT` for one owner-selected exact task ID and `WORKER` for other task
+IDs. Socket loss, invalid replies, disarm, and expiry fail closed within the
+isolated host. This does not establish universal or OS-adversarial identity;
+the ordinary Desktop app remains an unchanged recovery path.
+
 The hook path treats availability failures as adversarial inputs. It never
 waits indefinitely for an admission or lifecycle lock, refuses symlinked or
 non-private lock files, records observation debt before dispatch, and keeps the

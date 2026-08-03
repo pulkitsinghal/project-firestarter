@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.3.4 - 2026-08-03
+
+- Add an opt-in Codex Desktop app-server proxy that binds root enforcement to
+  one exact owner-selected thread ID instead of exporting a process-wide root
+  role to root and worker tasks alike.
+- Route native pre/post hook identity checks through an owner-private local
+  attestation socket; exact root calls retain the existing guard, other thread
+  IDs remain workers, and adapter loss fails closed inside only the isolated
+  ORC desktop host.
+- Require a fresh no-side-effect live hook proof, current runtime pin, exact
+  typed MCP surface, content hashes, private state, and a capability-bound
+  session before launch. Strip the launch capability before the real app-server
+  starts and reject all non-app-server use of the adapter.
+- Keep the normal desktop app and global Codex configuration unchanged. The
+  bounded stop path disarms before signaling exact recorded processes and never
+  force-kills or searches by process name.
+- Require the enabled plugin's reported local source and exact versioned cache
+  to match byte-for-byte with identical executable status, and preserve the
+  adapter's executable bit in every generated stack.
+
 ## 0.3.3 - 2026-08-02
 
 - Add an owner-private, content-addressed Firestarter runtime pin covering the

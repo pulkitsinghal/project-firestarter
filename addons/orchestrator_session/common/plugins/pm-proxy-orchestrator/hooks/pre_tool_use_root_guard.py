@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from host_attestation import HostAttestationError, configured, resolve
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - supported orchestrator hosts are POSIX
@@ -452,7 +454,15 @@ def main() -> int:
         return 0
     role = os.environ.get("ROOT_ORCHESTRATOR_ROLE", "").strip().lower()
     if role not in ROOT_TRUE:
-        return 0
+        if not configured():
+            return 0
+        try:
+            host_role = resolve(event)
+        except HostAttestationError as exc:
+            print(json.dumps(deny(str(exc))))
+            return 0
+        if host_role != "ROOT":
+            return 0
     tool_name = event.get("tool_name")
     if not isinstance(tool_name, str) or not tool_name:
         print(json.dumps(deny("ROOT_GUARD_TOOL_ID_MISSING")))
