@@ -1,6 +1,6 @@
 # Codex Desktop host adapter
 
-Version `0.3.4` includes an opt-in desktop host adapter for one exact root task.
+Version `0.3.5` includes an opt-in desktop host adapter for one exact root task.
 It does not export `ROOT_ORCHESTRATOR_ROLE` to the normal desktop process and it
 does not infer root identity from a prompt, working directory, project, or
 model-visible field.
@@ -17,6 +17,23 @@ socket. The native pre/post hooks query that socket for every task:
   this isolated host;
 - the ordinary Desktop app remains unmodified and available for recovery.
 
+The repository launcher invokes the actual Desktop executable directly and
+places `--user-data-dir=<private instance>/electron-data` on its command line.
+This happens before Electron's macOS single-instance decision; the environment
+value alone is not treated as isolation proof. No owner-local wrapper or shim is
+needed. Launch succeeds only after the exact recorded Desktop PID is observed
+with that full switch and the exact proxy and real app-server PIDs are observed.
+
+For the exact bound root task, the proxy adds Codex's supported per-tool
+`approval_mode="approve"` setting to only these typed MCP controls: `doctor`,
+`status`, runtime verification, `prepare-launch`, launch receipt, heartbeat,
+lifecycle watchdog, close/refill, archive and refill receipts, slot status, and
+watchdog refill. It does not change the user's global approval policy or plugin
+configuration. The native hook denies that prompt-free set for every other task
+ID in the isolated host. Expired-lease reconciliation remains outside the grant,
+as do task creation itself and all shell, file, browser, Sites, credential,
+destructive, owner-gated, production, and external tools.
+
 This is still `COVERED_PATH_GUARDRAIL`, not universal enforcement. A worker can
 share the same OS account, and hosted or specialized tools may bypass native
 hooks. The live adoption test must continue to mark those paths uncovered.
@@ -31,11 +48,20 @@ Before launch, `verify` requires all of the following:
    real Codex CLI are regular non-symlink files with safe ownership and
    permissions;
 2. the exact typed MCP registry is present;
-3. direct `pm_proxy_doctor` succeeds against the intended owner-private state;
+3. direct `pm_proxy_doctor` and `pm_proxy_status` succeed against the intended
+   owner-private state;
 4. the current plugin's runtime pin verifies;
 5. a real ephemeral Codex call attempts a synthetic marker write, the native
    hook returns `ROOT_ORCHESTRATOR_TASK_DOMAIN_DENIED:Bash`, and the marker is
    absent.
+
+Doctor/status also inspect the latest dispatcher adoption. The prompt-free
+grant is enabled only when that adoption is for the exact plugin version,
+retains every covered-path/fence proof, and still states that hosted and
+universal paths are uncovered. The exact tool list and adoption receipt are
+then content-bound into the private proof and session. Missing, stale, or
+non-current adoption does not receive a partial grant: the adapter can launch a
+prompted bootstrap/canary host, but injects no approval overrides.
 
 The resulting proof is content-bound and valid for 15 minutes. Launch repeats
 the local checks and refuses a stale or mismatched proof. A host session expires
@@ -51,7 +77,7 @@ non-secret instance ID.
 ## Operator workflow
 
 Run these commands from an owner-controlled terminal, outside an enforced root
-task. First install the complete `0.3.4` plugin, recreate the runtime pin for the
+task. First install the complete `0.3.5` plugin, recreate the runtime pin for the
 reviewed clean Firestarter runtime, and run doctor. Keep any global
 `ROOT_ORCHESTRATOR_ROLE` export unset.
 
@@ -87,15 +113,29 @@ root_task_id=019f-example-root-task
   --desktop-executable /Applications/ChatGPT.app/Contents/MacOS/ChatGPT
 ```
 
+Pass the real Desktop executable above, not a launcher shim. The adapter adds
+the isolated `--user-data-dir` argument itself. The private session path and
+capability token remain environment-only and are removed before the real
+app-server starts; neither is placed on the Desktop command line.
+
 Open or resume only the exact bound root task in that isolated window. Visible
 worker tasks can run through the same host because their distinct task IDs are
-attested as workers rather than inheriting the root role.
+attested as workers rather than inheriting the root role. Their ordinary
+task-domain permissions are unchanged, but they cannot use the root's
+prompt-free PM-proxy control surface.
 
 Immediately run the disposable closed-path canary. Prove exact root denial and
 zero side effect, one worker task-domain allowance, one reserved create with an
 exact receipt, lifecycle debt and watchdog clearing, refill fencing, and exact
 archive admission. Do not record adoption if any step fails. Do not claim
 hosted, unattended, platform-wide, or universal coverage.
+
+If this was the prompted bootstrap for a new plugin version, record adoption
+through the owner-operated fixed bridge only after the canary passes. Then stop
+that isolated host with its matching adapter, run `verify` again, and relaunch.
+`verify`, `launch`, and `status` must report
+`prompt_free_control_grant_verified=true` before the repeated typed MCP prompts
+are considered fixed. Never edit the session or transplant an adoption receipt.
 
 ## Status and recovery
 
@@ -106,8 +146,10 @@ Status reads only the private adapter session:
 ```
 
 The normal recovery path disarms first, signals only the exact recorded Desktop,
-proxy, and real app-server PIDs after checking their commands, waits for a
-bounded interval, and never uses a process-name sweep or force kill:
+proxy, and real app-server PIDs after checking their commands. The Desktop PID
+must match both the actual executable and the full private `--user-data-dir`
+argument, so the ordinary Desktop process is not a candidate. Shutdown waits for
+a bounded interval and never uses a process-name sweep or force kill:
 
 ```bash
 "$orc_adapter" stop --instance-dir "$orc_instance"
@@ -117,3 +159,8 @@ If status remains `STOPPING`, close only the isolated ORC Desktop window. The
 ordinary Desktop app was never reconfigured and remains the fallback. Retain
 the private instance directory for inspection until the failed canary or host
 shutdown is understood; removing it is a separate owner decision.
+
+Version `0.3.5` session records use schema `1.2`. Stop an active `0.3.4` host
+with its matching `0.3.4` adapter before replacing that installed source. A
+rollback restores the prior complete plugin version, pin, and adoption proof;
+it never copies a session token or edits an old session record into compatibility.

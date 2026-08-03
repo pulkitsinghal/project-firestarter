@@ -41,11 +41,24 @@ the real app-server. It requires the reported local plugin source and exact
 versioned Codex cache to match in content and executable status, passes a private
 launch capability only to its proxy, validates exact content hashes and expiry,
 strips that capability before the real app-server starts, and supplies only a
-local attestation socket. The socket
+local attestation socket. The repository launcher puts only the private Electron
+data directory on Desktop's command line; the capability token and session path
+remain environment-only. Startup and shutdown observation require the exact
+Desktop PID, executable, and complete isolation switch, so the normal Desktop
+process does not qualify as a target. The socket
 answers `ROOT` for one owner-selected exact task ID and `WORKER` for other task
 IDs. Socket loss, invalid replies, disarm, and expiry fail closed within the
 isolated host. This does not establish universal or OS-adversarial identity;
 the ordinary Desktop app remains an unchanged recovery path.
+
+The isolated proxy adds no blanket `approval_policy` change. It injects only
+per-tool `approval_mode="approve"` entries for the fixed typed ORC mechanics
+after an exact-version covered-path adoption, all receipt/fence proofs, and the
+runtime pin are verified and content-bound. The hook denies those entries to
+attested workers sharing the host. Unknown or future MCP tools, expired-lease
+reconciliation, shell, file, browser, Sites, unreserved task creation,
+credentials, destructive actions, owner gates, and platform-wide enforcement
+do not inherit the grant.
 
 The hook path treats availability failures as adversarial inputs. It never
 waits indefinitely for an admission or lifecycle lock, refuses symlinked or

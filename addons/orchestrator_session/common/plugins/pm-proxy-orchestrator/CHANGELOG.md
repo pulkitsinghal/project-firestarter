@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.3.5 - 2026-08-03
+
+- Pass the private Electron data directory as an explicit Desktop command-line
+  switch before macOS single-instance selection, removing the need for an
+  owner-local launcher shim while retaining the environment value for Desktop's
+  application-level configuration.
+- Record and observe the exact isolation switch together with the Desktop,
+  proxy, and app-server PIDs. Missing or prefix-colliding isolation, absent proxy
+  observation, invalid private state, and startup/log failures disarm the host
+  before returning an error.
+- Keep the adapter session and launch capability in owner-only files and the
+  parent environment, strip them before the real app-server, and use the exact
+  `Popen` child handle for failed-start termination. Normal Desktop processes do
+  not carry the private isolation switch and are never shutdown targets.
+- Bind a prompt-free Desktop grant to the current-version covered-path adoption,
+  verified runtime pin, private host proof, exact root task, and twelve named
+  typed control-plane tools. The isolated app-server receives only per-tool
+  `approval_mode="approve"` overrides; attested workers are denied those tools,
+  expired-lease reconciliation still prompts, and shell, file, browser, Sites,
+  credentials, destructive, owner-gated, and universal paths remain outside the
+  grant.
+
 ## 0.3.4 - 2026-08-03
 
 - Add an opt-in Codex Desktop app-server proxy that binds root enforcement to

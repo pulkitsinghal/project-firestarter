@@ -20,7 +20,7 @@ from typing import Any
 
 
 HOST_SOCKET_ENV = "ORC_DESKTOP_HOST_SOCKET"
-INTERFACE_VERSION = "1.0"
+INTERFACE_VERSION = "1.1"
 MAX_MESSAGE_BYTES = 4096
 SOCKET_TIMEOUT_SECONDS = 0.25
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -82,12 +82,12 @@ def configured() -> bool:
     return bool(os.environ.get(HOST_SOCKET_ENV, "").strip())
 
 
-def resolve(event: dict[str, Any]) -> str:
-    """Return ``ROOT`` or ``WORKER`` for one exact native hook event."""
+def resolve_attestation(event: dict[str, Any]) -> dict[str, str]:
+    """Return the exact host role and bounded control-grant classification."""
 
     raw_path = os.environ.get(HOST_SOCKET_ENV, "").strip()
     if not raw_path:
-        return "INACTIVE"
+        return {"decision": "INACTIVE", "control_grant": "PROMPTED"}
     session_id = event.get("session_id")
     hook_event_name = event.get("hook_event_name")
     if (
@@ -128,6 +128,7 @@ def resolve(event: dict[str, Any]) -> str:
         raise HostAttestationError("ROOT_HOST_ATTESTATION_INVALID")
     payload = _strict_json(bytes(response).split(b"\n", 1)[0])
     if set(payload) != {
+        "control_grant",
         "decision",
         "instance_id",
         "interface_version",
@@ -136,14 +137,22 @@ def resolve(event: dict[str, Any]) -> str:
     }:
         raise HostAttestationError("ROOT_HOST_ATTESTATION_INVALID")
     decision = payload.get("decision")
+    control_grant = payload.get("control_grant")
     instance_id = payload.get("instance_id")
     if (
         payload.get("interface_version") != INTERFACE_VERSION
         or payload.get("nonce") != nonce
         or payload.get("session_id") != session_id
         or decision not in {"ROOT", "WORKER"}
+        or control_grant not in {"PROMPT_FREE", "PROMPTED"}
         or not isinstance(instance_id, str)
         or OPAQUE.fullmatch(instance_id) is None
     ):
         raise HostAttestationError("ROOT_HOST_ATTESTATION_INVALID")
-    return decision
+    return {"decision": decision, "control_grant": control_grant}
+
+
+def resolve(event: dict[str, Any]) -> str:
+    """Return ``ROOT`` or ``WORKER`` for one exact native hook event."""
+
+    return resolve_attestation(event)["decision"]
