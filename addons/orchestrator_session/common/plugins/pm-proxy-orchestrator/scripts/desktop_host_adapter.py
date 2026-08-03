@@ -40,9 +40,9 @@ PRE_HOOK = PLUGIN_ROOT / "hooks" / "pre_tool_use_root_guard.py"
 POST_HOOK = PLUGIN_ROOT / "hooks" / "post_tool_use_lifecycle.py"
 HOST_ATTESTATION = PLUGIN_ROOT / "hooks" / "host_attestation.py"
 HOOKS_MANIFEST = PLUGIN_ROOT / "hooks" / "hooks.json"
-INTERFACE_VERSION = "1.0"
+INTERFACE_VERSION = "1.1"
 PROOF_VERSION = "1.0"
-SESSION_VERSION = "1.0"
+SESSION_VERSION = "1.2"
 PROOF_TTL_SECONDS = 15 * 60
 SESSION_TTL_SECONDS = 12 * 60 * 60
 MAX_JSON_BYTES = 2_000_000
@@ -50,6 +50,9 @@ MAX_ATTESTATION_BYTES = 4096
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 NONCE = re.compile(r"^[0-9a-f]{32}$")
 UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+PLUGIN_ID = "pm-proxy-orchestrator@project-firestarter"
+MCP_SERVER_ID = "pm-proxy-orchestrator"
 REQUIRED_TOOLS = {
     "pm_proxy_close_and_refill",
     "pm_proxy_doctor",
@@ -64,6 +67,29 @@ REQUIRED_TOOLS = {
     "pm_proxy_status",
     "pm_proxy_verify_runtime",
     "pm_proxy_watchdog_refill",
+}
+PROMPT_FREE_CONTROL_TOOLS = (
+    "pm_proxy_close_and_refill",
+    "pm_proxy_doctor",
+    "pm_proxy_heartbeat",
+    "pm_proxy_lifecycle_watchdog",
+    "pm_proxy_prepare_launch",
+    "pm_proxy_record_archive_receipt",
+    "pm_proxy_record_launch_receipt",
+    "pm_proxy_record_refill_receipt",
+    "pm_proxy_slot_status",
+    "pm_proxy_status",
+    "pm_proxy_verify_runtime",
+    "pm_proxy_watchdog_refill",
+)
+ADOPTION_REQUIRED_TRUE = {
+    "archive_refill_fence_verified",
+    "hosted_paths_uncovered",
+    "lifecycle_debt_clear_verified",
+    "no_side_effect_canary_verified",
+    "pre_tool_denial_verified",
+    "reserved_create_admission_verified",
+    "typed_mcp_control_verified",
 }
 DENIAL_MARKER = "ROOT_ORCHESTRATOR_TASK_DOMAIN_DENIED:Bash"
 SESSION_ENV = "ORC_DESKTOP_HOST_SESSION"
@@ -81,6 +107,7 @@ ADAPTER_ENV_VARS = {
     "CODEX_APP_SERVER_FORCE_CLI",
     "CODEX_ELECTRON_USER_DATA_PATH",
 }
+USER_DATA_SWITCH = "--user-data-dir="
 
 
 class AdapterError(RuntimeError):
@@ -407,7 +434,45 @@ def installed_plugin(codex_cli: Path, expected_version: str) -> None:
         raise AdapterError("installed-plugin-cache-mismatch")
 
 
+def approval_grant_arguments() -> list[str]:
+    """Return only exact per-tool overrides for the isolated ORC app-server."""
+
+    result: list[str] = []
+    for tool in PROMPT_FREE_CONTROL_TOOLS:
+        key = (
+            f'plugins."{PLUGIN_ID}".mcp_servers."{MCP_SERVER_ID}".'
+            f'tools."{tool}".approval_mode="approve"'
+        )
+        result.extend(("-c", key))
+    return result
+
+
+def approval_grant_digest() -> str:
+    encoded = json.dumps(
+        approval_grant_arguments(), separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def isolated_app_server_arguments(
+    arguments: list[str], *, grant_enabled: bool = True
+) -> list[str]:
+    """Place the exact grant after host config and before the app-server verb."""
+
+    if not app_server_argv(arguments):
+        raise AdapterError("only-foreground-app-server-is-allowed")
+    if not grant_enabled:
+        return list(arguments)
+    index = arguments.index("app-server")
+    return [
+        *arguments[:index],
+        *approval_grant_arguments(),
+        *arguments[index:],
+    ]
+
+
 def mcp_doctor(state_dir: Path) -> tuple[str, dict[str, Any]]:
+    state_dir = existing_private_dir(state_dir)
     secure_file(MCP_SERVER)
     messages = [
         {"jsonrpc": "2.0", "id": "initialize", "method": "initialize", "params": {}},
@@ -418,6 +483,15 @@ def mcp_doctor(state_dir: Path) -> tuple[str, dict[str, Any]]:
             "method": "tools/call",
             "params": {
                 "name": "pm_proxy_doctor",
+                "arguments": {"state_dir": str(state_dir)},
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": "status",
+            "method": "tools/call",
+            "params": {
+                "name": "pm_proxy_status",
                 "arguments": {"state_dir": str(state_dir)},
             },
         },
@@ -438,12 +512,12 @@ def mcp_doctor(state_dir: Path) -> tuple[str, dict[str, Any]]:
     if completed.returncode != 0 or completed.stderr:
         raise AdapterError("typed-doctor-failed")
     lines = [line for line in completed.stdout.splitlines() if line.strip()]
-    if len(lines) != 3:
+    if len(lines) != 4:
         raise AdapterError("typed-doctor-invalid")
     responses = [strict_json(line) for line in lines]
     if not all(isinstance(item, dict) for item in responses):
         raise AdapterError("typed-doctor-invalid")
-    initialized, listed, doctor = responses
+    initialized, listed, doctor, status = responses
     server = initialized.get("result", {}).get("serverInfo", {})
     version = server.get("version")
     tools = listed.get("result", {}).get("tools")
@@ -462,7 +536,100 @@ def mcp_doctor(state_dir: Path) -> tuple[str, dict[str, Any]]:
     pin = result.get("runtime_pin") if isinstance(result, dict) else None
     if not isinstance(pin, dict) or pin.get("verified") is not True:
         raise AdapterError("runtime-pin-not-verified")
-    return version, pin
+    status_wrapped = status.get("result", {})
+    status_structured = (
+        status_wrapped.get("structuredContent")
+        if isinstance(status_wrapped, dict)
+        else None
+    )
+    status_result = (
+        status_structured.get("result")
+        if isinstance(status_structured, dict)
+        and status_structured.get("ok") is True
+        else None
+    )
+    lifecycle = (
+        status_result.get("lifecycle_watchdog")
+        if isinstance(status_result, dict)
+        else None
+    )
+    safety = (
+        status_result.get("operational_safety")
+        if isinstance(status_result, dict)
+        else None
+    )
+    if not isinstance(lifecycle, dict) or not isinstance(safety, dict):
+        raise AdapterError("typed-status-invalid")
+    adoption = lifecycle.get("dispatcher_adoption")
+    if adoption is not None and not isinstance(adoption, dict):
+        raise AdapterError("typed-status-invalid")
+    proofs: dict[str, Any] | None = None
+    if isinstance(adoption, dict):
+        exact_keys(
+            adoption,
+            {
+                "adoption_mode",
+                "covered_path_dispatcher_enforcement",
+                "plugin_version",
+                "proofs",
+                "recorded_at",
+                "request_id",
+                "universal_dispatcher_enforcement",
+            },
+            {
+                "adoption_mode",
+                "covered_path_dispatcher_enforcement",
+                "plugin_version",
+                "proofs",
+                "recorded_at",
+                "request_id",
+                "universal_dispatcher_enforcement",
+            },
+        )
+        value = adoption.get("proofs")
+        if not isinstance(value, dict):
+            raise AdapterError("typed-status-invalid")
+        exact_keys(
+            value,
+            ADOPTION_REQUIRED_TRUE | {"universal_coverage_claimed"},
+            ADOPTION_REQUIRED_TRUE | {"universal_coverage_claimed"},
+        )
+        proofs = value
+    safety_required_true = {
+        "automatic_launch_refill_allowed",
+        "covered_path_automatic_launch_refill_allowed",
+        "covered_path_dispatcher_enforcement",
+        "dispatcher_adoption_version_matches",
+        "runtime_pin_verified",
+    }
+    safety_required_false = {
+        "platform_dispatcher_enforcement",
+        "unattended_automatic_launch_refill_allowed",
+        "universal_dispatcher_enforcement",
+    }
+    grant_verified = bool(
+        isinstance(adoption, dict)
+        and isinstance(proofs, dict)
+        and adoption.get("adoption_mode") == "COVERED_PATH_GUARDRAIL"
+        and adoption.get("plugin_version") == version
+        and adoption.get("covered_path_dispatcher_enforcement") is True
+        and adoption.get("universal_dispatcher_enforcement") is False
+        and all(proofs.get(key) is True for key in ADOPTION_REQUIRED_TRUE)
+        and proofs.get("universal_coverage_claimed") is False
+        and all(safety.get(key) is True for key in safety_required_true)
+        and all(safety.get(key) is False for key in safety_required_false)
+        and safety.get("automatic_launch_refill_scope") == "COVERED_PATH_ONLY"
+    )
+    bound_pin = dict(pin)
+    bound_pin["prompt_free_control_grant_verified"] = grant_verified
+    bound_pin["dispatcher_adoption_sha256"] = (
+        hashlib.sha256(
+            json.dumps(adoption, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        if grant_verified
+        else None
+    )
+    return version, bound_pin
 
 
 def live_hook_canary(codex_cli: Path, instance_dir: Path, timeout: int) -> str:
@@ -519,8 +686,12 @@ def proof_material(
         "adapter_sha256": digest(ADAPTER_PATH),
         "codex_cli": str(codex_cli),
         "codex_cli_sha256": digest(codex_cli),
+        "dispatcher_adoption_sha256": pin.get("dispatcher_adoption_sha256"),
         "hook_bundle_sha256": hook_bundle_digest(),
         "plugin_version": version,
+        "prompt_free_control_grant_verified": pin.get(
+            "prompt_free_control_grant_verified"
+        ),
         "runtime_sha256": pin.get("runtime_sha256"),
         "state_dir": str(state_dir),
     }
@@ -556,6 +727,10 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         "result": {
             "proof": "VERIFIED",
             "plugin_version": server_version,
+            "prompt_free_control_grant_verified": pin.get(
+                "prompt_free_control_grant_verified"
+            )
+            is True,
             "runtime_pin_verified": True,
             "valid_until": proof["valid_until"],
         },
@@ -580,8 +755,10 @@ def validate_proof(
             "codex_cli",
             "codex_cli_sha256",
             "denial_reason",
+            "dispatcher_adoption_sha256",
             "hook_bundle_sha256",
             "plugin_version",
+            "prompt_free_control_grant_verified",
             "proof_version",
             "runtime_sha256",
             "state_dir",
@@ -593,8 +770,10 @@ def validate_proof(
             "codex_cli",
             "codex_cli_sha256",
             "denial_reason",
+            "dispatcher_adoption_sha256",
             "hook_bundle_sha256",
             "plugin_version",
+            "prompt_free_control_grant_verified",
             "proof_version",
             "runtime_sha256",
             "state_dir",
@@ -630,24 +809,59 @@ def process_command(pid: Any) -> str | None:
     return value if completed.returncode == 0 and value else None
 
 
+def command_has_argument(command: str, argument: str) -> bool:
+    """Match one exact ps-rendered argument without accepting prefix collisions."""
+
+    if not command or not argument:
+        return False
+    return (
+        command == argument
+        or command.startswith(argument + " ")
+        or command.endswith(" " + argument)
+        or f" {argument} " in command
+    )
+
+
+def process_matches(pid: Any, *arguments: Any) -> bool:
+    if not arguments or any(not isinstance(item, str) or not item for item in arguments):
+        return False
+    command = process_command(pid)
+    return bool(command and all(command_has_argument(command, item) for item in arguments))
+
+
+def desktop_process_matches(session: Mapping[str, Any]) -> bool:
+    return process_matches(
+        session.get("desktop_pid"),
+        session.get("desktop_executable"),
+        session.get("desktop_isolation_argument"),
+    )
+
+
+def desktop_launch_command(
+    desktop: Path, electron_data_dir: Path, project: Path | None = None
+) -> list[str]:
+    """Build the argv that Electron sees before its single-instance decision."""
+
+    command = [str(desktop), f"{USER_DATA_SWITCH}{electron_data_dir}"]
+    if project is not None:
+        command.append(str(project))
+    return command
+
+
 def wait_for_proxy(session_path: Path, timeout: float = 10.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         session = read_private_json(session_path)
-        proxy_command = process_command(session.get("proxy_pid"))
-        app_server_command = process_command(session.get("app_server_pid"))
+        desktop_alive = desktop_process_matches(session)
+        if not desktop_alive:
+            return False
         codex_cli = session.get("codex_cli")
         if (
-            proxy_command
-            and str(ADAPTER_PATH) in proxy_command
-            and app_server_command
+            process_matches(session.get("proxy_pid"), str(ADAPTER_PATH), "app-server")
             and isinstance(codex_cli, str)
-            and codex_cli in app_server_command
-            and "app-server" in app_server_command
+            and process_matches(session.get("app_server_pid"), codex_cli, "app-server")
         ):
             return True
-        if process_command(session.get("desktop_pid")) is None:
-            return False
         time.sleep(0.1)
     return False
 
@@ -684,12 +898,24 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
     if server_version != current_manifest["version"]:
         raise AdapterError("plugin-version-mismatch")
     proof = validate_proof(instance_dir, codex_cli, state_dir, server_version, pin)
-    command = [str(desktop)]
+    adoption_sha256 = pin.get("dispatcher_adoption_sha256")
+    grant_enabled = pin.get("prompt_free_control_grant_verified") is True
+    if grant_enabled and (
+        not isinstance(adoption_sha256, str)
+        or SHA256.fullmatch(adoption_sha256) is None
+    ):
+        raise AdapterError("covered-path-adoption-not-verified")
+    if not grant_enabled and adoption_sha256 is not None:
+        raise AdapterError("covered-path-adoption-not-verified")
+    electron_data_dir = ensure_private_dir(instance_dir / "electron-data")
+    desktop_isolation_argument = f"{USER_DATA_SWITCH}{electron_data_dir}"
+    project: Path | None = None
     if args.project is not None:
         project = Path(args.project)
         if not project.is_absolute() or project.is_symlink() or not project.is_dir():
             raise AdapterError("project-path-invalid")
-        command.append(str(project.resolve(strict=True)))
+        project = project.resolve(strict=True)
+    command = desktop_launch_command(desktop, electron_data_dir, project)
     session_path = instance_dir / "session.json"
     with session_lock(instance_dir):
         if session_path.exists():
@@ -701,6 +927,8 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
         socket_path = short_socket_path(args.instance_id, token)
         session = {
             "adapter_sha256": digest(ADAPTER_PATH),
+            "approval_grant_enabled": grant_enabled,
+            "approval_grant_sha256": approval_grant_digest(),
             "app_server_pid": None,
             "armed": True,
             "codex_cli": str(codex_cli),
@@ -708,7 +936,10 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
             "created_at": iso(now),
             "desktop_executable": str(desktop),
             "desktop_executable_sha256": digest(desktop),
+            "desktop_isolation_argument": desktop_isolation_argument,
             "desktop_pid": None,
+            "dispatcher_adoption_sha256": adoption_sha256,
+            "electron_data_dir": str(electron_data_dir),
             "expires_at": iso(now + dt.timedelta(seconds=SESSION_TTL_SECONDS)),
             "hook_bundle_sha256": hook_bundle_digest(),
             "instance_id": args.instance_id,
@@ -723,31 +954,37 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
         }
         atomic_private_json(session_path, session)
     log_path = instance_dir / "desktop.log"
-    descriptor = os.open(
-        log_path,
-        os.O_CREAT
-        | os.O_WRONLY
-        | os.O_APPEND
-        | getattr(os, "O_NOFOLLOW", 0),
-        0o600,
-    )
-    log_metadata = os.fstat(descriptor)
-    if (
-        not stat.S_ISREG(log_metadata.st_mode)
-        or log_metadata.st_uid != os.getuid()
-        or (log_metadata.st_mode & 0o777) != 0o600
-    ):
-        os.close(descriptor)
-        raise AdapterError("desktop-log-invalid")
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            log_path,
+            os.O_CREAT
+            | os.O_WRONLY
+            | os.O_APPEND
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        log_metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(log_metadata.st_mode)
+            or log_metadata.st_uid != os.getuid()
+            or (log_metadata.st_mode & 0o777) != 0o600
+        ):
+            raise AdapterError("desktop-log-invalid")
+    except (AdapterError, OSError) as exc:
+        if descriptor >= 0:
+            os.close(descriptor)
+        disarm_session(instance_dir, session_path)
+        if isinstance(exc, AdapterError):
+            raise
+        raise AdapterError("desktop-log-invalid") from exc
     environment = dict(os.environ)
     for name in ADAPTER_ENV_VARS:
         environment.pop(name, None)
     environment.pop("ROOT_ORCHESTRATOR_ROLE", None)
     environment["CODEX_APP_SERVER_FORCE_CLI"] = "1"
     environment["CODEX_CLI_PATH"] = str(ADAPTER_PATH)
-    environment["CODEX_ELECTRON_USER_DATA_PATH"] = str(
-        ensure_private_dir(instance_dir / "electron-data")
-    )
+    environment["CODEX_ELECTRON_USER_DATA_PATH"] = str(electron_data_dir)
     environment[SESSION_ENV] = str(session_path)
     environment[TOKEN_ENV] = token
     environment[REAL_CODEX_ENV] = str(codex_cli)
@@ -781,8 +1018,7 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
         proxy_observed = False
     if not proxy_observed:
         disarm_session(instance_dir, session_path)
-        desktop_command = process_command(process.pid)
-        if desktop_command and str(desktop) in desktop_command:
+        if process.poll() is None:
             process.terminate()
         raise AdapterError("desktop-host-proxy-not-observed")
     return {
@@ -793,6 +1029,7 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
             "instance_id": args.instance_id,
             "normal_desktop_recovery_available": True,
             "root_thread_id": args.root_thread_id,
+            "prompt_free_control_grant_verified": grant_enabled,
             "runtime_pin_verified": True,
             "status": "STARTING",
             "valid_until": current["expires_at"],
@@ -805,16 +1042,10 @@ def session_status(instance_dir: Path) -> dict[str, Any]:
     if not session_path.exists():
         return {"ok": True, "result": {"status": "NOT_CONFIGURED"}}
     session = read_private_json(session_path)
-    desktop_command = process_command(session.get("desktop_pid"))
-    proxy_command = process_command(session.get("proxy_pid"))
-    desktop_expected = session.get("desktop_executable")
-    proxy_expected = str(ADAPTER_PATH)
-    desktop_alive = bool(
-        isinstance(desktop_expected, str)
-        and desktop_command
-        and desktop_expected in desktop_command
+    desktop_alive = desktop_process_matches(session)
+    proxy_alive = process_matches(
+        session.get("proxy_pid"), str(ADAPTER_PATH), "app-server"
     )
-    proxy_alive = bool(proxy_command and proxy_expected in proxy_command)
     expired = parse_utc(session.get("expires_at")) < utc_now()
     return {
         "ok": True,
@@ -824,6 +1055,10 @@ def session_status(instance_dir: Path) -> dict[str, Any]:
             "global_configuration_changed": False,
             "instance_id": session.get("instance_id"),
             "normal_desktop_recovery_available": True,
+            "prompt_free_control_grant_verified": session.get(
+                "approval_grant_enabled"
+            )
+            is True,
             "proxy_alive": proxy_alive,
             "root_thread_id": session.get("root_thread_id"),
             "status": (
@@ -846,14 +1081,16 @@ def stop(instance_dir: Path, timeout: float) -> dict[str, Any]:
         session["armed"] = False
         atomic_private_json(session_path, session)
     targets = [
-        (session.get("desktop_pid"), session.get("desktop_executable")),
-        (session.get("proxy_pid"), str(ADAPTER_PATH)),
-        (session.get("app_server_pid"), session.get("codex_cli")),
+        (
+            session.get("desktop_pid"),
+            (session.get("desktop_executable"), session.get("desktop_isolation_argument")),
+        ),
+        (session.get("proxy_pid"), (str(ADAPTER_PATH), "app-server")),
+        (session.get("app_server_pid"), (session.get("codex_cli"), "app-server")),
     ]
     signaled: list[int] = []
     for pid, expected in targets:
-        command = process_command(pid)
-        if isinstance(pid, int) and isinstance(expected, str) and command and expected in command:
+        if isinstance(pid, int) and process_matches(pid, *expected):
             try:
                 os.kill(pid, signal.SIGTERM)
                 signaled.append(pid)
@@ -908,6 +1145,8 @@ def validate_session_from_environment() -> tuple[Path, dict[str, Any]]:
         session,
         {
             "adapter_sha256",
+            "approval_grant_enabled",
+            "approval_grant_sha256",
             "app_server_pid",
             "armed",
             "codex_cli",
@@ -915,7 +1154,10 @@ def validate_session_from_environment() -> tuple[Path, dict[str, Any]]:
             "created_at",
             "desktop_executable",
             "desktop_executable_sha256",
+            "desktop_isolation_argument",
             "desktop_pid",
+            "dispatcher_adoption_sha256",
+            "electron_data_dir",
             "expires_at",
             "hook_bundle_sha256",
             "instance_id",
@@ -930,29 +1172,71 @@ def validate_session_from_environment() -> tuple[Path, dict[str, Any]]:
         },
         {
             "adapter_sha256",
+            "approval_grant_enabled",
+            "approval_grant_sha256",
             "armed",
             "codex_cli",
             "codex_cli_sha256",
+            "desktop_executable",
+            "desktop_executable_sha256",
+            "desktop_isolation_argument",
+            "dispatcher_adoption_sha256",
+            "electron_data_dir",
             "expires_at",
             "hook_bundle_sha256",
             "instance_id",
             "plugin_version",
+            "proof_sha256",
             "root_thread_id",
             "session_version",
             "socket_path",
+            "state_dir",
             "token_sha256",
         },
     )
     token_sha256 = hashlib.sha256(token.encode("utf-8")).hexdigest()
     codex_path = secure_file(Path(real_codex), executable=True)
+    electron_data_dir = existing_private_dir(session_path.parent / "electron-data")
+    try:
+        state_dir = existing_private_dir(Path(str(session.get("state_dir"))))
+        proof_path = session_path.parent / "live-proof.json"
+        proof = read_private_json(proof_path)
+        proof_sha256 = digest(proof_path)
+    except (AdapterError, OSError):
+        raise AdapterError("host-session-invalid") from None
     if (
         session.get("session_version") != SESSION_VERSION
+        or not isinstance(session.get("approval_grant_enabled"), bool)
         or session.get("armed") is not True
         or parse_utc(session.get("expires_at")) < utc_now()
         or session.get("codex_cli") != str(codex_path)
         or session.get("codex_cli_sha256") != digest(codex_path)
+        or session.get("state_dir") != str(state_dir)
+        or session.get("plugin_version") != manifest().get("version")
+        or session.get("electron_data_dir") != str(electron_data_dir)
+        or session.get("desktop_isolation_argument")
+        != f"{USER_DATA_SWITCH}{electron_data_dir}"
         or session.get("adapter_sha256") != digest(ADAPTER_PATH)
+        or session.get("approval_grant_sha256") != approval_grant_digest()
+        or (
+            session.get("approval_grant_enabled") is True
+            and (
+                not isinstance(session.get("dispatcher_adoption_sha256"), str)
+                or SHA256.fullmatch(str(session.get("dispatcher_adoption_sha256")))
+                is None
+            )
+        )
+        or (
+            session.get("approval_grant_enabled") is False
+            and session.get("dispatcher_adoption_sha256") is not None
+        )
+        or proof.get("prompt_free_control_grant_verified")
+        is not session.get("approval_grant_enabled")
+        or proof.get("dispatcher_adoption_sha256")
+        != session.get("dispatcher_adoption_sha256")
+        or proof.get("plugin_version") != session.get("plugin_version")
         or session.get("hook_bundle_sha256") != hook_bundle_digest()
+        or session.get("proof_sha256") != proof_sha256
         or not hmac.compare_digest(str(session.get("token_sha256")), token_sha256)
     ):
         raise AdapterError("host-session-invalid")
@@ -964,6 +1248,7 @@ class AttestationServer:
         self.session_path = session_path
         self.instance_id = str(session["instance_id"])
         self.root_thread_id = str(session["root_thread_id"])
+        self.approval_grant_enabled = session.get("approval_grant_enabled") is True
         self.path = Path(str(session["socket_path"]))
         self.listener: socket.socket | None = None
         self.stopping = threading.Event()
@@ -1031,6 +1316,8 @@ class AttestationServer:
                         or current.get("hook_bundle_sha256") != hook_bundle_digest()
                         or current.get("instance_id") != self.instance_id
                         or current.get("root_thread_id") != self.root_thread_id
+                        or current.get("approval_grant_enabled")
+                        is not self.approval_grant_enabled
                         or current.get("socket_path") != str(self.path)
                         or request.get("interface_version") != INTERFACE_VERSION
                         or request.get("hook_event_name") not in {"PreToolUse", "PostToolUse"}
@@ -1041,6 +1328,11 @@ class AttestationServer:
                     ):
                         continue
                     response = {
+                        "control_grant": (
+                            "PROMPT_FREE"
+                            if self.approval_grant_enabled
+                            else "PROMPTED"
+                        ),
                         "decision": "ROOT" if session_id == self.root_thread_id else "WORKER",
                         "instance_id": self.instance_id,
                         "interface_version": INTERFACE_VERSION,
@@ -1096,9 +1388,13 @@ def run_proxy(arguments: list[str]) -> int:
         child_environment[SOCKET_ENV] = str(server.path)
         child_environment[INSTANCE_ENV] = str(session["instance_id"])
         real_codex = Path(str(session["codex_cli"]))
+        child_arguments = isolated_app_server_arguments(
+            arguments,
+            grant_enabled=session.get("approval_grant_enabled") is True,
+        )
         try:
             child = subprocess.Popen(
-                [str(real_codex), *arguments],
+                [str(real_codex), *child_arguments],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=None,

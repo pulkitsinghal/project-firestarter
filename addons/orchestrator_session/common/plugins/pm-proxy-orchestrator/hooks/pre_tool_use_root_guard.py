@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from host_attestation import HostAttestationError, configured, resolve
+from host_attestation import HostAttestationError, configured, resolve_attestation
 
 try:
     import fcntl
@@ -76,6 +76,9 @@ ROOT_CONTROL_PLANE_MCP_ALLOW = {
     "mcp__pm_proxy_orchestrator__pm_proxy_status",
     "mcp__pm_proxy_orchestrator__pm_proxy_verify_runtime",
     "mcp__pm_proxy_orchestrator__pm_proxy_watchdog_refill",
+}
+ROOT_PROMPT_FREE_MCP_ALLOW = ROOT_CONTROL_PLANE_MCP_ALLOW - {
+    "mcp__pm_proxy_orchestrator__pm_proxy_reconcile_expired_lease",
 }
 LIFECYCLE_TOOL = "mcp__pm_proxy_orchestrator__pm_proxy_lifecycle_watchdog"
 LIFECYCLE_DEBT_BLOCKED_TOOLS = {
@@ -457,11 +460,19 @@ def main() -> int:
         if not configured():
             return 0
         try:
-            host_role = resolve(event)
+            attestation = resolve_attestation(event)
+            host_role = attestation["decision"]
         except HostAttestationError as exc:
             print(json.dumps(deny(str(exc))))
             return 0
         if host_role != "ROOT":
+            tool_name = event.get("tool_name")
+            if (
+                host_role == "WORKER"
+                and attestation["control_grant"] == "PROMPT_FREE"
+                and tool_name in ROOT_PROMPT_FREE_MCP_ALLOW
+            ):
+                print(json.dumps(deny("WORKER_ORCHESTRATOR_CONTROL_DENIED")))
             return 0
     tool_name = event.get("tool_name")
     if not isinstance(tool_name, str) or not tool_name:

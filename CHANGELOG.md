@@ -6,6 +6,20 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- PM-proxy Desktop launcher hardening: the repository adapter now passes its
+  owner-private Electron data directory as an explicit command-line switch
+  before macOS single-instance selection, records that exact isolation value,
+  and requires it while observing and stopping the exact Desktop PID. Missing
+  isolation or proxy observation disarms and terminates only the spawned child;
+  capability/session values remain private and the ordinary Desktop recovery
+  instance is never a shutdown target.
+- PM-proxy exact-root Desktop approval grant: after current-version covered-path
+  adoption and runtime-pin verification, the isolated app-server pre-approves
+  only the named typed doctor/status/runtime, launch-receipt, heartbeat,
+  lifecycle, close/refill, archive/refill, slot-status, and watchdog controls.
+  Other task IDs are denied that prompt-free surface, while task-domain tools,
+  expired-lease reconciliation, owner gates, and universal enforcement retain
+  their existing approval or denial behavior.
 - PM-proxy runtime pin and automatic-control gate: one owner-private content
   digest binds the MCP server to the exact control CLI, version, schemas,
   root-role guard, and runtime verifier. Doctor/status/recovery remain

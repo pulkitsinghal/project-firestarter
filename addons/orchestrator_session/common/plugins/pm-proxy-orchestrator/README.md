@@ -1,6 +1,6 @@
 # PM Proxy Orchestrator
 
-Version `0.3.4` is a source-only agent-CLI plugin for Firestarter control-plane
+Version `0.3.5` is a source-only agent-CLI plugin for Firestarter control-plane
 interface `1.0`. It makes task reservation, policy receipts, approval routing,
 fenced handback, successor creation, and queue recycling operational without
 installing anything globally.
@@ -20,13 +20,22 @@ lifecycle action. Hosted paths, opt-outs, reauthorization gaps, and universal
 non-spoofable caller identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
 
-Version `0.3.4` also includes an opt-in Desktop app-server proxy. An
+Version `0.3.5` also includes an opt-in Desktop app-server proxy. An
 owner-selected exact task ID is attested as root through a private local socket;
 other task IDs remain workers, so visible workers do not inherit a process-wide
 root role. The adapter requires current pin/doctor state and a fresh native-hook
-marker-denial proof, launches with an isolated Electron data directory, changes
-no global Codex configuration, and keeps the normal Desktop app as the recovery
-path. See `docs/DESKTOP_HOST_ADAPTER.md`.
+marker-denial proof. The repository launcher passes its private Electron data
+directory on Desktop's command line before macOS single-instance selection,
+observes that exact switch with the adapter proxy, changes no global Codex
+configuration, and keeps the normal Desktop app as the recovery path. See
+`docs/DESKTOP_HOST_ADAPTER.md`.
+
+After the exact current-version covered-path adoption and runtime pin verify,
+that isolated proxy also applies Codex's supported prompt-free mode to only the
+named typed ORC control-plane mechanics. The setting is process-local and
+per-tool, not a global approval-policy change. Exact-task attestation admits the
+root while the hook denies the prompt-free set to other task IDs; task-domain,
+owner-gated, expired-lease reconciliation, and universal paths are not widened.
 
 Bridge/ticket `1.3` accepts control schema `1.3`, requires the exact root and
 worker runtime policy plus a truthful launch attestation before receipt, and

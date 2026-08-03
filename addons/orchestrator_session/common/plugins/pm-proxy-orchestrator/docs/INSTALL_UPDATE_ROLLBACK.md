@@ -70,9 +70,11 @@ For Codex Desktop, use the bundled owner-operated
 existing task ID as root through a dedicated app-server proxy and private
 attestation socket; it does not set a global root role. Its `verify` command
 must produce a fresh native-hook denial proof before `launch` will start an
-isolated Desktop data directory. Follow `docs/DESKTOP_HOST_ADAPTER.md`, retain
-the normal Desktop app as the recovery path, and withhold dispatcher adoption
-until the complete live fence test passes.
+isolated Desktop data directory. The adapter itself passes and observes the
+private command-line `--user-data-dir`; do not substitute a local launcher shim.
+Follow `docs/DESKTOP_HOST_ADAPTER.md`, retain the normal Desktop app as the
+recovery path, and withhold dispatcher adoption until the complete live fence
+test passes.
 
 ## Partial-activation recovery
 
@@ -122,3 +124,7 @@ copy or relax a mismatched pin. Do not roll back or replace the Firestarter
 SQLite state database.
 If a new schema migration occurred, stop and follow the matching Firestarter
 rollback procedure instead of copying an older database over it.
+
+Desktop host session schemas are version-bound. Stop an active host with the
+matching adapter before updating or rolling back plugin source. Never transplant
+its capability token or edit an old session file to satisfy a new adapter.
