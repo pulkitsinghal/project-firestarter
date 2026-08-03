@@ -45,11 +45,20 @@ and zero calls in synthetic dispatchers. Live runtime proof must still be
 repeated after installation and trust because source validation does not prove
 platform hook coverage.
 
-On a complete live proof, the typed MCP surface can record a bounded dispatcher
-adoption receipt. Status then reports
-`covered_path_dispatcher_enforcement: true` and retains
+On a complete live proof, an owner-operated process outside root-role execution
+can record a bounded dispatcher-adoption receipt through the fixed bridge
+command. The MCP surface deliberately cannot write this receipt, so the
+orchestrator cannot approve caller-supplied proof flags for itself. Status then
+reports `covered_path_dispatcher_enforcement: true` and retains
 `platform_dispatcher_enforcement: false`. The receipt explicitly records hosted
 paths as uncovered and rejects any universal-coverage claim.
+
+Version `0.3.3` also requires an owner-private content pin of the exact
+Firestarter runtime. Automatic launch/refill readiness is true only when the pin
+verifies and the newest
+adoption receipt carries the current plugin version. A source update therefore
+returns readiness to `DISABLED` until the runtime is repinned and the live proof
+is repeated; an older adoption cannot authorize a newer dispatcher.
 
 ## Activation invariant
 
@@ -66,11 +75,13 @@ Activation is deliberately two phase:
 1. Install the complete versioned plugin and start a new bootstrap task while
    its non-managed hook is still untrusted.
 2. Confirm that the installed plugin exposes the exact required `pm_proxy_*`
-   tools and that typed `doctor` succeeds against the intended private state.
+   tools, pin the intended clean Firestarter runtime, and verify typed `doctor`
+   succeeds against the intended private state without a caller-selected root.
 3. Only then trust the exact current hook and let an adopting managed wrapper
    assign the root role in a new disposable task.
 4. Complete the live denial, reserved-create, receipt, lifecycle, refill, and
-   archive proof before recording covered-path adoption.
+   archive proof, leave root-role execution, and have the owner record
+   covered-path adoption through the fixed bridge command.
 
 A firing root guard with no callable `pm_proxy_*` tools is
 `PARTIAL_ACTIVATION`, not enforcement. Restore the prior project hook state (or

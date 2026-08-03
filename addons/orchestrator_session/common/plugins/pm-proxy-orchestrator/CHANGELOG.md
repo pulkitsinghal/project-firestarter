@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.3.3 - 2026-08-02
+
+- Add an owner-private, content-addressed Firestarter runtime pin covering the
+  control CLI, version, schemas, root-role guard, and runtime verifier.
+- Allow typed MCP calls to omit `project_root` after pinning while rejecting an
+  explicit mismatched root or any later runtime-bundle drift.
+- Keep bootstrap doctor/status and expired-lease repair available, but deny new
+  launch, close/refill, and watchdog-refill mutations until the current plugin
+  version has both a verified runtime pin and covered-path adoption proof.
+- Report exact automatic-control readiness as `DISABLED` or
+  `COVERED_PATH_ONLY`; universal platform enforcement remains false.
+- Remove dispatcher-adoption self-approval from the MCP surface. Only the
+  owner-operated fixed bridge can record a live adoption receipt; status keeps
+  unattended and universal automatic control false.
+
 ## 0.3.2 - 2026-08-02
 
 - Add an exact ticket-derived expired-lease reconciliation tool that advances

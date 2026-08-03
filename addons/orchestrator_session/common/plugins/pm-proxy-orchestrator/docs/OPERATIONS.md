@@ -3,6 +3,38 @@
 Use an absolute compatible Firestarter CLI and an already selected private state
 directory. The examples below use placeholders intentionally.
 
+For MCP operation, first pin the exact reviewed runtime from the installed
+plugin root:
+
+```bash
+python3 scripts/configure_runtime_pin.py \
+  --project-root /absolute/clean/firestarter-runtime
+```
+
+The MCP server validates that private content pin on every call. Once pinned,
+`project_root` is optional; supplying a different root is denied. Doctor,
+status, and exact expired-lease repair remain available before pinning for
+bootstrap/recovery, but prepare-launch, close-and-refill, and watchdog-refill
+also require a matching current-version covered-path adoption receipt.
+
+Dispatcher adoption is an owner operation, not an MCP tool. After the complete
+live covered-path canary passes, leave root-role execution and use the fixed
+bridge command with an owner-reviewed schema-valid request file:
+
+```bash
+python skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py \
+  --cli /absolute/firestarter/orchestrator-control/orchestrator_control.py \
+  --state-dir /absolute/private/orchestrator-state \
+  record-dispatcher-adoption \
+  --request /absolute/private/dispatcher-adoption.json
+```
+
+The MCP server consumes the resulting receipt for readiness but cannot create
+or replace it. Status may enable only
+`covered_path_automatic_launch_refill_allowed`; it always reports
+`unattended_automatic_launch_refill_allowed: false` and universal enforcement
+false.
+
 Before a root action, call `root-action`. An adopting runtime must route every
 filesystem, exec, browser, Sites, and task tool through
 `dispatcher_adapter.py`; on `DENY`, it must not invoke the underlying tool.

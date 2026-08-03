@@ -77,6 +77,7 @@ REQUIRED_FILES = {
     "plugins/pm-proxy-orchestrator/hooks/hooks.json",
     "plugins/pm-proxy-orchestrator/hooks/post_tool_use_lifecycle.py",
     "plugins/pm-proxy-orchestrator/hooks/pre_tool_use_root_guard.py",
+    "plugins/pm-proxy-orchestrator/scripts/configure_runtime_pin.py",
     "plugins/pm-proxy-orchestrator/scripts/mcp_server.py",
     "plugins/pm-proxy-orchestrator/skills/pm-proxy-orchestrator/SKILL.md",
     "plugins/pm-proxy-orchestrator/skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py",
@@ -264,7 +265,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         self.assertEqual(entry["name"], manifest["name"])
         self.assertRegex(
             manifest["version"],
-            r"^0\.3\.2(?:\+codex\.\d{14})?$",
+            r"^0\.3\.3(?:\+codex\.\d{14})?$",
         )
         self.assertEqual("./skills/", manifest["skills"])
         self.assertEqual("./.mcp.json", manifest["mcpServers"])
@@ -303,7 +304,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         canonical_bytes = CANONICAL_BILL.read_bytes()
         canonical_text = canonical_bytes.decode("utf-8")
         self.assertEqual(
-            "1.3.2",
+            "1.3.3",
             (ADDON / "orchestrator-control" / "VERSION")
             .read_text(encoding="utf-8")
             .strip(),
