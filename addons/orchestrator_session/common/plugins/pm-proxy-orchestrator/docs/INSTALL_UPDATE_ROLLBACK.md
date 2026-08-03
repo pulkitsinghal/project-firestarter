@@ -65,6 +65,15 @@ a current-version covered-path adoption receipt exist.
 Passing an earlier gate does not prove a later one. This artifact performs no
 personal installation or live configuration mutation.
 
+For Codex Desktop, use the bundled owner-operated
+`scripts/desktop_host_adapter.py` only after gates 1-4 pass. It binds one exact
+existing task ID as root through a dedicated app-server proxy and private
+attestation socket; it does not set a global root role. Its `verify` command
+must produce a fresh native-hook denial proof before `launch` will start an
+isolated Desktop data directory. Follow `docs/DESKTOP_HOST_ADAPTER.md`, retain
+the normal Desktop app as the recovery path, and withhold dispatcher adoption
+until the complete live fence test passes.
+
 ## Partial-activation recovery
 
 If the root guard fires but the `pm_proxy_*` tools are absent, stop. That task
@@ -78,6 +87,12 @@ return to a hook-untrusted bootstrap task, and repair or reinstall the complete
 plugin. Re-arm only after the manifest pointer, MCP discovery, typed `doctor`,
 and exact hook definition all agree. This recovery changes no Firestarter
 SQLite state and must not release, replace, or fabricate any reservation.
+
+For an adapter-hosted task, first run the adapter's `stop` command from that
+same owner terminal. It disarms the private session before signaling only its
+recorded processes and does not change global Codex configuration. If the
+isolated window remains visible, close that window only; the ordinary Desktop
+app remains unarmed.
 
 ## Update
 

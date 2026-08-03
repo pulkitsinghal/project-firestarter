@@ -127,6 +127,10 @@ def stamp(src_root: Path, out_root: Path, values: dict) -> int:
         dirnames.sort()
         for name in sorted(filenames):
             src = Path(dirpath) / name
+            source_executable = bool(
+                src.stat().st_mode
+                & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            )
             rel = src.relative_to(src_root)
             dest_rel = Path(*[render(part, values) for part in rel.parts])
             dest = out_root / dest_rel
@@ -137,9 +141,13 @@ def stamp(src_root: Path, out_root: Path, values: dict) -> int:
             else:
                 dest.write_text(render(src.read_text(encoding="utf-8"), values), encoding="utf-8")
 
-            # Make hooks and shell scripts executable.
+            # Preserve explicit source executability and keep generated hooks/shell runnable.
             in_hooks = ".githooks" in dest_rel.parts
-            if dest.suffix == ".sh" or (in_hooks and dest.suffix == ""):
+            if (
+                source_executable
+                or dest.suffix == ".sh"
+                or (in_hooks and dest.suffix == "")
+            ):
                 dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             written += 1
     return written

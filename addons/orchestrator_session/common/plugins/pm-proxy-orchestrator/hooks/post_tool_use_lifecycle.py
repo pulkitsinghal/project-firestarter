@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from host_attestation import HostAttestationError, configured, resolve
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - supported orchestrator hosts are POSIX
@@ -165,7 +167,10 @@ def update(session_id: str, add: list[str], remove: str | None) -> bool:
 
 
 def main() -> int:
-    if os.environ.get("ROOT_ORCHESTRATOR_ROLE", "").strip().lower() not in ROOT_TRUE:
+    legacy_root = (
+        os.environ.get("ROOT_ORCHESTRATOR_ROLE", "").strip().lower() in ROOT_TRUE
+    )
+    if not legacy_root and not configured():
         return 0
     try:
         event = json.load(sys.stdin)
@@ -173,6 +178,13 @@ def main() -> int:
         return 1
     if event.get("hook_event_name") != "PostToolUse":
         return 1
+    if not legacy_root:
+        try:
+            host_role = resolve(event)
+        except HostAttestationError:
+            return 1
+        if host_role != "ROOT":
+            return 0
     session_id = event.get("session_id")
     tool_name = event.get("tool_name")
     if not isinstance(session_id, str) or not session_id or not isinstance(tool_name, str):

@@ -32,13 +32,13 @@ BRIDGE = (
     / "pm_proxy_bridge.py"
 )
 REFILL = BRIDGE.with_name("refill_saga.py")
-SERVER_VERSION = "0.3.3"
+SERVER_VERSION = "0.3.4"
 MAX_MESSAGE_BYTES = 2_000_000
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 ADOPTION_VERSION = re.compile(
-    rf"^{re.escape(SERVER_VERSION)}(?:\+codex\.\d{{14}})?$"
+    "^" + re.escape(SERVER_VERSION) + r"(?:\+codex\.\d{14})?$"
 )
 RUNTIME_PIN_NAME = "runtime-pin.json"
 RUNTIME_PIN_VERSION = "1.0"

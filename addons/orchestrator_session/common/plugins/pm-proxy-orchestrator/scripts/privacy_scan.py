@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -87,10 +88,20 @@ def main() -> int:
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             failures.append(".mcp.json is structurally invalid")
     hooks_path = ROOT / "hooks/hooks.json"
+    host_attestation_path = ROOT / "hooks/host_attestation.py"
     pre_hook_path = ROOT / "hooks/pre_tool_use_root_guard.py"
     post_hook_path = ROOT / "hooks/post_tool_use_lifecycle.py"
-    if not pre_hook_path.is_file() or not post_hook_path.is_file():
+    desktop_adapter_path = ROOT / "scripts/desktop_host_adapter.py"
+    if (
+        not host_attestation_path.is_file()
+        or not pre_hook_path.is_file()
+        or not post_hook_path.is_file()
+    ):
         failures.append("bundled pre/post hook adapters are incomplete")
+    if not desktop_adapter_path.is_file() or not os.access(
+        desktop_adapter_path, os.X_OK
+    ):
+        failures.append("desktop host adapter is missing or not executable")
     if not hooks_path.is_file():
         failures.append("default hooks/hooks.json missing")
     else:
