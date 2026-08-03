@@ -32,6 +32,8 @@ SCHEMAS = {
     "recycle-queue.response.schema.json": "recycle-queue-response-1.0.schema.json",
     "capacity-watchdog.request.schema.json": "capacity-watchdog-request-1.0.schema.json",
     "capacity-watchdog.response.schema.json": "capacity-watchdog-response-1.0.schema.json",
+    "configure-capacity.request.schema.json": "configure-capacity-request-1.0.schema.json",
+    "configure-capacity.response.schema.json": "configure-capacity-response-1.0.schema.json",
     "reconcile-external-task.request.schema.json": "reconcile-external-task-request-1.0.schema.json",
     "reconcile-external-task.response.schema.json": "reconcile-external-task-response-1.0.schema.json",
     "duration-estimate.request.schema.json": "duration-estimate-request-1.0.schema.json",

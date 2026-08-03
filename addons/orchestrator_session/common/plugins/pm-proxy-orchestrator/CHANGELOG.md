@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.3.6 - 2026-08-03
+
+- Add a covered-root-only typed capacity compare-and-set with explicit expected
+  capacity and state revision, bounds of 1–64, an active/reserved floor,
+  conflict-safe replay, and one transactional capacity/revision/audit commit.
+  Direct SQLite edits, uncovered callers, workers, and universal authority stay
+  outside the operation.
+- Add exact 4-to-8 activation, eight-lane concurrent-reservation ceiling,
+  receipt-derived status, 8-to-6 rollback, and 8-to-4 rollback coverage and
+  operator instructions.
+
 ## 0.3.5 - 2026-08-03
 
 - Pass the private Electron data directory as an explicit Desktop command-line
@@ -17,7 +28,7 @@
   `Popen` child handle for failed-start termination. Normal Desktop processes do
   not carry the private isolation switch and are never shutdown targets.
 - Bind a prompt-free Desktop grant to the current-version covered-path adoption,
-  verified runtime pin, private host proof, exact root task, and twelve named
+  verified runtime pin, private host proof, exact root task, and thirteen named
   typed control-plane tools. The isolated app-server receives only per-tool
   `approval_mode="approve"` overrides; attested workers are denied those tools,
   expired-lease reconciliation still prompts, and shell, file, browser, Sites,

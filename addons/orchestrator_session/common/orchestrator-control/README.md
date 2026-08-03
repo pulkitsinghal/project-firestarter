@@ -20,10 +20,12 @@ service and not a replacement policy source.
 - The caller selects a local state directory. The CLI enforces directory mode
   `0700`, database mode `0600`, current-user ownership, and no symlink path
   components.
-- Schema `1.2` migrates an existing schema `1.0` or `1.1` database in place by
-  adding capacity-saga and duration-calibration state. The stable JSON interface
-  remains `1.0`; copying an older database over a migrated database is not a
-  supported rollback.
+- Control bundle `1.3.6` keeps state schema `1.3` and migrates an existing
+  schema `1.0`, `1.1`, or `1.2` database in place. Re-running `init` after this
+  bundle update adds the idempotency receipts required by typed capacity
+  reconfiguration without changing the configured capacity. The stable JSON
+  interface remains `1.0`; copying an older database over a migrated database
+  is not a supported rollback.
 - Raw prompts are returned ephemerally to the wrapper and are not stored or
   hashed. Handback evidence is validated but only typed redacted summaries are
   retained. Legacy dashboard JSON is quarantined byte-for-byte for rollback and
@@ -215,7 +217,10 @@ reserve/prepare/launch; ownership deduplication; PM-proxy decision routing;
 receipt/handback monitoring; capacity refill; and evidence synthesis. Repository
 or task-domain inspection, design, implementation, testing, duration estimation,
 deployment, cleanup, and unknown action types fail closed and require a
-delegated successor.
+delegated successor. Capacity configuration is a separate typed root-only
+control: it requires the expected state revision and expected current capacity,
+enforces bounds and the receipt-backed occupancy floor, and commits the new
+capacity, one revision, one audit event, and one replay receipt atomically.
 
 This is enforced as a control-plane defect boundary, not as prompt etiquette.
 While an eligible worker slot exists, root is coordination-only and cannot call
@@ -288,6 +293,7 @@ claim for completion candidates.
 | Command | Contract |
 |---------|----------|
 | `record-policy-rule` | CAS a typed, scoped, privacy-safe learned rule into the live ledger with monotonic rule and policy revisions. |
+| `configure-capacity` | Compare-and-set configured worker capacity from one expected bounded value and exact state revision; reject stale, unsafe, below-occupancy, or conflicting input and atomically record the revision, audit event, and truthful replay receipt. |
 | `prepare-launch` | Resolve and explain effective rules; reject duplicate source/outcome/idempotency or overlapping ownership; atomically reserve the task, claim, fence, envelope, and `CREATE_THREAD` outbox before external creation. |
 | `effective-rules` | Show included and excluded rules with deterministic reason codes and precedence evidence. |
 | `record-launch-receipt` | Require the exact policy/rule/fence echo and external task ID before state becomes `RUNNING`. |
@@ -324,6 +330,7 @@ fresh-progress preservation, interrupt/refill/archive fencing, crash rollback, s
 rule conflict quarantine, CI truth, privacy, unsafe dashboard links, exact
 bucket assignment, sparse/conflicting priors, waiting-time exclusion,
 underestimate rollover, early finish, reclassification crash/race recovery,
-fair scheduling/setup failure, and the root-role regressions for self-assigned
+fair scheduling/setup failure, capacity compare-and-set bounds/floor/replay,
+crash rollback and concurrent preparation, and the root-role regressions for self-assigned
 estimation/design, repository inspection, premature completion claims after
 `send_message`, and receiptless capacity fill.

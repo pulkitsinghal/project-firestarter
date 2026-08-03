@@ -50,16 +50,23 @@ or receipt fails.
    version update requires a new pin and a repeated live adoption proof.
 3. Run `doctor`. Stop on any failure, including missing CLI, unsupported version
    or schemas, inaccessible/corrupt/locked state, or any quarantined rule.
-4. Before filling capacity, reconcile live task facts and prepare a complete
+4. Change initialized configured capacity only through the typed
+   `pm_proxy_configure_capacity` compare-and-set. Supply the exact current state
+   revision, expected current capacity, requested bounded capacity, a unique
+   request ID, coarse evidence, and explicit time. Require the current runtime
+   pin, covered-path adoption, adapter-attested root, occupancy floor, atomic
+   audit, and a truthful replay result. It never launches a task. Do not edit
+   SQLite.
+5. Before filling capacity, reconcile live task facts and prepare a complete
    `recycle-queue` request. Run `prepare-launch` with both the recycle and launch
    requests. This command commits queue audit first, then calls Firestarter
    `prepare-launch`.
-5. Continue only on exit `0`. Exit `2`, `3`, or `4` means no external creation.
+6. Continue only on exit `0`. Exit `2`, `3`, or `4` means no external creation.
    For `3`, reconcile the returned canonical task read-only.
-6. Pass the returned `prompt` to the visible task-creation tool verbatim. Do not
+7. Pass the returned `prompt` to the visible task-creation tool verbatim. Do not
    save, hash, summarize, or reconstruct it. Call the tool once for the returned
    `CREATE_THREAD` outbox action.
-7. Immediately call `record-launch-receipt` with the external task ID, generated
+8. Immediately call `record-launch-receipt` with the external task ID, generated
    ticket, and bounded runtime-attestation file. Model and reasoning effort must
    reflect the launch surface. Use priority-tier source `runtime` only when the
    platform reports it; for desktop-app config verification use
@@ -67,40 +74,40 @@ or receipt fails.
    conflicting runtime policy fail closed. If receipt recording fails, instruct
    the new task to remain read-only and reconcile/archive it; never allow
    mutation.
-8. Reconcile every externally surfaced copy through `reconcile-external-task`.
+9. Reconcile every externally surfaced copy through `reconcile-external-task`.
    Only the external task ID in the canonical ticket receipt may proceed. A
    mirror without that receipt receives `STOP_READ_ONLY`, a zero-change
    handback, and archive instructions; it never counts toward capacity.
-9. Before the worker's first mutation and at lease renewal, call `heartbeat`
+10. Before the worker's first mutation and at lease renewal, call `heartbeat`
    with the receipt-bearing ticket and the caller's external task ID. A missing,
    stale, fabricated, mismatched, mirrored, or
    fenced-out ticket stops mutation.
-10. Route every approval through `classify-decision`. A notification API is
+11. Route every approval through `classify-decision`. A notification API is
    reachable only after
    the returned route is `OWNER_GATE` and `owner_prompt_required` is true.
    Absorb `PM_PROXY`. Treat validation, unknown-action, and denial failures as a
    return to the orchestrator, never an owner prompt.
-11. Close through `scripts/refill_saga.py close-and-refill`, never by a standalone
+12. Close through `scripts/refill_saga.py close-and-refill`, never by a standalone
    archive path. Provide exact refs, typed checks, literal hosted-CI truth,
    privacy/deployment state, cleanup dispositions, observed terminal status,
    configured capacity, and complete runnable candidates. The saga records
    `CAPACITY_RELEASED`, recycles blocked work, and reserves the highest-value
    eligible successor before predecessor archive may complete.
-12. Create each returned successor exactly once with its verbatim prompt, then
+13. Create each returned successor exactly once with its verbatim prompt, then
    call `refill_saga.py record-refill-receipt` with the same truthful runtime
    attestation boundary. Archive is forbidden until every reserved successor
    has an exact receipt or the saga durably records `EMPTY`, `OWNER_GATED`, or
    `CAPACITY_FULL` with evidence.
-13. Run `refill_saga.py slot-status` for dashboard truth and
+14. Run `refill_saga.py slot-status` for dashboard truth and
     `watchdog-refill` on periodic heartbeat/startup fallback. A positive runnable
     count with active-or-reserved below configured capacity is a failure state
     requiring immediate reconciliation.
-14. For schema 1.3, call `lifecycle-watchdog` after every worker message, wait
+15. For schema 1.3, call `lifecycle-watchdog` after every worker message, wait
     timeout, and before any status claim. Objective completion evidence cannot
     be overridden by a stale `running` label. Follow only the fenced
     terminalization result and exact interrupt receipt; release, blocked re-audit,
     successor receipt or terminal proof, and archive stay in that order.
-15. For schema 1.2 duration state, use the receipt-fenced duration operations.
+16. For schema 1.2 duration state, use the receipt-fenced duration operations.
     A mirrored external task cannot heartbeat, hand back, or reclassify. Treat a
     failed setup row from `duration-schedule` as rolled back for selection and
     call `record-setup-failure` with the exact unreceipted ticket so Firestarter
@@ -109,12 +116,12 @@ or receipt fails.
     once. The plugin cannot mutate a reservation created outside Firestarter;
     absent adopted rollback/dispatch integration for that external reservation,
     fail closed and leave the candidate deferred.
-16. Pass a privacy-safe resource profile to
+17. Pass a privacy-safe resource profile to
     `resource_scheduler.py` when host contention matters. Logical task lanes are
     not CPU processes: light work may run in parallel, while heavyweight work
     sharing one coarse contention group must serialize. Never put paths,
     identities, prompts, or secrets in a resource profile.
-17. Run `recycle-queue` again on capacity, startup, dependency, evidence, or
+18. Run `recycle-queue` again on capacity, startup, dependency, evidence, or
     policy changes before launching lower-value work.
 
 ## Policy recording

@@ -59,6 +59,47 @@ python skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py \
   init --now 2026-07-28T22:00:00Z
 ```
 
+After updating an existing schema-1.3 state to control bundle `1.3.6`, run the
+same idempotent `init` command once before recreating the runtime pin. It adds
+the capacity replay table and does not change the stored capacity. Then read
+`status` and capture its exact `revision` and
+`worker_capacity.configured_capacity`. A capacity change is a separate typed
+compare-and-set and never creates a worker:
+
+```json
+{
+  "interface_version": "1.0",
+  "request_id": "capacity-4-to-8-UNIQUE",
+  "expected_state_revision": 123,
+  "expected_configured_capacity": 4,
+  "requested_configured_capacity": 8,
+  "evidence_refs": ["owner-request-capacity-eight"],
+  "now": "2026-08-03T22:00:00Z"
+}
+```
+
+```bash
+python skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py \
+  --cli /absolute/firestarter/orchestrator-control/orchestrator_control.py \
+  --state-dir /absolute/private/orchestrator-state \
+  configure-capacity --request /absolute/ephemeral/configure-capacity.json
+```
+
+This bridge form is the typed underlying CLI boundary for disposable validation;
+it does not attest an agent caller and is not a live covered-path authorization
+shortcut. The live desktop root calls the equivalent
+`pm_proxy_configure_capacity` MCP operation. That covered path additionally
+requires the exact runtime pin, current-version dispatcher adoption, private
+adapter session, and exact root-role guard. Exit `2`, `3`, or `4` means no
+capacity change and no subsequent launch. On exit `0`, verify the returned
+previous/committed revisions and capacity with a fresh `status`; only then
+prepare four additional workers independently. At the eight-lane ceiling,
+exactly four additional reservations may succeed from a receipt-backed
+four-lane starting state; a concurrent ninth reservation must fail
+`CAPACITY_FULL`. Same-key exact replay is read-only;
+same-key changed input is a conflict. Never edit SQLite or combine the capacity
+change with a launch/refill request.
+
 Before visible task creation, prepare complete `recycle-queue` and
 `prepare-launch` request JSON files:
 
