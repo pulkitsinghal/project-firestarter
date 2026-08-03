@@ -1060,6 +1060,15 @@ CREATE TABLE IF NOT EXISTS capacity_sagas (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS capacity_reconfigurations (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  expected_configured_capacity INTEGER NOT NULL,
+  requested_configured_capacity INTEGER NOT NULL,
+  previous_state_revision INTEGER NOT NULL,
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS lifecycle_watchdog (
   task_id TEXT PRIMARY KEY REFERENCES tasks(task_id),
   lifecycle_state TEXT NOT NULL,
@@ -1467,6 +1476,220 @@ class Plane:
             )
             connection.commit()
             return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    @staticmethod
+    def bounded_metadata_int(
+        connection: sqlite3.Connection,
+        key: str,
+        low: int,
+        high: int,
+    ) -> int:
+        raw = Plane.metadata(connection, key)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            fail(
+                "STATE_CORRUPT",
+                "required integer metadata is invalid",
+                exit_status=EXIT_STATE,
+                details={"metadata_key": key},
+            )
+        if str(value) != raw or not low <= value <= high:
+            fail(
+                "STATE_CORRUPT",
+                "required integer metadata is outside its canonical bound",
+                exit_status=EXIT_STATE,
+                details={"metadata_key": key},
+            )
+        return value
+
+    @staticmethod
+    def validate_capacity_receipt(
+        committed: Any,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        fields = {
+            "request_id",
+            "previous_configured_capacity",
+            "configured_capacity",
+            "previous_state_revision",
+            "committed_state_revision",
+            "active_or_reserved_count_at_commit",
+        }
+        if not isinstance(committed, dict) or set(committed) != fields:
+            fail(
+                "STATE_CORRUPT",
+                "capacity reconfiguration receipt is corrupt",
+                exit_status=EXIT_STATE,
+            )
+        integer_fields = fields - {"request_id"}
+        if any(
+            isinstance(committed[field], bool)
+            or not isinstance(committed[field], int)
+            for field in integer_fields
+        ):
+            fail(
+                "STATE_CORRUPT",
+                "capacity reconfiguration receipt is corrupt",
+                exit_status=EXIT_STATE,
+            )
+        if (
+            committed["request_id"] != request["request_id"]
+            or committed["previous_configured_capacity"]
+            != request["expected_configured_capacity"]
+            or committed["configured_capacity"]
+            != request["requested_configured_capacity"]
+            or committed["previous_state_revision"]
+            != request["expected_state_revision"]
+            or committed["committed_state_revision"]
+            != committed["previous_state_revision"] + 1
+            or not 1 <= committed["previous_configured_capacity"] <= 64
+            or not 1 <= committed["configured_capacity"] <= 64
+            or not 0
+            <= committed["previous_state_revision"]
+            < committed["committed_state_revision"]
+            <= 9_223_372_036_854_775_807
+            or not 0
+            <= committed["active_or_reserved_count_at_commit"]
+            <= committed["configured_capacity"]
+        ):
+            fail(
+                "STATE_CORRUPT",
+                "capacity reconfiguration receipt is internally inconsistent",
+                exit_status=EXIT_STATE,
+            )
+        return committed
+
+    def configure_capacity(self, raw: Any) -> dict[str, Any]:
+        request = validate_capacity_reconfiguration(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            request_hash = digest(request)
+            existing = connection.execute(
+                """SELECT request_hash,result_json
+                   FROM capacity_reconfigurations WHERE request_id=?""",
+                (request["request_id"],),
+            ).fetchone()
+            if existing is not None:
+                if existing["request_hash"] != request_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "capacity reconfiguration request_id input changed",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                try:
+                    committed = json.loads(existing["result_json"])
+                except (TypeError, json.JSONDecodeError):
+                    fail(
+                        "STATE_CORRUPT",
+                        "capacity reconfiguration receipt is corrupt",
+                        exit_status=EXIT_STATE,
+                    )
+                committed = self.validate_capacity_receipt(committed, request)
+                current_capacity = self.bounded_metadata_int(
+                    connection, "configured_capacity", 1, 64
+                )
+                current_revision = self.bounded_metadata_int(
+                    connection, "revision", 0, 9_223_372_036_854_775_807
+                )
+                connection.commit()
+                return {
+                    **committed,
+                    "replayed": True,
+                    "current_configured_capacity": current_capacity,
+                    "current_state_revision": current_revision,
+                }
+
+            current_capacity = self.bounded_metadata_int(
+                connection, "configured_capacity", 1, 64
+            )
+            current_revision = self.bounded_metadata_int(
+                connection, "revision", 0, 9_223_372_036_854_775_807
+            )
+            if request["expected_state_revision"] != current_revision:
+                fail(
+                    "STATE_REVISION_CONFLICT",
+                    "capacity reconfiguration state revision is stale",
+                    exit_status=EXIT_CONFLICT,
+                    details={"current_state_revision": current_revision},
+                )
+            if request["expected_configured_capacity"] != current_capacity:
+                fail(
+                    "CAPACITY_CONFIGURATION_CONFLICT",
+                    "configured capacity changed from the expected value",
+                    exit_status=EXIT_CONFLICT,
+                    details={"current_configured_capacity": current_capacity},
+                )
+            active_or_reserved = self.active_or_reserved_count(connection)
+            if request["requested_configured_capacity"] < active_or_reserved:
+                fail(
+                    "CAPACITY_BELOW_OCCUPANCY",
+                    "configured capacity cannot be reduced below active or reserved occupancy",
+                    exit_status=EXIT_CONFLICT,
+                    details={"active_or_reserved_count": active_or_reserved},
+                )
+            connection.execute(
+                "UPDATE metadata SET value=? WHERE key='configured_capacity'",
+                (str(request["requested_configured_capacity"]),),
+            )
+            self.event(
+                connection,
+                request["now"],
+                None,
+                request["request_id"],
+                "CAPACITY_RECONFIGURED",
+                "TYPED_EXPECTED_CURRENT_CHANGE",
+                ["BR-LAUNCH-001"],
+                str(current_capacity),
+                str(request["requested_configured_capacity"]),
+                {
+                    "active_or_reserved_count": active_or_reserved,
+                    "evidence_refs": request["evidence_refs"],
+                    "expected_state_revision": current_revision,
+                },
+            )
+            committed_revision = self.bounded_metadata_int(
+                connection, "revision", 0, 9_223_372_036_854_775_807
+            )
+            committed = {
+                "request_id": request["request_id"],
+                "previous_configured_capacity": current_capacity,
+                "configured_capacity": request["requested_configured_capacity"],
+                "previous_state_revision": current_revision,
+                "committed_state_revision": committed_revision,
+                "active_or_reserved_count_at_commit": active_or_reserved,
+            }
+            connection.execute(
+                """INSERT INTO capacity_reconfigurations(
+                  request_id,request_hash,expected_configured_capacity,
+                  requested_configured_capacity,previous_state_revision,
+                  result_json,recorded_at
+                ) VALUES(?,?,?,?,?,?,?)""",
+                (
+                    request["request_id"],
+                    request_hash,
+                    request["expected_configured_capacity"],
+                    request["requested_configured_capacity"],
+                    current_revision,
+                    canonical(committed),
+                    request["now"],
+                ),
+            )
+            connection.commit()
+            return {
+                **committed,
+                "replayed": False,
+                "current_configured_capacity": request[
+                    "requested_configured_capacity"
+                ],
+                "current_state_revision": committed_revision,
+            }
         except Exception:
             connection.rollback()
             raise
@@ -5372,7 +5595,7 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
         request["plugin_version"], "plugin_version", 80, single_line=True
     )
     if (
-        re.fullmatch(r"0\.3\.(?:0|1|2|3|4|5)(?:\+codex\.\d{14})?", plugin_version)
+        re.fullmatch(r"0\.3\.(?:0|1|2|3|4|5|6)(?:\+codex\.\d{14})?", plugin_version)
         is None
     ):
         fail(
@@ -6135,6 +6358,68 @@ def validate_recycle(value: Any) -> dict[str, Any]:
         "audits": validate_blocked_audits(request["audits"], "recycle audits"),
         "now": timestamp(request["now"]),
     }
+
+
+def validate_capacity_reconfiguration(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "expected_state_revision",
+            "expected_configured_capacity",
+            "requested_configured_capacity",
+            "evidence_refs",
+            "now",
+        },
+        label="configure-capacity request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    evidence_refs = [
+        coarse_label(reference, "configure-capacity.evidence_refs[]")
+        for reference in request["evidence_refs"]
+    ] if isinstance(request["evidence_refs"], list) else []
+    if not evidence_refs or len(evidence_refs) > 16:
+        fail(
+            "SCHEMA_INVALID",
+            "configure-capacity requires one to sixteen coarse evidence references",
+        )
+    output = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "expected_state_revision": bounded_int(
+            request["expected_state_revision"],
+            "expected_state_revision",
+            0,
+            9_223_372_036_854_775_807,
+        ),
+        "expected_configured_capacity": bounded_int(
+            request["expected_configured_capacity"],
+            "expected_configured_capacity",
+            1,
+            64,
+        ),
+        "requested_configured_capacity": bounded_int(
+            request["requested_configured_capacity"],
+            "requested_configured_capacity",
+            1,
+            64,
+        ),
+        "evidence_refs": evidence_refs,
+        "now": timestamp(request["now"]),
+    }
+    if (
+        output["expected_configured_capacity"]
+        == output["requested_configured_capacity"]
+    ):
+        fail(
+            "CAPACITY_NO_CHANGE",
+            "capacity reconfiguration must request a different bounded value",
+            exit_status=EXIT_CONFLICT,
+        )
+    reject_sensitive(output, "configure-capacity request")
+    return output
 
 
 def validate_capacity_watchdog(value: Any) -> dict[str, Any]:
@@ -7065,6 +7350,7 @@ def parser() -> argparse.ArgumentParser:
         "record-setup-failure",
         "record-handback",
         "record-archive-receipt",
+        "configure-capacity",
         "capacity-watchdog",
         "lifecycle-watchdog",
         "takeover-lease",
@@ -7111,6 +7397,10 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "record-handback": (plane.record_handback, "record-handback"),
             "record-archive-receipt": (plane.archive_receipt, "record-archive-receipt"),
+            "configure-capacity": (
+                plane.configure_capacity,
+                "configure-capacity",
+            ),
             "capacity-watchdog": (plane.capacity_watchdog, "capacity-watchdog"),
             "lifecycle-watchdog": (plane.lifecycle_watchdog, "lifecycle-watchdog"),
             "takeover-lease": (plane.takeover_lease, "takeover-lease"),

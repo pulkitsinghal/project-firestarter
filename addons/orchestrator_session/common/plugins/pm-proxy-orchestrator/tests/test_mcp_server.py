@@ -313,6 +313,114 @@ class McpServerTest(unittest.TestCase):
             drifted["structuredContent"]["error"]["code"],
         )
 
+    def test_capacity_reconfiguration_requires_covered_root_and_replays_truthfully(
+        self,
+    ) -> None:
+        plugin_version = json.loads(
+            (PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )["version"]
+        self.record_owner_adoption(
+            {
+                "interface_version": "1.0",
+                "request_id": "capacity-adoption",
+                "adoption_mode": "COVERED_PATH_GUARDRAIL",
+                "plugin_version": plugin_version,
+                "proofs": {
+                    "pre_tool_denial_verified": True,
+                    "typed_mcp_control_verified": True,
+                    "reserved_create_admission_verified": True,
+                    "lifecycle_debt_clear_verified": True,
+                    "archive_refill_fence_verified": True,
+                    "no_side_effect_canary_verified": True,
+                    "hosted_paths_uncovered": True,
+                    "universal_coverage_claimed": False,
+                },
+                "now": iso(),
+            }
+        )
+        status = self.call("pm_proxy_status", self.common())["result"]
+        status_value = status["structuredContent"]["result"]
+        request = {
+            **self.common(),
+            "request_id": "capacity-four-to-eight",
+            "expected_state_revision": status_value["revision"],
+            "expected_configured_capacity": 4,
+            "requested_configured_capacity": 8,
+            "evidence_refs": ["owner-request-capacity-eight"],
+            "now": iso(minutes=1),
+        }
+        changed = self.call("pm_proxy_configure_capacity", request)["result"]
+        self.assertIsNot(changed.get("isError"), True, changed)
+        result = changed["structuredContent"]["result"]
+        self.assertEqual(4, result["previous_configured_capacity"])
+        self.assertEqual(8, result["configured_capacity"])
+        self.assertFalse(result["replayed"])
+        self.assertEqual(
+            result["previous_state_revision"] + 1,
+            result["committed_state_revision"],
+        )
+
+        replayed = self.call("pm_proxy_configure_capacity", request)["result"]
+        self.assertIsNot(replayed.get("isError"), True, replayed)
+        replay = replayed["structuredContent"]["result"]
+        self.assertTrue(replay["replayed"])
+        self.assertEqual(
+            result["committed_state_revision"],
+            replay["committed_state_revision"],
+        )
+        current = self.call("pm_proxy_status", self.common())["result"]
+        current_value = current["structuredContent"]["result"]
+        self.assertEqual(
+            {
+                "configured_capacity": 8,
+                "active_or_reserved_count": 0,
+                "root_excluded": True,
+            },
+            current_value["worker_capacity"],
+        )
+
+        for minute, expected, requested in (
+            (2, 8, 6),
+            (3, 6, 8),
+            (4, 8, 4),
+        ):
+            before = self.call("pm_proxy_status", self.common())["result"]
+            before_value = before["structuredContent"]["result"]
+            rollback = self.call(
+                "pm_proxy_configure_capacity",
+                {
+                    **self.common(),
+                    "request_id": f"capacity-{expected}-to-{requested}",
+                    "expected_state_revision": before_value["revision"],
+                    "expected_configured_capacity": expected,
+                    "requested_configured_capacity": requested,
+                    "evidence_refs": [f"owner-capacity-{expected}-to-{requested}"],
+                    "now": iso(minutes=minute),
+                },
+            )["result"]
+            self.assertIsNot(rollback.get("isError"), True, rollback)
+            rollback_value = rollback["structuredContent"]["result"]
+            self.assertEqual(expected, rollback_value["previous_configured_capacity"])
+            self.assertEqual(requested, rollback_value["configured_capacity"])
+
+        final = self.call("pm_proxy_status", self.common())["result"]
+        final_value = final["structuredContent"]["result"]
+        self.assertEqual(4, final_value["worker_capacity"]["configured_capacity"])
+        audit = json.loads(
+            (self.state / "root-role-audit.json").read_text(encoding="utf-8")
+        )
+        capacity_records = [
+            record
+            for record in audit["records"]
+            if record["action_type"] == "configure_capacity"
+        ]
+        self.assertEqual(5, len(capacity_records))
+        self.assertTrue(
+            all(record["decision"] == "ALLOW" for record in capacity_records)
+        )
+
     def test_runtime_pin_permissions_fail_closed(self) -> None:
         os.chmod(self.pin_path, 0o644)
         denied = self.call(
@@ -376,6 +484,25 @@ class McpServerTest(unittest.TestCase):
         self.assertFalse(safety["covered_path_automatic_launch_refill_allowed"])
         self.assertFalse(safety["unattended_automatic_launch_refill_allowed"])
         self.assertEqual("DISABLED", safety["automatic_launch_refill_scope"])
+        capacity_denied = self.call(
+            "pm_proxy_configure_capacity",
+            {
+                **self.common(),
+                "request_id": "unadopted-capacity",
+                "expected_state_revision": status["structuredContent"]["result"][
+                    "revision"
+                ],
+                "expected_configured_capacity": 4,
+                "requested_configured_capacity": 8,
+                "evidence_refs": ["owner-request-capacity-eight"],
+                "now": iso(),
+            },
+        )["result"]
+        self.assertTrue(capacity_denied["isError"])
+        self.assertEqual(
+            "dispatcher-adoption-required",
+            capacity_denied["structuredContent"]["error"]["code"],
+        )
         launch = launch_request(task_id="unadopted")
         launch["target"]["repo_root"] = str(self.target)
         launch["target"]["remote"] = "https://github.com/example/project.git"

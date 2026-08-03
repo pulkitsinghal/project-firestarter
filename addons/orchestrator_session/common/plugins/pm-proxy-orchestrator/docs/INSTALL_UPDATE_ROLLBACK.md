@@ -38,6 +38,7 @@ Use a hook-untrusted bootstrap task for discovery. Before trusting the hook or
 assigning `ROOT_ORCHESTRATOR_ROLE=trusted-project-hook`, confirm that the exact
 installed version exposes `pm_proxy_verify_runtime`, `pm_proxy_doctor`,
 `pm_proxy_status`, `pm_proxy_prepare_launch`,
+`pm_proxy_configure_capacity`,
 `pm_proxy_record_launch_receipt`, `pm_proxy_lifecycle_watchdog`,
 `pm_proxy_reconcile_expired_lease`,
 `pm_proxy_close_and_refill`, `pm_proxy_watchdog_refill`,
@@ -59,8 +60,9 @@ Treat these as separate gates:
 Keep root-role enforcement inactive during gates 1-3. Source and Docker tests
 must include adversarial held-lock, stale-ledger, archive-replay, malformed
 state, and missing-component cases before any candidate is installed on a host.
-Launch, close/refill, and watchdog-refill remain disabled until both the pin and
-a current-version covered-path adoption receipt exist.
+Capacity reconfiguration, launch, close/refill, and watchdog-refill remain
+disabled until both the pin and a current-version covered-path adoption receipt
+exist.
 
 Passing an earlier gate does not prove a later one. This artifact performs no
 personal installation or live configuration mutation.
@@ -103,6 +105,29 @@ plugin-creator `update_plugin_cachebuster.py` helper for iterative local
 reinstalls rather than editing marketplace JSON by hand. Reinstall from the
 configured local marketplace name, then test in a new task.
 
+For the `0.3.5` to `0.3.6` Desktop rollout, preserve this exact order:
+
+1. stop the recorded `0.3.5` isolated host with the matching installed `0.3.5`
+   adapter before replacing plugin files; never ask a `0.3.6` adapter to stop
+   an old session;
+2. install the complete reviewed `0.3.6` bundle and compatible clean control
+   bundle `1.3.6` as one unit;
+3. from an owner terminal, run the new bridge's idempotent `init` once against
+   the existing private state so the additive capacity replay table exists;
+4. recreate the content runtime pin, perform prompt-untrusted tool discovery and
+   typed doctor, repeat the prompted bootstrap/covered-path adoption proof, and
+   launch a fresh isolated adapter session;
+5. read typed status, then call `pm_proxy_configure_capacity` with one unique
+   request ID, its exact returned revision, expected capacity `4`, requested
+   capacity `8`, coarse evidence, and explicit UTC time;
+6. require exit `0`, verify the committed revision and a fresh status showing
+   capacity `8`, then prepare four additional workers as separate fenced
+   operations. Receipt-derived status must reach exactly eight active-or-reserved
+   workers; a concurrent ninth reservation must fail `CAPACITY_FULL`.
+
+Any failure stops before the next step. The capacity transaction never launches
+or refills a task, and the operator must not emulate it with a SQLite update.
+
 Every plugin version change invalidates the prior runtime pin and dispatcher
 adoption for automatic-control readiness. Re-run the pin command against the
 same reviewed clean runtime, repeat the live covered-path proof, and record a
@@ -128,3 +153,23 @@ rollback procedure instead of copying an older database over it.
 Desktop host session schemas are version-bound. Stop an active host with the
 matching adapter before updating or rolling back plugin source. Never transplant
 its capability token or edit an old session file to satisfy a new adapter.
+
+For a deterministic capacity-only rollback from `8` to `6`, first finish or
+receipt-fence workers until active-or-reserved occupancy is at most six. While
+the `0.3.6` covered path is current, read a fresh status and use one new typed
+compare-and-set request with its exact revision, expected capacity `8`, and
+requested capacity `6`; require exit `0` and verify fresh status reports six.
+
+For a direct capacity-only rollback from `8` to `4`, first reduce receipt-backed
+occupancy to at most four, then use a different unique request with fresh exact
+status, expected capacity `8`, and requested capacity `4`; require exit `0` and
+verify fresh status reports four. If capacity has already moved from `8` to `6`,
+the later request must instead expect `6` and request `4`. Never reuse or edit a
+prior request, bypass the occupancy floor, or change SQLite directly.
+
+For a full bundle rollback, complete the capacity rollback to four first. Then
+stop the `0.3.6` host with the matching `0.3.6` adapter, restore the complete
+retained `0.3.5` bundle/runtime, recreate its matching pin and covered-path
+adoption, and launch its matching host. Keep the migrated database; the additive
+replay table is harmless to older code and must not be removed or replaced with
+an older database copy.

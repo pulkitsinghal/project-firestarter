@@ -64,6 +64,7 @@ ROOT_CONTROL_PLANE_ALLOW = {
 }
 ROOT_CONTROL_PLANE_MCP_ALLOW = {
     "mcp__pm_proxy_orchestrator__pm_proxy_close_and_refill",
+    "mcp__pm_proxy_orchestrator__pm_proxy_configure_capacity",
     "mcp__pm_proxy_orchestrator__pm_proxy_doctor",
     "mcp__pm_proxy_orchestrator__pm_proxy_heartbeat",
     "mcp__pm_proxy_orchestrator__pm_proxy_lifecycle_watchdog",

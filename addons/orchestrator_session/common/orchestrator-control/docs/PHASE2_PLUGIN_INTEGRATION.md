@@ -42,11 +42,33 @@ root action.
 
 The root allowlist is deliberately narrow: receive owner intent; reserve,
 prepare, and launch visible tasks; deduplicate ownership; route PM-proxy
-decisions; monitor receipts and handbacks; refill capacity; and synthesize
-worker-returned evidence. Task-domain/repository inspection, design, coding,
-testing, duration estimation, deployment, and cleanup are worker actions. When
-delegable, the guard returns `PREPARE_SUCCESSOR_HANDOFF`; the wrapper must
-launch or hand off the work instead of performing it locally.
+decisions; monitor receipts and handbacks; reconfigure or refill capacity; and
+synthesize worker-returned evidence. Capacity reconfiguration is admitted only
+as the exact `configure_capacity` root action and the closed
+`configure-capacity` request; it does not admit task-domain work. Repository
+inspection, design, coding, testing, duration estimation, deployment, and
+cleanup are worker actions. When delegable, the guard returns
+`PREPARE_SUCCESSOR_HANDOFF`; the wrapper must launch or hand off the work
+instead of performing it locally.
+
+## Typed configured-capacity change
+
+`configure-capacity` is the only supported mutation of initialized worker
+capacity. Its closed request supplies an idempotency key, the exact expected
+state revision, expected current capacity, requested bounded capacity, coarse
+evidence references, and an explicit UTC timestamp. One `BEGIN IMMEDIATE`
+transaction rejects stale/current mismatches, reductions below the live
+receipt-backed active-or-reserved count, same-key conflicts, corrupt replay
+receipts, and unsafe state before committing the capacity, one state revision,
+one `CAPACITY_RECONFIGURED` event, and one replay receipt. An exact replay
+returns both its original commit and the current capacity/revision without a
+second write. It never launches, refills, retires, or archives a task.
+
+An upgraded existing schema-1.3 database must first run the idempotent `init`
+command from control bundle `1.3.6` so the additive receipt table exists. The
+MCP operation additionally requires the exact reviewed runtime pin, a matching
+current-version covered-path adoption receipt, and the exact adapter-attested
+root guard decision. Direct SQLite changes are unsupported.
 
 This is a control-plane defect boundary, not prompt etiquette. Whenever an
 eligible worker slot exists, root is coordination-only and cannot report
@@ -362,7 +384,8 @@ The repo-local marketplace at `../../.agents/plugins/marketplace.json` exposes
 source artifact only: generation and validation do not install it into a
 personal marketplace or mutate live agent-CLI configuration. Its bridge uses a
 fixed command allowlist, validates the Firestarter executable/version/schema,
-runs `recycle-queue` before launch and closure, persists prompt-free tickets,
-requires the schema-1.3 runtime attestation on launch and refill receipts, and
-fails closed on missing/corrupt state, quarantined policy, stale receipts,
-unattested or drifting runtime policy, or interface mismatch.
+runs `recycle-queue` before launch and closure, exposes the bounded
+`configure-capacity` compare-and-set, persists prompt-free tickets, requires the
+schema-1.3 runtime attestation on launch and refill receipts, and fails closed
+on missing/corrupt state, quarantined policy, stale receipts, unattested or
+drifting runtime policy, or interface mismatch.

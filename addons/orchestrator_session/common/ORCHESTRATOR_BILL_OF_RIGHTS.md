@@ -234,6 +234,11 @@ owner, dependencies, evidence target, and current state.
   capacity; a deficit triggers immediate event-driven reconciliation, a
   periodic watchdog retry, and a visible dashboard failure. Slot truth derives
   only from reservations, launch receipts, and clean handbacks.
+- Change configured worker capacity only through a typed compare-and-set that
+  supplies the expected current capacity and exact state revision. Bound the
+  requested value, refuse reductions below active-or-reserved occupancy, make
+  exact replay idempotent, and transactionally commit the capacity, revision,
+  and privacy-bounded audit event. Never edit SQLite capacity metadata directly.
 - A worker's self-reported `running` state cannot override objective completion
   evidence indefinitely. The lifecycle watchdog retains the completion
   evidence, bounded handback checks, last fresh remaining-work progress, and

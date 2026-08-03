@@ -55,6 +55,7 @@ PLUGIN_ID = "pm-proxy-orchestrator@project-firestarter"
 MCP_SERVER_ID = "pm-proxy-orchestrator"
 REQUIRED_TOOLS = {
     "pm_proxy_close_and_refill",
+    "pm_proxy_configure_capacity",
     "pm_proxy_doctor",
     "pm_proxy_heartbeat",
     "pm_proxy_lifecycle_watchdog",
@@ -70,6 +71,7 @@ REQUIRED_TOOLS = {
 }
 PROMPT_FREE_CONTROL_TOOLS = (
     "pm_proxy_close_and_refill",
+    "pm_proxy_configure_capacity",
     "pm_proxy_doctor",
     "pm_proxy_heartbeat",
     "pm_proxy_lifecycle_watchdog",

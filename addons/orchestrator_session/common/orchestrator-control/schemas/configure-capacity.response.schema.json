@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/configure-capacity-response-1.0.schema.json",
+  "title": "configure-capacity success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "configure-capacity"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "previous_configured_capacity",
+        "configured_capacity",
+        "previous_state_revision",
+        "committed_state_revision",
+        "active_or_reserved_count_at_commit",
+        "replayed",
+        "current_configured_capacity",
+        "current_state_revision"
+      ],
+      "properties": {
+        "request_id": {"type": "string"},
+        "previous_configured_capacity": {"type": "integer", "minimum": 1, "maximum": 64},
+        "configured_capacity": {"type": "integer", "minimum": 1, "maximum": 64},
+        "previous_state_revision": {"type": "integer", "minimum": 0},
+        "committed_state_revision": {"type": "integer", "minimum": 1},
+        "active_or_reserved_count_at_commit": {"type": "integer", "minimum": 0},
+        "replayed": {"type": "boolean"},
+        "current_configured_capacity": {"type": "integer", "minimum": 1, "maximum": 64},
+        "current_state_revision": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

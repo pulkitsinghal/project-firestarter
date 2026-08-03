@@ -297,6 +297,426 @@ class ControlPlaneTests(unittest.TestCase):
         request.update(overrides)
         return request
 
+    @staticmethod
+    def capacity_request(
+        *,
+        request_id: str = "capacity-4-to-8",
+        expected_revision: int = 0,
+        expected_capacity: int = 4,
+        requested_capacity: int = 8,
+    ) -> dict[str, object]:
+        return {
+            "interface_version": "1.0",
+            "request_id": request_id,
+            "expected_state_revision": expected_revision,
+            "expected_configured_capacity": expected_capacity,
+            "requested_configured_capacity": requested_capacity,
+            "evidence_refs": ["owner-request-capacity-eight"],
+            "now": NOW,
+        }
+
+    def test_capacity_reconfiguration_is_revision_fenced_audited_and_idempotent(
+        self,
+    ) -> None:
+        request = self.capacity_request()
+        changed = self.run_cli("configure-capacity", request)["result"]
+        self.assertEqual(
+            {
+                "request_id": "capacity-4-to-8",
+                "previous_configured_capacity": 4,
+                "configured_capacity": 8,
+                "previous_state_revision": 0,
+                "committed_state_revision": 1,
+                "active_or_reserved_count_at_commit": 0,
+                "replayed": False,
+                "current_configured_capacity": 8,
+                "current_state_revision": 1,
+            },
+            changed,
+        )
+        replayed = self.run_cli("configure-capacity", request)["result"]
+        self.assertTrue(replayed["replayed"])
+        self.assertEqual(1, replayed["committed_state_revision"])
+        self.assertEqual(1, replayed["current_state_revision"])
+
+        status = self.run_cli("status")["result"]
+        self.assertEqual(8, status["worker_capacity"]["configured_capacity"])
+        self.assertEqual(1, status["revision"])
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        connection.row_factory = sqlite3.Row
+        try:
+            self.assertEqual(
+                1,
+                connection.execute(
+                    "SELECT count(*) FROM capacity_reconfigurations"
+                ).fetchone()[0],
+            )
+            event = connection.execute(
+                "SELECT * FROM events WHERE type='CAPACITY_RECONFIGURED'"
+            ).fetchone()
+            self.assertIsNotNone(event)
+            self.assertEqual("4", event["before_state"])
+            self.assertEqual("8", event["after_state"])
+            self.assertEqual(1, event["revision"])
+            self.assertEqual(
+                {
+                    "active_or_reserved_count": 0,
+                    "evidence_refs": ["owner-request-capacity-eight"],
+                    "expected_state_revision": 0,
+                },
+                json.loads(event["metadata_json"]),
+            )
+        finally:
+            connection.close()
+
+        conflicting = dict(request)
+        conflicting["requested_configured_capacity"] = 9
+        conflict = self.run_cli(
+            "configure-capacity", conflicting, expected=3
+        )
+        self.assertEqual("IDEMPOTENCY_CONFLICT", conflict["error"]["code"])
+
+        rollback_to_six = self.capacity_request(
+            request_id="capacity-8-to-6",
+            expected_revision=1,
+            expected_capacity=8,
+            requested_capacity=6,
+        )
+        rolled_back_to_six = self.run_cli(
+            "configure-capacity", rollback_to_six
+        )["result"]
+        self.assertEqual(8, rolled_back_to_six["previous_configured_capacity"])
+        self.assertEqual(6, rolled_back_to_six["configured_capacity"])
+        self.assertEqual(2, rolled_back_to_six["committed_state_revision"])
+        later_replay = self.run_cli("configure-capacity", request)["result"]
+        self.assertTrue(later_replay["replayed"])
+        self.assertEqual(8, later_replay["configured_capacity"])
+        self.assertEqual(6, later_replay["current_configured_capacity"])
+        self.assertEqual(2, later_replay["current_state_revision"])
+
+        restored_to_eight = self.run_cli(
+            "configure-capacity",
+            self.capacity_request(
+                request_id="capacity-6-to-8",
+                expected_revision=2,
+                expected_capacity=6,
+                requested_capacity=8,
+            ),
+        )["result"]
+        self.assertEqual(8, restored_to_eight["configured_capacity"])
+        self.assertEqual(3, restored_to_eight["committed_state_revision"])
+        rolled_back_to_four = self.run_cli(
+            "configure-capacity",
+            self.capacity_request(
+                request_id="capacity-8-to-4",
+                expected_revision=3,
+                expected_capacity=8,
+                requested_capacity=4,
+            ),
+        )["result"]
+        self.assertEqual(8, rolled_back_to_four["previous_configured_capacity"])
+        self.assertEqual(4, rolled_back_to_four["configured_capacity"])
+        self.assertEqual(4, rolled_back_to_four["committed_state_revision"])
+
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            connection.execute(
+                """UPDATE capacity_reconfigurations
+                   SET result_json='{"request_id":"capacity-4-to-8"}'
+                   WHERE request_id='capacity-4-to-8'"""
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        corrupt_replay = self.run_cli(
+            "configure-capacity", request, expected=4
+        )
+        self.assertEqual("STATE_CORRUPT", corrupt_replay["error"]["code"])
+        unchanged = self.run_cli("status")["result"]
+        self.assertEqual(4, unchanged["worker_capacity"]["configured_capacity"])
+        self.assertEqual(4, unchanged["revision"])
+
+    def test_capacity_reconfiguration_rejects_stale_mismatch_bounds_and_noop(
+        self,
+    ) -> None:
+        stale = self.capacity_request(expected_revision=1)
+        stale_result = self.run_cli("configure-capacity", stale, expected=3)
+        self.assertEqual(
+            "STATE_REVISION_CONFLICT", stale_result["error"]["code"]
+        )
+        mismatch = self.capacity_request(
+            request_id="capacity-current-mismatch",
+            expected_capacity=3,
+        )
+        mismatch_result = self.run_cli(
+            "configure-capacity", mismatch, expected=3
+        )
+        self.assertEqual(
+            "CAPACITY_CONFIGURATION_CONFLICT",
+            mismatch_result["error"]["code"],
+        )
+        for request_id, requested in (
+            ("capacity-zero", 0),
+            ("capacity-too-large", 65),
+            ("capacity-boolean", True),
+        ):
+            with self.subTest(requested=requested):
+                invalid = self.capacity_request(
+                    request_id=request_id,
+                    requested_capacity=requested,
+                )
+                result = self.run_cli(
+                    "configure-capacity", invalid, expected=2
+                )
+                self.assertEqual("SCHEMA_INVALID", result["error"]["code"])
+        no_change = self.capacity_request(
+            request_id="capacity-no-change",
+            requested_capacity=4,
+        )
+        no_change_result = self.run_cli(
+            "configure-capacity", no_change, expected=3
+        )
+        self.assertEqual(
+            "CAPACITY_NO_CHANGE", no_change_result["error"]["code"]
+        )
+        malformed = self.capacity_request(request_id="capacity-malformed")
+        malformed.pop("expected_state_revision")
+        malformed_result = self.run_cli(
+            "configure-capacity", malformed, expected=2
+        )
+        self.assertEqual("SCHEMA_INVALID", malformed_result["error"]["code"])
+        status = self.run_cli("status")["result"]
+        self.assertEqual(4, status["worker_capacity"]["configured_capacity"])
+        self.assertEqual(0, status["revision"])
+
+    def test_capacity_reconfiguration_enforces_occupancy_floor_and_unsafe_state(
+        self,
+    ) -> None:
+        self.run_cli("prepare-launch", self.prepare("capacity-floor-a", path="/a"))
+        self.run_cli("prepare-launch", self.prepare("capacity-floor-b", path="/b"))
+        status = self.run_cli("status")["result"]
+        self.assertEqual(2, status["worker_capacity"]["active_or_reserved_count"])
+        below = self.capacity_request(
+            request_id="capacity-below-occupancy",
+            expected_revision=status["revision"],
+            requested_capacity=1,
+        )
+        denied = self.run_cli("configure-capacity", below, expected=3)
+        self.assertEqual("CAPACITY_BELOW_OCCUPANCY", denied["error"]["code"])
+        after = self.run_cli("status")["result"]
+        self.assertEqual(4, after["worker_capacity"]["configured_capacity"])
+        self.assertEqual(status["revision"], after["revision"])
+
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            connection.execute(
+                "UPDATE metadata SET value='not-an-integer' WHERE key='configured_capacity'"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        corrupt = self.capacity_request(
+            request_id="capacity-corrupt-state",
+            expected_revision=status["revision"],
+        )
+        failed = self.run_cli("configure-capacity", corrupt, expected=4)
+        self.assertEqual("STATE_CORRUPT", failed["error"]["code"])
+
+    def test_capacity_reconfiguration_crash_rolls_back_every_write(self) -> None:
+        plane = control.Plane(self.state, LEDGER)
+        request = self.capacity_request(request_id="capacity-crash")
+        with mock.patch.object(plane, "event", side_effect=RuntimeError("crash")):
+            with self.assertRaisesRegex(RuntimeError, "crash"):
+                plane.configure_capacity(request)
+        status = self.run_cli("status")["result"]
+        self.assertEqual(4, status["worker_capacity"]["configured_capacity"])
+        self.assertEqual(0, status["revision"])
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            self.assertEqual(
+                0,
+                connection.execute(
+                    "SELECT count(*) FROM capacity_reconfigurations"
+                ).fetchone()[0],
+            )
+            self.assertEqual(
+                0,
+                connection.execute(
+                    "SELECT count(*) FROM events WHERE type='CAPACITY_RECONFIGURED'"
+                ).fetchone()[0],
+            )
+        finally:
+            connection.close()
+
+    def test_capacity_reconfiguration_serializes_with_concurrent_preparation(
+        self,
+    ) -> None:
+        for index in range(4):
+            self.run_cli(
+                "prepare-launch",
+                self.prepare(f"capacity-concurrent-{index}", path=f"/lane-{index}"),
+            )
+        status = self.run_cli("status")["result"]
+        self.assertEqual(4, status["worker_capacity"]["active_or_reserved_count"])
+        request = self.capacity_request(
+            request_id="capacity-concurrent-change",
+            expected_revision=status["revision"],
+        )
+        candidate = self.prepare("capacity-concurrent-fifth", path="/lane-4")
+        barrier = threading.Barrier(2)
+        results: dict[str, object] = {}
+
+        def change_capacity() -> None:
+            barrier.wait()
+            try:
+                results["capacity"] = control.Plane(
+                    self.state, LEDGER
+                ).configure_capacity(request)
+            except Exception as error:  # pragma: no cover - assertion below
+                results["capacity"] = error
+
+        def prepare_fifth() -> None:
+            barrier.wait()
+            try:
+                results["prepare"] = control.Plane(
+                    self.state, LEDGER
+                ).prepare_launch(candidate)
+            except Exception as error:
+                results["prepare"] = error
+
+        threads = [
+            threading.Thread(target=change_capacity),
+            threading.Thread(target=prepare_fifth),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive())
+
+        self.assertIsInstance(results["capacity"], dict)
+        preparation = results["prepare"]
+        if isinstance(preparation, control.ControlError):
+            self.assertEqual("CAPACITY_FULL", preparation.code)
+            control.Plane(self.state, LEDGER).prepare_launch(candidate)
+        else:
+            self.assertIsInstance(preparation, dict)
+        final = self.run_cli("status")["result"]
+        self.assertEqual(8, final["worker_capacity"]["configured_capacity"])
+        self.assertEqual(5, final["worker_capacity"]["active_or_reserved_count"])
+        self.assertLessEqual(
+            final["worker_capacity"]["active_or_reserved_count"],
+            final["worker_capacity"]["configured_capacity"],
+        )
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            self.assertEqual(
+                1,
+                connection.execute(
+                    "SELECT count(*) FROM capacity_reconfigurations"
+                ).fetchone()[0],
+            )
+            self.assertEqual(
+                1,
+                connection.execute(
+                    "SELECT count(*) FROM events WHERE type='CAPACITY_RECONFIGURED'"
+                ).fetchone()[0],
+            )
+        finally:
+            connection.close()
+
+    def test_capacity_eight_lane_ceiling_serializes_concurrent_reservations(
+        self,
+    ) -> None:
+        for index in range(4):
+            self.run_cli(
+                "prepare-launch",
+                self.prepare(f"capacity-eight-existing-{index}", path=f"/base-{index}"),
+            )
+        before = self.run_cli("status")["result"]
+        changed = self.run_cli(
+            "configure-capacity",
+            self.capacity_request(
+                request_id="capacity-exact-four-to-eight",
+                expected_revision=before["revision"],
+            ),
+        )["result"]
+        self.assertEqual(8, changed["configured_capacity"])
+
+        barrier = threading.Barrier(5)
+        results: dict[str, object] = {}
+
+        def reserve(index: int) -> None:
+            barrier.wait()
+            try:
+                results[str(index)] = control.Plane(
+                    self.state, LEDGER
+                ).prepare_launch(
+                    self.prepare(
+                        f"capacity-eight-concurrent-{index}",
+                        path=f"/ceiling-{index}",
+                    )
+                )
+            except Exception as error:
+                results[str(index)] = error
+
+        threads = [
+            threading.Thread(target=reserve, args=(index,)) for index in range(5)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive())
+
+        successes = [result for result in results.values() if isinstance(result, dict)]
+        failures = [
+            result for result in results.values() if isinstance(result, control.ControlError)
+        ]
+        self.assertEqual(4, len(successes))
+        self.assertEqual(1, len(failures))
+        self.assertEqual("CAPACITY_FULL", failures[0].code)
+
+        status = self.run_cli("status")["result"]
+        self.assertEqual(
+            {
+                "configured_capacity": 8,
+                "active_or_reserved_count": 8,
+                "root_excluded": True,
+            },
+            status["worker_capacity"],
+        )
+        floor_denied = self.run_cli(
+            "configure-capacity",
+            self.capacity_request(
+                request_id="capacity-eight-floor-denied",
+                expected_revision=status["revision"],
+                expected_capacity=8,
+                requested_capacity=4,
+            ),
+            expected=3,
+        )
+        self.assertEqual(
+            "CAPACITY_BELOW_OCCUPANCY", floor_denied["error"]["code"]
+        )
+        after_denial = self.run_cli("status")["result"]
+        self.assertEqual(status["revision"], after_denial["revision"])
+        self.assertEqual(status["worker_capacity"], after_denial["worker_capacity"])
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            receipt_backed = connection.execute(
+                """SELECT count(*) FROM tasks AS task
+                   JOIN owner_claims AS claim ON claim.task_id=task.task_id
+                   WHERE claim.status='active'
+                     AND task.state IN ('LAUNCH_PENDING','RUNNING')"""
+            ).fetchone()[0]
+            self.assertEqual(
+                receipt_backed,
+                status["worker_capacity"]["active_or_reserved_count"],
+            )
+        finally:
+            connection.close()
+
     def test_state_permissions_schema_and_effective_rule_trace(self) -> None:
         self.assertEqual(0o700, stat.S_IMODE(self.state.stat().st_mode))
         self.assertEqual(

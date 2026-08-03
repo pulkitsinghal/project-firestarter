@@ -128,6 +128,14 @@ class RootRoleGuardTests(unittest.TestCase):
         self.assertEqual("ORCHESTRATION", result["classification"])
         self.assertEqual("ALLOW", result["decision"])
 
+    def test_capacity_reconfiguration_is_typed_orchestration_not_task_execution(
+        self,
+    ) -> None:
+        result = self.evaluate("configure_capacity")
+        self.assertEqual("ORCHESTRATION", result["classification"])
+        self.assertEqual("ALLOW", result["decision"])
+        self.assertEqual("ROOT_ORCHESTRATION_ALLOWED", result["reason_code"])
+
     def test_truthful_statuses_require_matching_worker_evidence(self) -> None:
         cases = {
             "assigned": [launch_receipt()],

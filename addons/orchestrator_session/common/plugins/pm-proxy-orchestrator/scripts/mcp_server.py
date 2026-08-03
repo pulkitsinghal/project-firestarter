@@ -32,7 +32,7 @@ BRIDGE = (
     / "pm_proxy_bridge.py"
 )
 REFILL = BRIDGE.with_name("refill_saga.py")
-SERVER_VERSION = "0.3.5"
+SERVER_VERSION = "0.3.6"
 MAX_MESSAGE_BYTES = 2_000_000
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
@@ -563,6 +563,53 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         status["runtime_pin"] = runtime_pin_summary()
         status["operational_safety"] = operational_safety(status)
         return payload
+    if name == "pm_proxy_configure_capacity":
+        exact_keys(
+            arguments,
+            {
+                "project_root",
+                "state_dir",
+                "request_id",
+                "expected_state_revision",
+                "expected_configured_capacity",
+                "requested_configured_capacity",
+                "evidence_refs",
+                "now",
+            },
+            {
+                "state_dir",
+                "request_id",
+                "expected_state_revision",
+                "expected_configured_capacity",
+                "requested_configured_capacity",
+                "evidence_refs",
+                "now",
+            },
+        )
+        require_automatic_control_ready(project, state)
+        root_guard(project, state, "configure_capacity")
+        request = {
+            "interface_version": "1.0",
+            "request_id": arguments["request_id"],
+            "expected_state_revision": arguments["expected_state_revision"],
+            "expected_configured_capacity": arguments[
+                "expected_configured_capacity"
+            ],
+            "requested_configured_capacity": arguments[
+                "requested_configured_capacity"
+            ],
+            "evidence_refs": arguments["evidence_refs"],
+            "now": arguments["now"],
+        }
+        with request_files(state, {"capacity": request}) as paths:
+            return invoke(
+                base
+                + [
+                    "configure-capacity",
+                    "--request",
+                    str(paths["capacity"]),
+                ]
+            )
     if name == "pm_proxy_reconcile_expired_lease":
         exact_keys(
             arguments,
@@ -798,6 +845,32 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "pm_proxy_doctor": {"description": "Validate the pinned or explicitly selected Firestarter CLI, schemas, private state, and quarantined rules.", "inputSchema": schema({}, [])},
     "pm_proxy_status": {"description": "Return receipt-derived orchestrator capacity, lifecycle truth, and automatic-control readiness at an optional explicit clock.", "inputSchema": schema({"now": {"type": "string"}}, [])},
+    "pm_proxy_configure_capacity": {
+        "description": "Compare-and-set bounded worker capacity from an exact expected value and state revision through the current covered root path.",
+        "inputSchema": schema(
+            {
+                "request_id": {"type": "string"},
+                "expected_state_revision": {"type": "integer", "minimum": 0},
+                "expected_configured_capacity": {"type": "integer", "minimum": 1, "maximum": 64},
+                "requested_configured_capacity": {"type": "integer", "minimum": 1, "maximum": 64},
+                "evidence_refs": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 16,
+                    "items": {"type": "string"},
+                },
+                "now": {"type": "string"},
+            },
+            [
+                "request_id",
+                "expected_state_revision",
+                "expected_configured_capacity",
+                "requested_configured_capacity",
+                "evidence_refs",
+                "now",
+            ],
+        ),
+    },
     "pm_proxy_reconcile_expired_lease": {
         "description": "Retire one exact expired receipt-fenced owner and release its capacity without takeover, closure, archive, or refill.",
         "inputSchema": schema({"ticket_id": {"type": "string"}, "request_id": {"type": "string"}, "now": {"type": "string"}}, ["ticket_id", "request_id", "now"]),

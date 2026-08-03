@@ -1,9 +1,10 @@
 # PM Proxy Orchestrator
 
-Version `0.3.5` is a source-only agent-CLI plugin for Firestarter control-plane
-interface `1.0`. It makes task reservation, policy receipts, approval routing,
-fenced handback, successor creation, and queue recycling operational without
-installing anything globally.
+Version `0.3.6` is a source-only agent-CLI plugin for Firestarter control-plane
+interface `1.0` and control bundle `1.3.6`. It makes typed configured-capacity
+compare-and-set, task reservation, policy receipts, approval routing, fenced
+handback, successor creation, and queue recycling operational without installing
+anything globally.
 
 The plugin does not bundle or replace Firestarter's SQLite authority. Configure
 an absolute path to the compatible `orchestrator_control.py` and an initialized
@@ -20,7 +21,7 @@ lifecycle action. Hosted paths, opt-outs, reauthorization gaps, and universal
 non-spoofable caller identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
 
-Version `0.3.5` also includes an opt-in Desktop app-server proxy. An
+Version `0.3.6` also includes an opt-in Desktop app-server proxy. An
 owner-selected exact task ID is attested as root through a private local socket;
 other task IDs remain workers, so visible workers do not inherit a process-wide
 root role. The adapter requires current pin/doctor state and a fresh native-hook
@@ -34,8 +35,11 @@ After the exact current-version covered-path adoption and runtime pin verify,
 that isolated proxy also applies Codex's supported prompt-free mode to only the
 named typed ORC control-plane mechanics. The setting is process-local and
 per-tool, not a global approval-policy change. Exact-task attestation admits the
-root while the hook denies the prompt-free set to other task IDs; task-domain,
-owner-gated, expired-lease reconciliation, and universal paths are not widened.
+root while the hook denies the prompt-free set to other task IDs. The bounded
+`pm_proxy_configure_capacity` operation requires both the expected state revision
+and expected current capacity, enforces the active/reserved floor, and has no
+launch side effect; task-domain, owner-gated, expired-lease reconciliation, and
+universal paths are not widened.
 
 Bridge/ticket `1.3` accepts control schema `1.3`, requires the exact root and
 worker runtime policy plus a truthful launch attestation before receipt, and
@@ -53,9 +57,9 @@ transaction and receipted before predecessor archive; unrelated idle slots stay
 visible and do not turn that already-reserved successor back into runnable work.
 
 The plugin includes a local stdio MCP server exposing only typed verifier,
-doctor, reserve/receipt, lifecycle, close/refill, status, and archive-receipt
-operations. It has no network client, app connector, shell executor, generic
-filesystem tool, or arbitrary-command field.
+doctor, configured-capacity, reserve/receipt, lifecycle, close/refill, status,
+and archive-receipt operations. It has no network client, app connector, shell
+executor, generic filesystem tool, or arbitrary-command field.
 
 An owner-operated runtime pin binds that MCP surface to one exact Firestarter
 worktree and a content digest covering the control CLI, version, schemas,

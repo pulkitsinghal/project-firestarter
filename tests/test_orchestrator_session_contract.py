@@ -38,6 +38,8 @@ REQUIRED_FILES = {
     "orchestrator-control/schemas/adaptive-capacity-audit.response.schema.json",
     "orchestrator-control/schemas/classify-decision.request.schema.json",
     "orchestrator-control/schemas/classify-decision.response.schema.json",
+    "orchestrator-control/schemas/configure-capacity.request.schema.json",
+    "orchestrator-control/schemas/configure-capacity.response.schema.json",
     "orchestrator-control/schemas/capacity-watchdog.request.schema.json",
     "orchestrator-control/schemas/capacity-watchdog.response.schema.json",
     "orchestrator-control/schemas/duration-estimate.request.schema.json",
@@ -99,6 +101,9 @@ REQUIRED_FAILURE_PREVENTION_CLAUSES = {
     ),
     "closure_refill_capacity": (
         "Whenever runnable work exists, active-or-reserved slots equal configured"
+    ),
+    "capacity_reconfiguration": (
+        "Change configured worker capacity only through a typed compare-and-set"
     ),
     "duplicate_stop": (
         "the duplicate lane stops at read-only\n"
@@ -269,7 +274,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         self.assertEqual(entry["name"], manifest["name"])
         self.assertRegex(
             manifest["version"],
-            r"^0\.3\.5(?:\+codex\.\d{14})?$",
+            r"^0\.3\.6(?:\+codex\.\d{14})?$",
         )
         self.assertEqual("./skills/", manifest["skills"])
         self.assertEqual("./.mcp.json", manifest["mcpServers"])
@@ -308,7 +313,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         canonical_bytes = CANONICAL_BILL.read_bytes()
         canonical_text = canonical_bytes.decode("utf-8")
         self.assertEqual(
-            "1.3.5",
+            "1.3.6",
             (ADDON / "orchestrator-control" / "VERSION")
             .read_text(encoding="utf-8")
             .strip(),

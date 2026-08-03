@@ -1,6 +1,6 @@
 # Codex Desktop host adapter
 
-Version `0.3.5` includes an opt-in desktop host adapter for one exact root task.
+Version `0.3.6` includes an opt-in desktop host adapter for one exact root task.
 It does not export `ROOT_ORCHESTRATOR_ROLE` to the normal desktop process and it
 does not infer root identity from a prompt, working directory, project, or
 model-visible field.
@@ -26,13 +26,20 @@ with that full switch and the exact proxy and real app-server PIDs are observed.
 
 For the exact bound root task, the proxy adds Codex's supported per-tool
 `approval_mode="approve"` setting to only these typed MCP controls: `doctor`,
-`status`, runtime verification, `prepare-launch`, launch receipt, heartbeat,
-lifecycle watchdog, close/refill, archive and refill receipts, slot status, and
-watchdog refill. It does not change the user's global approval policy or plugin
+`status`, bounded capacity reconfiguration, runtime verification,
+`prepare-launch`, launch receipt, heartbeat, lifecycle watchdog, close/refill,
+archive and refill receipts, slot status, and watchdog refill. It does not
+change the user's global approval policy or plugin
 configuration. The native hook denies that prompt-free set for every other task
 ID in the isolated host. Expired-lease reconciliation remains outside the grant,
 as do task creation itself and all shell, file, browser, Sites, credential,
 destructive, owner-gated, production, and external tools.
+
+Capacity reconfiguration additionally requires the verified runtime pin and
+current covered-path adoption, an exact expected capacity and state revision,
+and a bounded requested value. It cannot reduce below active/reserved
+occupancy. The control transaction records one idempotency receipt and audit
+event; the adapter and MCP server never edit SQLite directly.
 
 This is still `COVERED_PATH_GUARDRAIL`, not universal enforcement. A worker can
 share the same OS account, and hosted or specialized tools may bypass native
@@ -77,7 +84,7 @@ non-secret instance ID.
 ## Operator workflow
 
 Run these commands from an owner-controlled terminal, outside an enforced root
-task. First install the complete `0.3.5` plugin, recreate the runtime pin for the
+task. First install the complete `0.3.6` plugin, recreate the runtime pin for the
 reviewed clean Firestarter runtime, and run doctor. Keep any global
 `ROOT_ORCHESTRATOR_ROLE` export unset.
 
@@ -160,7 +167,7 @@ ordinary Desktop app was never reconfigured and remains the fallback. Retain
 the private instance directory for inspection until the failed canary or host
 shutdown is understood; removing it is a separate owner decision.
 
-Version `0.3.5` session records use schema `1.2`. Stop an active `0.3.4` host
-with its matching `0.3.4` adapter before replacing that installed source. A
+Version `0.3.6` session records use schema `1.2`. Stop an active `0.3.5` host
+with its matching `0.3.5` adapter before replacing that installed source. A
 rollback restores the prior complete plugin version, pin, and adoption proof;
 it never copies a session token or edits an old session record into compatibility.

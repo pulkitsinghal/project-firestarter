@@ -423,6 +423,7 @@ for line in sys.stdin:
     def test_prompt_free_grant_is_exact_per_tool_and_precedes_app_server(self):
         expected = {
             "pm_proxy_close_and_refill",
+            "pm_proxy_configure_capacity",
             "pm_proxy_doctor",
             "pm_proxy_heartbeat",
             "pm_proxy_lifecycle_watchdog",

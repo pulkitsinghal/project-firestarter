@@ -38,7 +38,7 @@ This is not universal root-role enforcement:
 - the documented hook payload has no non-spoofable root/worker identity, and
   subagents share the parent `session_id`.
 
-The `0.3.5` Desktop host adapter improves the native desktop boundary without
+The `0.3.6` Desktop host adapter improves the native desktop boundary without
 changing that label. It proxies one isolated app-server and supplies a
 host-owned exact root task-ID decision to every native hook invocation. Other
 task IDs remain workers instead of inheriting a process-wide root environment.
@@ -62,7 +62,7 @@ reports `covered_path_dispatcher_enforcement: true` and retains
 `platform_dispatcher_enforcement: false`. The receipt explicitly records hosted
 paths as uncovered and rejects any universal-coverage claim.
 
-Version `0.3.5` also requires an owner-private content pin of the exact
+Version `0.3.6` also requires an owner-private content pin of the exact
 Firestarter runtime. Automatic launch/refill readiness is true only when the pin
 verifies and the newest
 adoption receipt carries the current plugin version. A source update therefore

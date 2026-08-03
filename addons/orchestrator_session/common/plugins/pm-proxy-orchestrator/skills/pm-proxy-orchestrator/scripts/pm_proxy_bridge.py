@@ -56,6 +56,8 @@ REQUIRED_SCHEMAS = {
 CAPACITY_SCHEMAS = {
     "capacity-watchdog.request.schema.json": "capacity-watchdog-request-1.0.schema.json",
     "capacity-watchdog.response.schema.json": "capacity-watchdog-response-1.0.schema.json",
+    "configure-capacity.request.schema.json": "configure-capacity-request-1.0.schema.json",
+    "configure-capacity.response.schema.json": "configure-capacity-response-1.0.schema.json",
     "reconcile-external-task.request.schema.json": "reconcile-external-task-request-1.0.schema.json",
     "reconcile-external-task.response.schema.json": "reconcile-external-task-response-1.0.schema.json",
 }
@@ -429,6 +431,7 @@ def run_cli(
         "record-handback",
         "record-archive-receipt",
         "capacity-watchdog",
+        "configure-capacity",
         "lifecycle-watchdog",
         "recycle-queue",
         "record-duration-progress",
@@ -669,6 +672,58 @@ def validate_prepare_result(result: dict[str, Any]) -> tuple[dict[str, Any], lis
             "launch envelope root or worker runtime policy drifted",
         )
     return envelope, sorted(rule_ids)
+
+
+def validate_capacity_result(
+    result: dict[str, Any], request: dict[str, Any]
+) -> None:
+    expected_fields = {
+        "request_id",
+        "previous_configured_capacity",
+        "configured_capacity",
+        "previous_state_revision",
+        "committed_state_revision",
+        "active_or_reserved_count_at_commit",
+        "replayed",
+        "current_configured_capacity",
+        "current_state_revision",
+    }
+    if set(result) != expected_fields:
+        raise BridgeError(
+            "MACHINE_RESPONSE_INVALID",
+            "configure-capacity result fields are incompatible",
+        )
+    integer_fields = expected_fields - {"request_id", "replayed"}
+    if any(
+        isinstance(result[field], bool) or not isinstance(result[field], int)
+        for field in integer_fields
+    ):
+        raise BridgeError(
+            "MACHINE_RESPONSE_INVALID",
+            "configure-capacity result integer fields are incompatible",
+        )
+    if (
+        result["request_id"] != request.get("request_id")
+        or result["previous_configured_capacity"]
+        != request.get("expected_configured_capacity")
+        or result["configured_capacity"]
+        != request.get("requested_configured_capacity")
+        or result["previous_state_revision"]
+        != request.get("expected_state_revision")
+        or result["committed_state_revision"]
+        != result["previous_state_revision"] + 1
+        or result["active_or_reserved_count_at_commit"] < 0
+        or result["active_or_reserved_count_at_commit"]
+        > result["configured_capacity"]
+        or not 1 <= result["current_configured_capacity"] <= 64
+        or result["current_state_revision"]
+        < result["committed_state_revision"]
+        or not isinstance(result["replayed"], bool)
+    ):
+        raise BridgeError(
+            "MACHINE_RESPONSE_INVALID",
+            "configure-capacity result does not match the typed request",
+        )
 
 
 def validate_runtime_attestation(value: Any) -> dict[str, Any]:
@@ -964,6 +1019,7 @@ def build_parser() -> argparse.ArgumentParser:
         "duration-estimate",
         "duration-schedule",
         "record-dispatcher-adoption",
+        "configure-capacity",
     ):
         request_parser = sub.add_parser(name)
         request_parser.add_argument("--request", required=True)
@@ -1078,6 +1134,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "duration-estimate",
         "duration-schedule",
         "record-dispatcher-adoption",
+        "configure-capacity",
     }:
         request = load_json_file(args.request, f"{operation} request")
         if operation == "record-policy-rule":
@@ -1092,7 +1149,17 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "duration control requires Firestarter schema 1.2",
                 exit_status=2,
             )
+        if operation == "configure-capacity" and not schema_at_least(
+            health["schema_version"], (1, 3)
+        ):
+            raise BridgeError(
+                "FEATURE_UNSUPPORTED",
+                "capacity reconfiguration requires Firestarter schema 1.3",
+                exit_status=2,
+            )
         result = run_cli(cli, state_dir, operation, request=request)
+        if operation == "configure-capacity":
+            validate_capacity_result(result, request)
         if operation == "classify-decision":
             route = result.get("classification")
             prompt_required = result.get("owner_prompt_required")

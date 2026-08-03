@@ -40,6 +40,7 @@ ORCHESTRATION_ACTIONS = frozenset(
         "monitor_receipt",
         "monitor_handback",
         "refill_capacity",
+        "configure_capacity",
         "synthesize_worker_evidence",
         "notify_owner",
     }
