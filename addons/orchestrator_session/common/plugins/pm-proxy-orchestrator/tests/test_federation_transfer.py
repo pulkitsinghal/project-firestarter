@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -11,6 +12,10 @@ from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = PLUGIN_ROOT / "scripts" / "federation_transfer.py"
+SPEC = importlib.util.spec_from_file_location("federation_transfer", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
 REPO_ROOT = PLUGIN_ROOT.parents[4]
 CLI = (
     REPO_ROOT
@@ -64,7 +69,13 @@ class FederationTransferTest(unittest.TestCase):
             raise AssertionError(completed.stderr)
 
     @staticmethod
-    def write_host(host: Path, instance_id: str, *, armed: bool = False) -> None:
+    def write_host(
+        host: Path,
+        instance_id: str,
+        *,
+        armed: bool = False,
+        desktop_pid: int | None = None,
+    ) -> None:
         private(host)
         session = host / "session.json"
         session.write_text(
@@ -72,7 +83,7 @@ class FederationTransferTest(unittest.TestCase):
                 {
                     "instance_id": instance_id,
                     "armed": armed,
-                    "desktop_pid": None,
+                    "desktop_pid": desktop_pid,
                     "proxy_pid": None,
                     "app_server_pid": None,
                 },
@@ -128,7 +139,7 @@ class FederationTransferTest(unittest.TestCase):
             [4, 4], [source["configured_capacity"] for source in result["sources"]]
         )
         self.assertTrue(
-            all(item["processes_cleared"] for item in result["source_host_evidence"])
+            all(item["processes_absent"] for item in result["source_host_evidence"])
         )
 
         replay = subprocess.run(
@@ -139,6 +150,21 @@ class FederationTransferTest(unittest.TestCase):
         )
         self.assertEqual(0, replay.returncode, replay.stderr)
         self.assertTrue(json.loads(replay.stdout)["single_active_root"])
+
+    def test_disarmed_host_accepts_historical_dead_pid_and_rejects_live_pid(
+        self,
+    ) -> None:
+        dead_host = self.root / "dead-host"
+        self.write_host(dead_host, "dead-host", desktop_pid=2_147_483_647)
+        evidence = MODULE.disarmed_host(str(dead_host))
+        self.assertTrue(evidence["processes_absent"])
+
+        live_host = self.root / "live-host"
+        self.write_host(live_host, "live-host", desktop_pid=os.getpid())
+        with self.assertRaisesRegex(
+            MODULE.TransferError, "source-host-process-still-running"
+        ):
+            MODULE.disarmed_host(str(live_host))
 
     def test_armed_source_host_fails_before_authority_mutation(self) -> None:
         self.write_host(self.hosts[0], "source-host-1", armed=True)
