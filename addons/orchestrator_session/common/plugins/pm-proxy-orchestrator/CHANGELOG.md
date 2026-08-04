@@ -2,12 +2,11 @@
 
 ## Unreleased
 
-- Allow only exact authoritative terminal evidence to carry an expired
-  committed receipt through `close-and-refill`: either an active matching
-  `CONTROL_SCHEMA_HOLD`, or a completion-signalled `COMPLETION_CANDIDATE` /
-  `INTERRUPT_REQUIRED` lifecycle with its matching required action. Admit both
-  local completion dispositions to authoritative control validation, and keep
-  recycle/release effects behind the atomic handback commit.
+## 0.4.3 - 2026-08-04
+
+- Fix stale receipt-fenced local-completion replay by accepting only matching
+  authoritative terminal evidence and keeping handback, release, and recycle
+  effects atomic.
 
 ## 0.4.2 - 2026-08-04
 
