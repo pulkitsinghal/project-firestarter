@@ -274,7 +274,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         self.assertEqual(entry["name"], manifest["name"])
         self.assertRegex(
             manifest["version"],
-            r"^0\.3\.6(?:\+codex\.\d{14})?$",
+            r"^0\.4\.0(?:\+codex\.\d{14})?$",
         )
         self.assertEqual("./skills/", manifest["skills"])
         self.assertEqual("./.mcp.json", manifest["mcpServers"])
@@ -313,7 +313,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         canonical_bytes = CANONICAL_BILL.read_bytes()
         canonical_text = canonical_bytes.decode("utf-8")
         self.assertEqual(
-            "1.3.6",
+            "1.4.0",
             (ADDON / "orchestrator-control" / "VERSION")
             .read_text(encoding="utf-8")
             .strip(),
@@ -437,7 +437,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
                         capture_output=True,
                         text=True,
                     )
-                    self.assertEqual("1.3", json.loads(status.stdout)["result"]["schema_version"])
+                    self.assertEqual("1.4", json.loads(status.stdout)["result"]["schema_version"])
 
 
 if __name__ == "__main__":

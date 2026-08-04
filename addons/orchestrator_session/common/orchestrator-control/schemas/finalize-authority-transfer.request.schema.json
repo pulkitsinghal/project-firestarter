@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/finalize-authority-transfer-request-1.0.schema.json",
+  "title": "finalize-authority-transfer request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interface_version",
+    "request_id",
+    "transfer_id",
+    "target_stage_receipt",
+    "now"
+  ],
+  "properties": {
+    "interface_version": {
+      "const": "1.0"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "transfer_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "target_stage_receipt": {
+      "$ref": "https://firestarter.invalid/orchestrator-control/authority-transfer-receipt-1.0.schema.json"
+    },
+    "now": {
+      "type": "string"
+    }
+  }
+}

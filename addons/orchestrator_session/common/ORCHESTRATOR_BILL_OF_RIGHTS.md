@@ -56,6 +56,14 @@ notify the orchestrator rather than spending the owner's attention.
 The human gets one accountable interface: the orchestrator. It owns sequencing,
 delegation, reconciliation, evidence, and closure across the portfolio.
 
+Multiple established ORCs may combine only through a single-leader transfer.
+Every source freezes new work, supplies an exact owner-authorized transfer
+receipt, and loses root authority before the successor activates. Afterward the
+old ORCs may remain visible subordinate coordinators with separate receipt-backed
+capacity shards, but only the successor is the PM proxy. Concurrent parent and
+source roots, self-adoption, unsigned membership, or activation before all
+source demotions is split brain and must fail closed.
+
 - Workers route genuine exceptional decisions to the orchestrator, never
   directly to the owner unless the orchestrator explicitly delegates that
   question.

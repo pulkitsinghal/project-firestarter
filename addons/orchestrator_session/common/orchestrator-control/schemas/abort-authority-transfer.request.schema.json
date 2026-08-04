@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/abort-authority-transfer-request-1.0.schema.json",
+  "title": "abort-authority-transfer request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interface_version",
+    "request_id",
+    "transfer_id",
+    "expected_authority_state",
+    "expected_state_revision",
+    "target_activation_absent",
+    "reason_code",
+    "evidence_refs",
+    "now"
+  ],
+  "properties": {
+    "interface_version": {
+      "const": "1.0"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "transfer_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "expected_authority_state": {
+      "enum": [
+        "SOURCE_PREPARED",
+        "TARGET_STAGED"
+      ]
+    },
+    "expected_state_revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "target_activation_absent": {
+      "const": true
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "now": {
+      "type": "string"
+    }
+  }
+}

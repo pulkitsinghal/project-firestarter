@@ -73,7 +73,7 @@ class CurrentFirestarterIntegrationTest(unittest.TestCase):
         doctor = run(BRIDGE, "doctor")
         self.assertEqual(0, doctor.returncode, doctor.stderr)
         self.assertEqual(
-            "1.3",
+            "1.4",
             json.loads(doctor.stdout)["result"]["schema_version"],
         )
         root_request = write_json(

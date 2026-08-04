@@ -59,9 +59,10 @@ python skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py \
   init --now 2026-07-28T22:00:00Z
 ```
 
-After updating an existing schema-1.3 state to control bundle `1.3.6`, run the
-same idempotent `init` command once before recreating the runtime pin. It adds
-the capacity replay table and does not change the stored capacity. Then read
+After updating an existing schema-1.0 through schema-1.3 state to control bundle
+`1.4.0`, run the same idempotent `init` command once before recreating the
+runtime pin. It adds authority-transfer state and does not change stored
+capacity. Then read
 `status` and capture its exact `revision` and
 `worker_capacity.configured_capacity`. A capacity change is a separate typed
 compare-and-set and never creates a worker:

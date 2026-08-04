@@ -18,8 +18,8 @@ python orchestrator-control/orchestrator_control.py \
 Requests are UTF-8 JSON on stdin. Success is one JSON object on stdout. Failure
 is one JSON object on stderr and no success output.
 
-Schema `1.3` is an additive local-state migration from schema
-`1.0`/`1.1`/`1.2`; the
+Schema `1.4` is an additive local-state migration from schema
+`1.0`/`1.1`/`1.2`/`1.3`; the
 machine interface remains `1.0`. A wrapper accepts compatible schema `1.x` only
 after verifying every schema and command it uses. Unknown major/interface
 versions, missing schemas, unsafe state, or partial migrations fail closed.
@@ -64,11 +64,23 @@ one `CAPACITY_RECONFIGURED` event, and one replay receipt. An exact replay
 returns both its original commit and the current capacity/revision without a
 second write. It never launches, refills, retires, or archives a task.
 
-An upgraded existing schema-1.3 database must first run the idempotent `init`
-command from control bundle `1.3.6` so the additive receipt table exists. The
+An upgraded existing schema-1.0 through schema-1.3 database must first run the
+idempotent `init` command from control bundle `1.4.0` so the additive authority
+and transfer tables exist. The
 MCP operation additionally requires the exact reviewed runtime pin, a matching
 current-version covered-path adoption receipt, and the exact adapter-attested
 root guard decision. Direct SQLite changes are unsupported.
+
+## Owner-operated authority transfer
+
+Authority transfer is not an MCP operation. The fixed owner coordinator first
+verifies every old Desktop host is disarmed, then executes source prepare,
+target stage, every source demotion, target activation, and subordinate enable.
+Every source and the successor must have zero active or reserved workers before
+preparation. The active federation root refuses local worker launches and
+routes those operations to its subordinate ledgers. A staged transfer may abort
+only before any source is demoted; afterward recovery is forward-only and
+idempotently resumes the exact transfer receipts.
 
 This is a control-plane defect boundary, not prompt etiquette. Whenever an
 eligible worker slot exists, root is coordination-only and cannot report

@@ -6,7 +6,7 @@ Pinned source contract:
 - Current-master integration base:
   `a32741d7958eeff7fd49ccd979c44acccdc69d91`
 - Compatible CLI versions: `1.x`
-- Compatible ledger schemas: `1.0`, `1.1`, `1.2`, `1.3`
+- Compatible ledger schemas: `1.0`, `1.1`, `1.2`, `1.3`, `1.4`
 - Machine interface: `1.0`
 - Canonical document:
   `addons/orchestrator_session/common/orchestrator-control/docs/PHASE2_PLUGIN_INTEGRATION.md`
@@ -23,7 +23,9 @@ The wrapper permits these commands: `init`, `status`, `record-policy-rule`,
 `classify-decision`, `record-heartbeat`, `takeover-lease`,
 `record-handback`, `record-archive-receipt`, `recycle-queue`, capacity
 reconciliation, schema 1.2 duration commands, `record-setup-failure`, and
-schema 1.3 `lifecycle-watchdog`.
+schema 1.3 `lifecycle-watchdog`. Schema 1.4 authority-transfer commands are
+reserved to the fixed owner-operated federation coordinator and are not exposed
+through MCP or the root's prompt-free tool grant.
 `root-action` invokes the
 fixed adjacent `root_role_guard.py`, not an arbitrary caller command.
 
@@ -73,6 +75,7 @@ Response validation intentionally fails on:
 - an external task ID other than the exact ID in the current launch receipt;
 - schema 1.2 without its duration and root-role schemas or guard script;
 - schema 1.3 without its lifecycle-watchdog schemas;
+- schema 1.4 without its closed authority-transfer receipt and operation schemas;
 - missing, drifted, API-key, unattested, or contradictory runtime attestation;
 - a launch/refill request without both a verified runtime pin and a matching
   current-version covered-path dispatcher adoption;
@@ -103,6 +106,12 @@ Schema 1.3 adds evidence-derived lifecycle reconciliation after every worker
 message, wait timeout, and before status claims. The exact fenced closure order
 is handback, capacity release, blocked-work re-audit, successor launch receipt
 or terminal proof, then predecessor archive.
+
+Schema 1.4 adds a two-phase, crash-resumable single-leader federation. Sources
+must be drained and their Desktop hosts disarmed before demotion. The successor
+stays staged until all exact source-finalization receipts exist, then becomes
+the sole active root and enables each source as a separate subordinate shard.
+Abort is allowed only before a source is demoted; later recovery is forward-only.
 
 ## Root, lifecycle, and duration adoption boundary
 

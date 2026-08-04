@@ -176,7 +176,7 @@ class McpServerTest(unittest.TestCase):
         )
         tool_result = doctor["result"]
         self.assertIsNot(tool_result.get("isError"), True)
-        self.assertEqual("1.3", tool_result["structuredContent"]["result"]["schema_version"])
+        self.assertEqual("1.4", tool_result["structuredContent"]["result"]["schema_version"])
         pin = tool_result["structuredContent"]["result"]["runtime_pin"]
         self.assertTrue(pin["configured"])
         self.assertTrue(pin["verified"])

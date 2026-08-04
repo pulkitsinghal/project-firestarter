@@ -123,6 +123,14 @@ or receipt fails.
     identities, prompts, or secrets in a resource profile.
 18. Run `recycle-queue` again on capacity, startup, dependency, evidence, or
     policy changes before launching lower-value work.
+19. Merge established ORCs only with the owner-operated
+    `scripts/federation_transfer.py`; authority-transfer commands are never MCP
+    tools. Require every source ledger to be drained and its exact Desktop host
+    disarmed. The fixed flow is source prepare → target stage → every source
+    demotion → target activation → subordinate enable. Resume the same transfer
+    after a crash; abort only before any source demotion. The target is the sole
+    PM proxy, cannot launch locally, and routes capacity work to its subordinate
+    shards.
 
 ## Policy recording
 
