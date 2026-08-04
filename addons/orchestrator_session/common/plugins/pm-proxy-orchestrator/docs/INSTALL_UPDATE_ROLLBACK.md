@@ -105,6 +105,16 @@ plugin-creator `update_plugin_cachebuster.py` helper for iterative local
 reinstalls rather than editing marketplace JSON by hand. Reinstall from the
 configured local marketplace name, then test in a new task.
 
+For the `0.3.6` to `0.4.0` rollout, first stop the exact `0.3.6` isolated host
+with its matching adapter. Install plugin `0.4.0` and control bundle `1.4.0` as
+one reviewed unit, run idempotent `init` to add authority metadata and transfer
+tables, recreate the runtime pin, and repeat the complete long-lived Desktop
+canary and covered-path adoption. Do not migrate live authority until the new
+host passes. Federation additionally requires two drained source ledgers, their
+exact hosts disarmed, an empty successor state, and the owner-operated
+`federation_transfer.py` flow. Abort is safe only before source demotion;
+post-demotion recovery resumes forward.
+
 For the `0.3.5` to `0.3.6` Desktop rollout, preserve this exact order:
 
 1. stop the recorded `0.3.5` isolated host with the matching installed `0.3.5`

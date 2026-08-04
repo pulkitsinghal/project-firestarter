@@ -481,7 +481,7 @@ class LifecycleWatchdogTests(unittest.TestCase):
         migrated = self.run_cli(
             "init", now="2026-07-29T18:01:00Z"
         )["result"]
-        self.assertEqual("1.3", migrated["schema_version"])
+        self.assertEqual("1.4", migrated["schema_version"])
         with sqlite3.connect(database) as connection:
             names = {
                 row[0]

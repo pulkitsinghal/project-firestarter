@@ -9,7 +9,8 @@ The integration was then rebased onto post-Router `master`
 independently usable with Firestarter interface 1.0. Schema 1.1 adds native
 capacity sagas; schema 1.2 adds duration control and the root-role guard
 contract; schema 1.3 adds runtime-policy receipts and lifecycle-watchdog
-terminalization/refill fencing.
+terminalization/refill fencing; schema 1.4 adds owner-operated single-leader
+federation outside the MCP self-service surface.
 
 Integration procedure:
 

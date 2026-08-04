@@ -20,12 +20,12 @@ service and not a replacement policy source.
 - The caller selects a local state directory. The CLI enforces directory mode
   `0700`, database mode `0600`, current-user ownership, and no symlink path
   components.
-- Control bundle `1.3.6` keeps state schema `1.3` and migrates an existing
-  schema `1.0`, `1.1`, or `1.2` database in place. Re-running `init` after this
-  bundle update adds the idempotency receipts required by typed capacity
-  reconfiguration without changing the configured capacity. The stable JSON
-  interface remains `1.0`; copying an older database over a migrated database
-  is not a supported rollback.
+- Control bundle `1.4.0` advances state schema to `1.4` and migrates an existing
+  schema `1.0` through `1.3` database in place. Re-running `init` adds stable
+  authority identity, transfer receipts, and federation membership without
+  changing configured capacity. The stable JSON interface remains `1.0`;
+  copying an older database over a migrated database is not a supported
+  rollback.
 - Raw prompts are returned ephemerally to the wrapper and are not stored or
   hashed. Handback evidence is validated but only typed redacted summaries are
   retained. Legacy dashboard JSON is quarantined byte-for-byte for rollback and
@@ -49,6 +49,21 @@ All request commands accept UTF-8 JSON through `--request FILE` or
 contract in
 [`docs/PHASE2_PLUGIN_INTEGRATION.md`](docs/PHASE2_PLUGIN_INTEGRATION.md) define
 the stable `1.0` wrapper boundary.
+
+## Single-leader federation
+
+Schema 1.4 supports an owner-operated, forward-only authority transfer. Each
+source must first have zero active or reserved workers. `prepare-authority-transfer`
+freezes its ledger; `stage-federation` binds at least two exact source receipts
+to an empty successor; `finalize-authority-transfer` demotes every old root;
+`activate-federation` creates the sole active federation root; and
+`enable-subordinate` reopens each preserved worker-capacity shard beneath it.
+
+The federation root cannot launch workers into its own ledger. It coordinates
+the subordinate ledgers, whose configured capacities remain separate. The
+installed plugin's owner-only `federation_transfer.py` coordinator requires the
+old Desktop hosts to be disarmed and resumes safely after a crash. The MCP
+surface deliberately cannot prepare, accept, or activate its own authority.
 
 ## Audit-only adaptive capacity
 

@@ -1,6 +1,6 @@
 # Codex Desktop host adapter
 
-Version `0.3.6` includes an opt-in desktop host adapter for one exact root task.
+Version `0.4.0` includes an opt-in desktop host adapter for one exact root task.
 It does not export `ROOT_ORCHESTRATOR_ROLE` to the normal desktop process and it
 does not infer root identity from a prompt, working directory, project, or
 model-visible field.
@@ -16,6 +16,10 @@ socket. The native pre/post hooks query that socket for every task:
 - an absent, corrupt, expired, or disarmed adapter denies hook dispatch inside
   this isolated host;
 - the ordinary Desktop app remains unmodified and available for recovery.
+
+The stdio proxy forwards each partial read immediately and flushes every frame.
+It never waits for a 64 KiB buffer or input EOF, which is required because the
+Desktop app-server pipe remains open for the life of the session.
 
 The repository launcher invokes the actual Desktop executable directly and
 places `--user-data-dir=<private instance>/electron-data` on its command line.
@@ -84,7 +88,7 @@ non-secret instance ID.
 ## Operator workflow
 
 Run these commands from an owner-controlled terminal, outside an enforced root
-task. First install the complete `0.3.6` plugin, recreate the runtime pin for the
+task. First install the complete `0.4.0` plugin, recreate the runtime pin for the
 reviewed clean Firestarter runtime, and run doctor. Keep any global
 `ROOT_ORCHESTRATOR_ROLE` export unset.
 

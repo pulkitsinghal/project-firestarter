@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Any
 
 
-BRIDGE_VERSION = "1.3"
+BRIDGE_VERSION = "1.4"
 INTERFACE_VERSION = "1.0"
 TICKET_VERSION = "1.3"
 LEGACY_TICKET_VERSIONS = {"1.0", "1.2"}
-SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1", "1.2", "1.3"}
+SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1", "1.2", "1.3", "1.4"}
 LAUNCH_RECEIPT_TTL_SECONDS = 300
 MAX_MACHINE_OUTPUT = 1_048_576
 MAX_REQUEST_BYTES = 524_288
@@ -83,6 +83,21 @@ LIFECYCLE_SCHEMAS = {
     "dispatcher-adoption.request.schema.json": "dispatcher-adoption-request-1.0.schema.json",
     "dispatcher-adoption.response.schema.json": "dispatcher-adoption-response-1.0.schema.json",
     "reconcile-expired-lease.request.schema.json": "reconcile-expired-lease-request-1.0.schema.json",
+}
+FEDERATION_SCHEMAS = {
+    "authority-transfer-receipt.schema.json": "authority-transfer-receipt-1.0.schema.json",
+    "prepare-authority-transfer.request.schema.json": "prepare-authority-transfer-request-1.0.schema.json",
+    "prepare-authority-transfer.response.schema.json": "prepare-authority-transfer-response-1.0.schema.json",
+    "stage-federation.request.schema.json": "stage-federation-request-1.0.schema.json",
+    "stage-federation.response.schema.json": "stage-federation-response-1.0.schema.json",
+    "finalize-authority-transfer.request.schema.json": "finalize-authority-transfer-request-1.0.schema.json",
+    "finalize-authority-transfer.response.schema.json": "finalize-authority-transfer-response-1.0.schema.json",
+    "activate-federation.request.schema.json": "activate-federation-request-1.0.schema.json",
+    "activate-federation.response.schema.json": "activate-federation-response-1.0.schema.json",
+    "enable-subordinate.request.schema.json": "enable-subordinate-request-1.0.schema.json",
+    "enable-subordinate.response.schema.json": "enable-subordinate-response-1.0.schema.json",
+    "abort-authority-transfer.request.schema.json": "abort-authority-transfer-request-1.0.schema.json",
+    "abort-authority-transfer.response.schema.json": "abort-authority-transfer-response-1.0.schema.json",
 }
 
 SECRET_KEYS = {
@@ -380,6 +395,8 @@ def validate_installation(cli_value: str) -> tuple[Path, str]:
             raise BridgeError("CLI_INCOMPATIBLE", "schema 1.2 root-role guard is missing")
     if int(match.group("minor")) >= 3:
         required_schemas.update(LIFECYCLE_SCHEMAS)
+    if int(match.group("minor")) >= 4:
+        required_schemas.update(FEDERATION_SCHEMAS)
     validate_schema_files(root, required_schemas)
     return cli, version
 
@@ -558,6 +575,10 @@ def doctor(cli: Path, state_dir: Path, version: str) -> dict[str, Any]:
         required.update(ROOT_GUARD_SCHEMAS)
         if not (cli.parent / "root_role_guard.py").is_file():
             raise BridgeError("CLI_INCOMPATIBLE", "schema 1.2 root-role guard is missing")
+    if schema_at_least(schema_version, (1, 3)):
+        required.update(LIFECYCLE_SCHEMAS)
+    if schema_at_least(schema_version, (1, 4)):
+        required.update(FEDERATION_SCHEMAS)
     validate_schema_files(cli.parent, required)
     rules = status.get("rules")
     if not isinstance(rules, list):

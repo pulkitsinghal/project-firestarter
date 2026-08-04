@@ -6,9 +6,11 @@ import hashlib
 import importlib.util
 import json
 import os
+import select
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -38,6 +40,32 @@ def write_executable(path: Path, text: str) -> Path:
 
 
 class DesktopHostAdapterTest(unittest.TestCase):
+    def test_proxy_forwards_small_frame_while_input_pipe_stays_open(self):
+        source_read, source_write = os.pipe()
+        destination_read, destination_write = os.pipe()
+        source = os.fdopen(source_read, "rb")
+        destination = os.fdopen(destination_write, "wb", buffering=0)
+        thread = threading.Thread(
+            target=ADAPTER.copy_stream,
+            args=(source, destination),
+            kwargs={"close": True},
+            daemon=True,
+        )
+        thread.start()
+        try:
+            frame = b'{"jsonrpc":"2.0","id":1,"method":"initialize"}\n'
+            os.write(source_write, frame)
+            readable, _, _ = select.select([destination_read], [], [], 1.0)
+            self.assertEqual([destination_read], readable)
+            self.assertEqual(frame, os.read(destination_read, len(frame)))
+            self.assertTrue(thread.is_alive(), "source EOF was required to forward")
+        finally:
+            os.close(source_write)
+            thread.join(timeout=1.0)
+            source.close()
+            os.close(destination_read)
+        self.assertFalse(thread.is_alive())
+
     def test_exact_root_is_guarded_worker_is_not_and_adapter_loss_fails_closed(self):
         with tempfile.TemporaryDirectory(prefix="pm-proxy-host-attestation-") as raw:
             root = private(Path(raw))

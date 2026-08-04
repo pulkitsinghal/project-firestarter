@@ -1,7 +1,7 @@
 # PM Proxy Orchestrator
 
-Version `0.3.6` is a source-only agent-CLI plugin for Firestarter control-plane
-interface `1.0` and control bundle `1.3.6`. It makes typed configured-capacity
+Version `0.4.0` is a source-only agent-CLI plugin for Firestarter control-plane
+interface `1.0` and control bundle `1.4.0`. It makes typed configured-capacity
 compare-and-set, task reservation, policy receipts, approval routing, fenced
 handback, successor creation, and queue recycling operational without installing
 anything globally.
@@ -21,7 +21,7 @@ lifecycle action. Hosted paths, opt-outs, reauthorization gaps, and universal
 non-spoofable caller identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
 
-Version `0.3.6` also includes an opt-in Desktop app-server proxy. An
+Version `0.4.0` also includes an opt-in Desktop app-server proxy. An
 owner-selected exact task ID is attested as root through a private local socket;
 other task IDs remain workers, so visible workers do not inherit a process-wide
 root role. The adapter requires current pin/doctor state and a fresh native-hook
@@ -41,7 +41,16 @@ and expected current capacity, enforces the active/reserved floor, and has no
 launch side effect; task-domain, owner-gated, expired-lease reconciliation, and
 universal paths are not widened.
 
-Bridge/ticket `1.3` accepts control schema `1.3`, requires the exact root and
+Schema `1.4` adds owner-operated single-leader federation. The fixed
+`scripts/federation_transfer.py` coordinator accepts only private source/target
+state and disarmed source-host records. It stages exact transfer receipts,
+demotes every old root before activating the successor, and then enables each
+old ledger as a subordinate worker-capacity shard. Two four-lane shards therefore
+provide federated capacity eight without changing either shard to eight. The
+federation root's own ledger refuses worker launches, and no authority-transfer
+command is exposed through MCP, so an ORC cannot adopt or promote itself.
+
+Bridge/ticket `1.3` accepts control schema `1.4`, requires the exact root and
 worker runtime policy plus a truthful launch attestation before receipt, and
 adds lifecycle-watchdog reconciliation. A desktop-app priority tier is
 `config-verified` because its task/thread and spawn APIs do not report service

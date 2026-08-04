@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/authority-transfer-receipt-1.0.schema.json",
+  "title": "authority transfer receipt 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "transfer_id",
+    "phase",
+    "subject_authority_id",
+    "target_authority_id",
+    "authority_epoch",
+    "state_revision",
+    "configured_capacity",
+    "member_authority_ids",
+    "membership_digest",
+    "recorded_at",
+    "receipt_sha256",
+    "replayed"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "phase": {
+      "enum": [
+        "SOURCE_PREPARED",
+        "TARGET_STAGED",
+        "SOURCE_FINALIZED",
+        "TARGET_ACTIVE",
+        "SUBORDINATE_ACTIVE",
+        "ABORTED"
+      ]
+    },
+    "subject_authority_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "target_authority_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "authority_epoch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state_revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "configured_capacity": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1024
+    },
+    "member_authority_ids": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "membership_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "recorded_at": {
+      "type": "string"
+    },
+    "receipt_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "replayed": {
+      "type": "boolean"
+    }
+  }
+}

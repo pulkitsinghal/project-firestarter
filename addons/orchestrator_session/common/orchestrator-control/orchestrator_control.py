@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import re
+import secrets
 import sqlite3
 import stat
 import sys
@@ -21,7 +22,7 @@ from urllib.parse import urlsplit
 
 
 INTERFACE_VERSION = "1.0"
-SCHEMA_VERSION = "1.3"
+SCHEMA_VERSION = "1.4"
 POLICY_SCHEMA_VERSION = "1.0"
 REQUIRED_ROOT_MODEL = "gpt-5.6-sol"
 REQUIRED_ROOT_REASONING_EFFORT = "xhigh"
@@ -37,6 +38,7 @@ MAX_TEXT = 50_000
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 RULE_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 PUBLIC_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .,&()'’+-]{0,79}$")
 PUBLIC_LABEL_SENSITIVE = re.compile(
@@ -1069,6 +1071,26 @@ CREATE TABLE IF NOT EXISTS capacity_reconfigurations (
   result_json TEXT NOT NULL,
   recorded_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS authority_transfer_steps (
+  transfer_id TEXT NOT NULL,
+  step TEXT NOT NULL,
+  request_id TEXT NOT NULL UNIQUE,
+  request_hash TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  PRIMARY KEY (transfer_id, step)
+);
+CREATE TABLE IF NOT EXISTS federation_members (
+  authority_id TEXT PRIMARY KEY,
+  transfer_id TEXT NOT NULL,
+  configured_capacity INTEGER NOT NULL,
+  source_state_revision INTEGER NOT NULL,
+  prepare_receipt_sha256 TEXT NOT NULL,
+  finalize_receipt_sha256 TEXT,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS lifecycle_watchdog (
   task_id TEXT PRIMARY KEY REFERENCES tasks(task_id),
   lifecycle_state TEXT NOT NULL,
@@ -1285,6 +1307,12 @@ class Plane:
                     "revision": "0",
                     "next_fence": "1",
                     "configured_capacity": str(configured_capacity),
+                    "authority_id": f"orc-{secrets.token_hex(16)}",
+                    "authority_role": "ROOT",
+                    "authority_state": "ACTIVE_ROOT",
+                    "authority_epoch": "1",
+                    "parent_authority_id": "",
+                    "active_transfer_id": "",
                     "created_at": now,
                 }
                 connection.executemany(
@@ -1294,6 +1322,18 @@ class Plane:
                 """INSERT OR IGNORE INTO metadata(key,value)
                    VALUES('configured_capacity',?)""",
                 (str(configured_capacity),),
+            )
+            authority_defaults = {
+                "authority_id": f"orc-{secrets.token_hex(16)}",
+                "authority_role": "ROOT",
+                "authority_state": "ACTIVE_ROOT",
+                "authority_epoch": "1",
+                "parent_authority_id": "",
+                "active_transfer_id": "",
+            }
+            connection.executemany(
+                "INSERT OR IGNORE INTO metadata(key,value) VALUES(?,?)",
+                authority_defaults.items(),
             )
             connection.execute(
                 """INSERT OR IGNORE INTO task_timing(
@@ -1376,6 +1416,756 @@ class Plane:
             ),
         )
 
+    def authority(self, connection: sqlite3.Connection) -> dict[str, Any]:
+        return {
+            "authority_id": self.metadata(connection, "authority_id"),
+            "role": self.metadata(connection, "authority_role"),
+            "state": self.metadata(connection, "authority_state"),
+            "epoch": int(self.metadata(connection, "authority_epoch")),
+            "parent_authority_id": (
+                self.metadata(connection, "parent_authority_id") or None
+            ),
+            "active_transfer_id": (
+                self.metadata(connection, "active_transfer_id") or None
+            ),
+        }
+
+    def require_operational_authority(
+        self, connection: sqlite3.Connection, operation: str
+    ) -> None:
+        authority = self.authority(connection)
+        state = authority["state"]
+        if state in {"SOURCE_PREPARED", "TARGET_STAGED", "SUBORDINATE_PENDING"}:
+            fail(
+                "AUTHORITY_TRANSFER_FROZEN",
+                "authority mutations are frozen during leadership transfer",
+                exit_status=EXIT_CONFLICT,
+                details={"authority_state": state},
+            )
+        if state == "ACTIVE_FEDERATION_ROOT" and operation not in {
+            "record-policy-rule",
+            "classify-decision",
+            "migrate-decisions",
+            "record-dispatcher-adoption",
+        }:
+            fail(
+                "FEDERATION_SHARD_REQUIRED",
+                "capacity-bearing operations must target a subordinate authority",
+                exit_status=EXIT_CONFLICT,
+            )
+        if state == "SUBORDINATE" and operation in {
+            "record-policy-rule",
+            "classify-decision",
+            "migrate-decisions",
+        }:
+            fail(
+                "FEDERATION_ROOT_REQUIRED",
+                "PM-proxy policy and decisions belong to the federation root",
+                exit_status=EXIT_CONFLICT,
+            )
+        if state not in {"ACTIVE_ROOT", "ACTIVE_FEDERATION_ROOT", "SUBORDINATE"}:
+            fail(
+                "AUTHORITY_STATE_INVALID",
+                "authority state is not operational",
+                exit_status=EXIT_STATE,
+            )
+
+    @staticmethod
+    def authority_receipt(
+        *,
+        transfer_id: str,
+        phase: str,
+        subject_authority_id: str,
+        target_authority_id: str,
+        authority_epoch: int,
+        state_revision: int,
+        configured_capacity: int,
+        member_authority_ids: list[str],
+        membership_digest: str,
+        recorded_at: str,
+    ) -> dict[str, Any]:
+        body = {
+            "transfer_id": transfer_id,
+            "phase": phase,
+            "subject_authority_id": subject_authority_id,
+            "target_authority_id": target_authority_id,
+            "authority_epoch": authority_epoch,
+            "state_revision": state_revision,
+            "configured_capacity": configured_capacity,
+            "member_authority_ids": sorted(member_authority_ids),
+            "membership_digest": membership_digest,
+            "recorded_at": recorded_at,
+        }
+        return {**body, "receipt_sha256": digest(body), "replayed": False}
+
+    @staticmethod
+    def transfer_replay(
+        connection: sqlite3.Connection,
+        transfer_id: str,
+        step: str,
+        request: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        row = connection.execute(
+            """SELECT request_id,request_hash,result_json
+               FROM authority_transfer_steps
+               WHERE transfer_id=? AND step=?""",
+            (transfer_id, step),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["request_id"] != request["request_id"] or row[
+            "request_hash"
+        ] != digest(request):
+            fail(
+                "AUTHORITY_TRANSFER_CONFLICT",
+                "authority transfer step input changed",
+                exit_status=EXIT_CONFLICT,
+            )
+        result = json.loads(row["result_json"])
+        result["replayed"] = True
+        return result
+
+    @staticmethod
+    def record_transfer_step(
+        connection: sqlite3.Connection,
+        transfer_id: str,
+        step: str,
+        request: dict[str, Any],
+        result: dict[str, Any],
+    ) -> None:
+        connection.execute(
+            """INSERT INTO authority_transfer_steps(
+                 transfer_id,step,request_id,request_hash,result_json,recorded_at
+               ) VALUES(?,?,?,?,?,?)""",
+            (
+                transfer_id,
+                step,
+                request["request_id"],
+                digest(request),
+                canonical(result),
+                request["now"],
+            ),
+        )
+
+    @staticmethod
+    def set_authority_metadata(
+        connection: sqlite3.Connection,
+        *,
+        role: str,
+        state: str,
+        epoch: int,
+        parent_authority_id: str | None,
+        transfer_id: str | None,
+    ) -> None:
+        values = {
+            "authority_role": role,
+            "authority_state": state,
+            "authority_epoch": str(epoch),
+            "parent_authority_id": parent_authority_id or "",
+            "active_transfer_id": transfer_id or "",
+        }
+        connection.executemany(
+            "UPDATE metadata SET value=? WHERE key=?",
+            [(value, key) for key, value in values.items()],
+        )
+
+    def prepare_authority_transfer(self, raw: Any) -> dict[str, Any]:
+        request = validate_prepare_authority_transfer(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self.transfer_replay(
+                connection, request["transfer_id"], "SOURCE_PREPARE", request
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            authority = self.authority(connection)
+            revision = int(self.metadata(connection, "revision"))
+            if authority["role"] != "ROOT" or authority["state"] != "ACTIVE_ROOT":
+                fail(
+                    "AUTHORITY_STATE_CONFLICT",
+                    "only an active standalone root can prepare transfer",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if authority["authority_id"] == request["target_authority_id"]:
+                fail("AUTHORITY_TRANSFER_INVALID", "an authority cannot adopt itself")
+            if revision != request["expected_state_revision"]:
+                fail(
+                    "STATE_REVISION_CONFLICT",
+                    "authority state revision changed",
+                    exit_status=EXIT_CONFLICT,
+                    details={"current_state_revision": revision},
+                )
+            occupancy = self.active_or_reserved_count(connection)
+            if occupancy != 0:
+                fail(
+                    "AUTHORITY_DRAIN_REQUIRED",
+                    "source authority must have no active or reserved workers",
+                    exit_status=EXIT_CONFLICT,
+                    details={"active_or_reserved_count": occupancy},
+                )
+            epoch = authority["epoch"] + 1
+            self.set_authority_metadata(
+                connection,
+                role="ROOT",
+                state="SOURCE_PREPARED",
+                epoch=epoch,
+                parent_authority_id=None,
+                transfer_id=request["transfer_id"],
+            )
+            self.event(
+                connection,
+                request["now"],
+                None,
+                request["request_id"],
+                "AUTHORITY_TRANSFER_PREPARED",
+                "OWNER_AUTHORIZED_SUCCESSOR",
+                ["BR-OWNER-001"],
+                "ACTIVE_ROOT",
+                "SOURCE_PREPARED",
+                {
+                    "transfer_id": request["transfer_id"],
+                    "source_authority_id": authority["authority_id"],
+                    "target_authority_id": request["target_authority_id"],
+                    "evidence_refs": request["evidence_refs"],
+                },
+            )
+            capacity = int(self.metadata(connection, "configured_capacity"))
+            membership = digest(
+                [{"authority_id": authority["authority_id"], "capacity": capacity}]
+            )
+            result = self.authority_receipt(
+                transfer_id=request["transfer_id"],
+                phase="SOURCE_PREPARED",
+                subject_authority_id=authority["authority_id"],
+                target_authority_id=request["target_authority_id"],
+                authority_epoch=epoch,
+                state_revision=int(self.metadata(connection, "revision")),
+                configured_capacity=capacity,
+                member_authority_ids=[authority["authority_id"]],
+                membership_digest=membership,
+                recorded_at=request["now"],
+            )
+            self.record_transfer_step(
+                connection,
+                request["transfer_id"],
+                "SOURCE_PREPARE",
+                request,
+                result,
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def stage_federation(self, raw: Any) -> dict[str, Any]:
+        request = validate_stage_federation(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self.transfer_replay(
+                connection, request["transfer_id"], "TARGET_STAGE", request
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            authority = self.authority(connection)
+            revision = int(self.metadata(connection, "revision"))
+            if authority["role"] != "ROOT" or authority["state"] != "ACTIVE_ROOT":
+                fail(
+                    "AUTHORITY_STATE_CONFLICT",
+                    "successor must be an active standalone root",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if revision != request["expected_state_revision"]:
+                fail(
+                    "STATE_REVISION_CONFLICT",
+                    "successor state revision changed",
+                    exit_status=EXIT_CONFLICT,
+                    details={"current_state_revision": revision},
+                )
+            if self.active_or_reserved_count(connection) != 0:
+                fail(
+                    "AUTHORITY_DRAIN_REQUIRED",
+                    "successor authority must have no active or reserved workers",
+                    exit_status=EXIT_CONFLICT,
+                )
+            receipts = request["source_receipts"]
+            source_ids = [item["subject_authority_id"] for item in receipts]
+            if authority["authority_id"] in source_ids:
+                fail("AUTHORITY_TRANSFER_INVALID", "successor cannot be a source member")
+            for receipt in receipts:
+                if (
+                    receipt["phase"] != "SOURCE_PREPARED"
+                    or receipt["transfer_id"] != request["transfer_id"]
+                    or receipt["target_authority_id"] != authority["authority_id"]
+                    or receipt["member_authority_ids"]
+                    != [receipt["subject_authority_id"]]
+                ):
+                    fail(
+                        "AUTHORITY_RECEIPT_MISMATCH",
+                        "source preparation receipt does not target this successor",
+                    )
+            epoch = authority["epoch"] + 1
+            self.set_authority_metadata(
+                connection,
+                role="ROOT",
+                state="TARGET_STAGED",
+                epoch=epoch,
+                parent_authority_id=None,
+                transfer_id=request["transfer_id"],
+            )
+            for receipt in receipts:
+                connection.execute(
+                    """INSERT INTO federation_members(
+                         authority_id,transfer_id,configured_capacity,
+                         source_state_revision,prepare_receipt_sha256,
+                         finalize_receipt_sha256,state,created_at,updated_at
+                       ) VALUES(?,?,?,?,?,NULL,'STAGED',?,?)""",
+                    (
+                        receipt["subject_authority_id"],
+                        request["transfer_id"],
+                        receipt["configured_capacity"],
+                        receipt["state_revision"],
+                        receipt["receipt_sha256"],
+                        request["now"],
+                        request["now"],
+                    ),
+                )
+            self.event(
+                connection,
+                request["now"],
+                None,
+                request["request_id"],
+                "FEDERATION_STAGED",
+                "TWO_PHASE_AUTHORITY_TRANSFER",
+                ["BR-OWNER-001"],
+                "ACTIVE_ROOT",
+                "TARGET_STAGED",
+                {
+                    "transfer_id": request["transfer_id"],
+                    "member_authority_ids": sorted(source_ids),
+                    "evidence_refs": request["evidence_refs"],
+                },
+            )
+            membership = digest(
+                sorted(receipt["receipt_sha256"] for receipt in receipts)
+            )
+            result = self.authority_receipt(
+                transfer_id=request["transfer_id"],
+                phase="TARGET_STAGED",
+                subject_authority_id=authority["authority_id"],
+                target_authority_id=authority["authority_id"],
+                authority_epoch=epoch,
+                state_revision=int(self.metadata(connection, "revision")),
+                configured_capacity=sum(
+                    receipt["configured_capacity"] for receipt in receipts
+                ),
+                member_authority_ids=source_ids,
+                membership_digest=membership,
+                recorded_at=request["now"],
+            )
+            self.record_transfer_step(
+                connection,
+                request["transfer_id"],
+                "TARGET_STAGE",
+                request,
+                result,
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def finalize_authority_transfer(self, raw: Any) -> dict[str, Any]:
+        request = validate_finalize_authority_transfer(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self.transfer_replay(
+                connection, request["transfer_id"], "SOURCE_FINALIZE", request
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            authority = self.authority(connection)
+            stage = request["target_stage_receipt"]
+            if (
+                authority["state"] != "SOURCE_PREPARED"
+                or authority["active_transfer_id"] != request["transfer_id"]
+                or stage["phase"] != "TARGET_STAGED"
+                or stage["transfer_id"] != request["transfer_id"]
+                or stage["subject_authority_id"] != stage["target_authority_id"]
+                or authority["authority_id"] not in stage["member_authority_ids"]
+            ):
+                fail(
+                    "AUTHORITY_RECEIPT_MISMATCH",
+                    "target stage receipt does not include this prepared source",
+                )
+            if self.active_or_reserved_count(connection) != 0:
+                fail(
+                    "AUTHORITY_DRAIN_REQUIRED",
+                    "source changed after preparation and must be reconciled",
+                    exit_status=EXIT_CONFLICT,
+                )
+            epoch = authority["epoch"] + 1
+            self.set_authority_metadata(
+                connection,
+                role="SUBORDINATE",
+                state="SUBORDINATE_PENDING",
+                epoch=epoch,
+                parent_authority_id=stage["target_authority_id"],
+                transfer_id=request["transfer_id"],
+            )
+            self.event(
+                connection,
+                request["now"],
+                None,
+                request["request_id"],
+                "AUTHORITY_ROOT_DEMOTED",
+                "TARGET_STAGE_RECEIPT_VERIFIED",
+                ["BR-OWNER-001"],
+                "SOURCE_PREPARED",
+                "SUBORDINATE_PENDING",
+                {
+                    "transfer_id": request["transfer_id"],
+                    "source_authority_id": authority["authority_id"],
+                    "target_authority_id": stage["target_authority_id"],
+                    "target_stage_receipt_sha256": stage["receipt_sha256"],
+                },
+            )
+            capacity = int(self.metadata(connection, "configured_capacity"))
+            result = self.authority_receipt(
+                transfer_id=request["transfer_id"],
+                phase="SOURCE_FINALIZED",
+                subject_authority_id=authority["authority_id"],
+                target_authority_id=stage["target_authority_id"],
+                authority_epoch=epoch,
+                state_revision=int(self.metadata(connection, "revision")),
+                configured_capacity=capacity,
+                member_authority_ids=[authority["authority_id"]],
+                membership_digest=digest(
+                    [stage["receipt_sha256"], authority["authority_id"]]
+                ),
+                recorded_at=request["now"],
+            )
+            self.record_transfer_step(
+                connection,
+                request["transfer_id"],
+                "SOURCE_FINALIZE",
+                request,
+                result,
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def activate_federation(self, raw: Any) -> dict[str, Any]:
+        request = validate_activate_federation(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self.transfer_replay(
+                connection, request["transfer_id"], "TARGET_ACTIVATE", request
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            authority = self.authority(connection)
+            if (
+                authority["state"] != "TARGET_STAGED"
+                or authority["active_transfer_id"] != request["transfer_id"]
+            ):
+                fail(
+                    "AUTHORITY_STATE_CONFLICT",
+                    "target federation is not staged",
+                    exit_status=EXIT_CONFLICT,
+                )
+            receipts = request["source_finalize_receipts"]
+            member_rows = list(
+                connection.execute(
+                    "SELECT * FROM federation_members WHERE transfer_id=? ORDER BY authority_id",
+                    (request["transfer_id"],),
+                )
+            )
+            member_ids = [row["authority_id"] for row in member_rows]
+            receipt_ids = sorted(
+                receipt["subject_authority_id"] for receipt in receipts
+            )
+            if receipt_ids != member_ids:
+                fail(
+                    "AUTHORITY_RECEIPT_MISMATCH",
+                    "source finalization receipts do not match staged members",
+                )
+            for receipt in receipts:
+                if (
+                    receipt["phase"] != "SOURCE_FINALIZED"
+                    or receipt["transfer_id"] != request["transfer_id"]
+                    or receipt["target_authority_id"] != authority["authority_id"]
+                    or receipt["member_authority_ids"]
+                    != [receipt["subject_authority_id"]]
+                ):
+                    fail(
+                        "AUTHORITY_RECEIPT_MISMATCH",
+                        "source finalization receipt is not valid for this target",
+                    )
+                connection.execute(
+                    """UPDATE federation_members
+                       SET finalize_receipt_sha256=?,state='PENDING_ENABLE',updated_at=?
+                       WHERE authority_id=? AND transfer_id=?""",
+                    (
+                        receipt["receipt_sha256"],
+                        request["now"],
+                        receipt["subject_authority_id"],
+                        request["transfer_id"],
+                    ),
+                )
+            epoch = authority["epoch"] + 1
+            self.set_authority_metadata(
+                connection,
+                role="ROOT",
+                state="ACTIVE_FEDERATION_ROOT",
+                epoch=epoch,
+                parent_authority_id=None,
+                transfer_id=request["transfer_id"],
+            )
+            self.event(
+                connection,
+                request["now"],
+                None,
+                request["request_id"],
+                "FEDERATION_ROOT_ACTIVATED",
+                "ALL_SOURCES_DEMOTED",
+                ["BR-OWNER-001"],
+                "TARGET_STAGED",
+                "ACTIVE_FEDERATION_ROOT",
+                {
+                    "transfer_id": request["transfer_id"],
+                    "member_authority_ids": member_ids,
+                    "evidence_refs": request["evidence_refs"],
+                },
+            )
+            result = self.authority_receipt(
+                transfer_id=request["transfer_id"],
+                phase="TARGET_ACTIVE",
+                subject_authority_id=authority["authority_id"],
+                target_authority_id=authority["authority_id"],
+                authority_epoch=epoch,
+                state_revision=int(self.metadata(connection, "revision")),
+                configured_capacity=sum(row["configured_capacity"] for row in member_rows),
+                member_authority_ids=member_ids,
+                membership_digest=digest(
+                    sorted(receipt["receipt_sha256"] for receipt in receipts)
+                ),
+                recorded_at=request["now"],
+            )
+            self.record_transfer_step(
+                connection,
+                request["transfer_id"],
+                "TARGET_ACTIVATE",
+                request,
+                result,
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def enable_subordinate(self, raw: Any) -> dict[str, Any]:
+        request = validate_enable_subordinate(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self.transfer_replay(
+                connection, request["transfer_id"], "SOURCE_ENABLE", request
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            authority = self.authority(connection)
+            activation = request["target_activation_receipt"]
+            if (
+                authority["state"] != "SUBORDINATE_PENDING"
+                or authority["active_transfer_id"] != request["transfer_id"]
+                or activation["phase"] != "TARGET_ACTIVE"
+                or activation["transfer_id"] != request["transfer_id"]
+                or activation["target_authority_id"]
+                != authority["parent_authority_id"]
+                or activation["subject_authority_id"]
+                != authority["parent_authority_id"]
+                or authority["authority_id"]
+                not in activation["member_authority_ids"]
+            ):
+                fail(
+                    "AUTHORITY_RECEIPT_MISMATCH",
+                    "target activation receipt does not enable this source",
+                )
+            epoch = authority["epoch"] + 1
+            self.set_authority_metadata(
+                connection,
+                role="SUBORDINATE",
+                state="SUBORDINATE",
+                epoch=epoch,
+                parent_authority_id=authority["parent_authority_id"],
+                transfer_id=request["transfer_id"],
+            )
+            self.event(
+                connection,
+                request["now"],
+                None,
+                request["request_id"],
+                "SUBORDINATE_AUTHORITY_ENABLED",
+                "FEDERATION_ROOT_RECEIPT_VERIFIED",
+                ["BR-OWNER-001"],
+                "SUBORDINATE_PENDING",
+                "SUBORDINATE",
+                {
+                    "transfer_id": request["transfer_id"],
+                    "source_authority_id": authority["authority_id"],
+                    "target_authority_id": authority["parent_authority_id"],
+                    "target_activation_receipt_sha256": activation[
+                        "receipt_sha256"
+                    ],
+                },
+            )
+            capacity = int(self.metadata(connection, "configured_capacity"))
+            result = self.authority_receipt(
+                transfer_id=request["transfer_id"],
+                phase="SUBORDINATE_ACTIVE",
+                subject_authority_id=authority["authority_id"],
+                target_authority_id=authority["parent_authority_id"],
+                authority_epoch=epoch,
+                state_revision=int(self.metadata(connection, "revision")),
+                configured_capacity=capacity,
+                member_authority_ids=[authority["authority_id"]],
+                membership_digest=digest(
+                    [activation["receipt_sha256"], authority["authority_id"]]
+                ),
+                recorded_at=request["now"],
+            )
+            self.record_transfer_step(
+                connection,
+                request["transfer_id"],
+                "SOURCE_ENABLE",
+                request,
+                result,
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def abort_authority_transfer(self, raw: Any) -> dict[str, Any]:
+        request = validate_abort_authority_transfer(raw)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self.transfer_replay(
+                connection, request["transfer_id"], "ABORT", request
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            authority = self.authority(connection)
+            if (
+                authority["state"] not in {"SOURCE_PREPARED", "TARGET_STAGED"}
+                or authority["active_transfer_id"] != request["transfer_id"]
+                or request["expected_authority_state"] != authority["state"]
+            ):
+                fail(
+                    "AUTHORITY_STATE_CONFLICT",
+                    "only an uncommitted prepared or staged transfer may abort",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if int(self.metadata(connection, "revision")) != request[
+                "expected_state_revision"
+            ]:
+                fail(
+                    "STATE_REVISION_CONFLICT",
+                    "authority state revision changed",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if request["target_activation_absent"] is not True:
+                fail(
+                    "AUTHORITY_ABORT_DENIED",
+                    "abort requires owner-verified absence of target activation",
+                )
+            if authority["state"] == "TARGET_STAGED":
+                connection.execute(
+                    "DELETE FROM federation_members WHERE transfer_id=?",
+                    (request["transfer_id"],),
+                )
+            epoch = authority["epoch"] + 1
+            self.set_authority_metadata(
+                connection,
+                role="ROOT",
+                state="ACTIVE_ROOT",
+                epoch=epoch,
+                parent_authority_id=None,
+                transfer_id=None,
+            )
+            self.event(
+                connection,
+                request["now"],
+                None,
+                request["request_id"],
+                "AUTHORITY_TRANSFER_ABORTED",
+                request["reason_code"],
+                ["BR-OWNER-001"],
+                authority["state"],
+                "ACTIVE_ROOT",
+                {
+                    "transfer_id": request["transfer_id"],
+                    "authority_id": authority["authority_id"],
+                    "evidence_refs": request["evidence_refs"],
+                },
+            )
+            result = self.authority_receipt(
+                transfer_id=request["transfer_id"],
+                phase="ABORTED",
+                subject_authority_id=authority["authority_id"],
+                target_authority_id=authority["authority_id"],
+                authority_epoch=epoch,
+                state_revision=int(self.metadata(connection, "revision")),
+                configured_capacity=int(
+                    self.metadata(connection, "configured_capacity")
+                ),
+                member_authority_ids=[],
+                membership_digest=digest([]),
+                recorded_at=request["now"],
+            )
+            self.record_transfer_step(
+                connection,
+                request["transfer_id"],
+                "ABORT",
+                request,
+                result,
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def rules(self, connection: sqlite3.Connection) -> list[dict[str, Any]]:
         return [
             validate_rule(json.loads(row[0]))
@@ -1397,6 +2187,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "record-policy-rule")
             request_hash = digest(request)
             existing = connection.execute(
                 "SELECT request_hash,result_json FROM policy_updates WHERE request_id=?",
@@ -1570,6 +2361,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "configure-capacity")
             request_hash = digest(request)
             existing = connection.execute(
                 """SELECT request_hash,result_json
@@ -2111,6 +2903,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "prepare-launch")
             result = self.reserve_launch(connection, request, source="prepare-launch")
             connection.commit()
             return result
@@ -2134,6 +2927,24 @@ class Plane:
             fail(error.code, str(error))
 
         result = response["result"]
+        authority_connection = self.connect()
+        try:
+            authority = self.authority(authority_connection)
+        finally:
+            authority_connection.close()
+        if authority["state"] in {
+            "SOURCE_PREPARED",
+            "TARGET_STAGED",
+            "SUBORDINATE_PENDING",
+        }:
+            result.update(
+                {
+                    "decision": "DENY",
+                    "reason_code": "AUTHORITY_TRANSFER_FROZEN",
+                    "required_action": "COMPLETE_OR_ABORT_AUTHORITY_TRANSFER",
+                    "owner_notification_authorized": False,
+                }
+            )
         if (
             raw.get("action_type") == "notify_owner"
             and result["decision"] == "ALLOW"
@@ -2201,6 +3012,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "classify-decision")
             existing = connection.execute(
                 "SELECT * FROM decisions WHERE request_id=?", (request["request_id"],)
             ).fetchone()
@@ -2342,6 +3154,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "record-launch-receipt")
             existing_task = connection.execute(
                 "SELECT * FROM tasks WHERE task_id=?", (request["task_id"],)
             ).fetchone()
@@ -2580,6 +3393,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "record-duration-progress")
             sanitized_hash = digest(
                 {
                     key: value
@@ -2813,6 +3627,9 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(
+                connection, "record-duration-observation"
+            )
             request_hash = digest(request)
             existing = connection.execute(
                 "SELECT * FROM duration_samples WHERE sample_id=?",
@@ -3283,6 +4100,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "record-handback")
             existing = connection.execute(
                 "SELECT * FROM handbacks WHERE handback_id=?", (request["handback_id"],)
             ).fetchone()
@@ -3662,6 +4480,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "takeover-lease")
             task = connection.execute(
                 "SELECT * FROM tasks WHERE task_id=?", (request["task_id"],)
             ).fetchone()
@@ -3729,6 +4548,9 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(
+                connection, "reconcile-expired-lease"
+            )
             # Existing schema-1.3 state directories are upgraded only when this
             # explicit reconciliation is requested. Failed requests roll this
             # DDL back with the rest of the transaction.
@@ -3931,6 +4753,9 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(
+                connection, "reconcile-external-task"
+            )
             task = connection.execute(
                 """SELECT * FROM tasks
                    WHERE source_event_key=? AND outcome_key=?""",
@@ -4035,6 +4860,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "record-setup-failure")
             existing = connection.execute(
                 "SELECT * FROM setup_failures WHERE request_id=?",
                 (request["request_id"],),
@@ -4284,6 +5110,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "record-heartbeat")
             task = self.checked_task(connection, request, {"RUNNING", "BLOCKED"})
             canonical_external_id = self.require_external_receipt(
                 connection, request
@@ -4346,6 +5173,9 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(
+                connection, "record-archive-receipt"
+            )
             task = connection.execute(
                 "SELECT * FROM tasks WHERE task_id=?", (request["task_id"],)
             ).fetchone()
@@ -4497,6 +5327,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "lifecycle-watchdog")
             existing_request = connection.execute(
                 "SELECT * FROM lifecycle_watchdog_requests WHERE request_id=?",
                 (request["request_id"],),
@@ -4891,6 +5722,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "capacity-watchdog")
             row = connection.execute(
                 "SELECT * FROM capacity_sagas WHERE saga_id=?",
                 (request["saga_id"],),
@@ -5120,6 +5952,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "recycle-queue")
             result = self.recycle_blocked_in_transaction(
                 connection,
                 audits=request["audits"],
@@ -5204,6 +6037,7 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "migrate-decisions")
             connection.execute(
                 "INSERT OR IGNORE INTO legacy_blobs VALUES(?,?,?,?)",
                 (
@@ -5421,10 +6255,54 @@ class Plane:
                         "universal_dispatcher_enforcement"
                     ],
                 }
+            authority = self.authority(connection)
+            federation_members = [
+                {
+                    "authority_id": row["authority_id"],
+                    "configured_capacity": row["configured_capacity"],
+                    "source_state_revision": row["source_state_revision"],
+                    "state": row["state"],
+                    "updated_at": row["updated_at"],
+                }
+                for row in connection.execute(
+                    """SELECT authority_id,configured_capacity,
+                              source_state_revision,state,updated_at
+                       FROM federation_members ORDER BY authority_id"""
+                )
+            ]
+            authority["federation_members"] = federation_members
+            authority["federated_configured_capacity"] = sum(
+                item["configured_capacity"] for item in federation_members
+            )
+            authority["local_worker_launch_allowed"] = authority["state"] in {
+                "ACTIVE_ROOT",
+                "SUBORDINATE",
+            }
+            authority["requires_subordinate_shard"] = (
+                authority["state"] == "ACTIVE_FEDERATION_ROOT"
+            )
+            authority["transfer_steps"] = (
+                []
+                if authority["active_transfer_id"] is None
+                else [
+                    {
+                        "step": row["step"],
+                        "receipt": json.loads(row["result_json"]),
+                        "recorded_at": row["recorded_at"],
+                    }
+                    for row in connection.execute(
+                        """SELECT step,result_json,recorded_at
+                           FROM authority_transfer_steps
+                           WHERE transfer_id=? ORDER BY recorded_at,step""",
+                        (authority["active_transfer_id"],),
+                    )
+                ]
+            )
             return {
                 "schema_version": self.metadata(connection, "schema_version"),
                 "revision": int(self.metadata(connection, "revision")),
                 "policy_revision": int(self.metadata(connection, "policy_revision")),
+                "authority": authority,
                 "worker_capacity": {
                     "configured_capacity": int(
                         self.metadata(connection, "configured_capacity")
@@ -5506,6 +6384,9 @@ class Plane:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(
+                connection, "record-dispatcher-adoption"
+            )
             existing = connection.execute(
                 """SELECT request_hash,result_json FROM dispatcher_adoptions
                    WHERE request_id=?""",
@@ -5571,6 +6452,318 @@ class Plane:
             connection.close()
 
 
+AUTHORITY_RECEIPT_PHASES = {
+    "SOURCE_PREPARED",
+    "TARGET_STAGED",
+    "SOURCE_FINALIZED",
+    "TARGET_ACTIVE",
+    "SUBORDINATE_ACTIVE",
+    "ABORTED",
+}
+
+
+def validate_authority_receipt(value: Any, label: str) -> dict[str, Any]:
+    receipt = strict(
+        value,
+        {
+            "transfer_id",
+            "phase",
+            "subject_authority_id",
+            "target_authority_id",
+            "authority_epoch",
+            "state_revision",
+            "configured_capacity",
+            "member_authority_ids",
+            "membership_digest",
+            "recorded_at",
+            "receipt_sha256",
+            "replayed",
+        },
+        label=label,
+    )
+    members = receipt["member_authority_ids"]
+    if not isinstance(members, list) or len(members) > 16:
+        fail("SCHEMA_INVALID", f"{label}.member_authority_ids is invalid")
+    normalized_members = [
+        identifier(item, f"{label}.member_authority_ids[]") for item in members
+    ]
+    if normalized_members != sorted(set(normalized_members)):
+        fail(
+            "SCHEMA_INVALID",
+            f"{label}.member_authority_ids must be sorted and unique",
+        )
+    normalized = {
+        "transfer_id": identifier(receipt["transfer_id"], f"{label}.transfer_id"),
+        "phase": enum(receipt["phase"], f"{label}.phase", AUTHORITY_RECEIPT_PHASES),
+        "subject_authority_id": identifier(
+            receipt["subject_authority_id"], f"{label}.subject_authority_id"
+        ),
+        "target_authority_id": identifier(
+            receipt["target_authority_id"], f"{label}.target_authority_id"
+        ),
+        "authority_epoch": bounded_int(
+            receipt["authority_epoch"], f"{label}.authority_epoch", 1, 2_147_483_647
+        ),
+        "state_revision": bounded_int(
+            receipt["state_revision"], f"{label}.state_revision", 0, 2_147_483_647
+        ),
+        "configured_capacity": bounded_int(
+            receipt["configured_capacity"],
+            f"{label}.configured_capacity",
+            1,
+            1024,
+        ),
+        "member_authority_ids": normalized_members,
+        "membership_digest": text(
+            receipt["membership_digest"],
+            f"{label}.membership_digest",
+            64,
+            single_line=True,
+        ),
+        "recorded_at": timestamp(receipt["recorded_at"], f"{label}.recorded_at"),
+    }
+    if SHA256_RE.fullmatch(normalized["membership_digest"]) is None:
+        fail("SCHEMA_INVALID", f"{label}.membership_digest must be SHA-256")
+    receipt_sha256 = text(
+        receipt["receipt_sha256"], f"{label}.receipt_sha256", 64, single_line=True
+    )
+    if SHA256_RE.fullmatch(receipt_sha256) is None or digest(normalized) != receipt_sha256:
+        fail("AUTHORITY_RECEIPT_INVALID", f"{label} digest is invalid")
+    return {
+        **normalized,
+        "receipt_sha256": receipt_sha256,
+        "replayed": boolean(receipt["replayed"], f"{label}.replayed"),
+    }
+
+
+def authority_evidence(value: Any, label: str) -> list[str]:
+    if not isinstance(value, list) or not 1 <= len(value) <= 16:
+        fail("SCHEMA_INVALID", f"{label} requires one to sixteen evidence references")
+    result = [coarse_label(item, f"{label}[]") for item in value]
+    if len(result) != len(set(result)):
+        fail("SCHEMA_INVALID", f"{label} must be unique")
+    return result
+
+
+def validate_prepare_authority_transfer(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "transfer_id",
+            "target_authority_id",
+            "expected_state_revision",
+            "evidence_refs",
+            "now",
+        },
+        label="prepare-authority-transfer request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    result = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "transfer_id": identifier(request["transfer_id"], "transfer_id"),
+        "target_authority_id": identifier(
+            request["target_authority_id"], "target_authority_id"
+        ),
+        "expected_state_revision": bounded_int(
+            request["expected_state_revision"],
+            "expected_state_revision",
+            0,
+            2_147_483_647,
+        ),
+        "evidence_refs": authority_evidence(request["evidence_refs"], "evidence_refs"),
+        "now": timestamp(request["now"]),
+    }
+    reject_sensitive(result, "prepare authority transfer")
+    return result
+
+
+def validate_stage_federation(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "transfer_id",
+            "expected_state_revision",
+            "source_receipts",
+            "evidence_refs",
+            "now",
+        },
+        label="stage-federation request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    raw_receipts = request["source_receipts"]
+    if not isinstance(raw_receipts, list) or not 2 <= len(raw_receipts) <= 16:
+        fail("SCHEMA_INVALID", "stage federation requires two to sixteen sources")
+    receipts = [
+        validate_authority_receipt(item, "source_receipts[]")
+        for item in raw_receipts
+    ]
+    source_ids = [receipt["subject_authority_id"] for receipt in receipts]
+    if len(source_ids) != len(set(source_ids)):
+        fail("SCHEMA_INVALID", "source authority identities must be unique")
+    result = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "transfer_id": identifier(request["transfer_id"], "transfer_id"),
+        "expected_state_revision": bounded_int(
+            request["expected_state_revision"],
+            "expected_state_revision",
+            0,
+            2_147_483_647,
+        ),
+        "source_receipts": sorted(
+            receipts, key=lambda item: item["subject_authority_id"]
+        ),
+        "evidence_refs": authority_evidence(request["evidence_refs"], "evidence_refs"),
+        "now": timestamp(request["now"]),
+    }
+    reject_sensitive(result, "stage federation")
+    return result
+
+
+def validate_finalize_authority_transfer(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "transfer_id",
+            "target_stage_receipt",
+            "now",
+        },
+        label="finalize-authority-transfer request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    result = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "transfer_id": identifier(request["transfer_id"], "transfer_id"),
+        "target_stage_receipt": validate_authority_receipt(
+            request["target_stage_receipt"], "target_stage_receipt"
+        ),
+        "now": timestamp(request["now"]),
+    }
+    reject_sensitive(result, "finalize authority transfer")
+    return result
+
+
+def validate_activate_federation(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "transfer_id",
+            "source_finalize_receipts",
+            "evidence_refs",
+            "now",
+        },
+        label="activate-federation request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    raw_receipts = request["source_finalize_receipts"]
+    if not isinstance(raw_receipts, list) or not 2 <= len(raw_receipts) <= 16:
+        fail("SCHEMA_INVALID", "federation activation requires all source receipts")
+    receipts = [
+        validate_authority_receipt(item, "source_finalize_receipts[]")
+        for item in raw_receipts
+    ]
+    source_ids = [receipt["subject_authority_id"] for receipt in receipts]
+    if len(source_ids) != len(set(source_ids)):
+        fail("SCHEMA_INVALID", "source authority identities must be unique")
+    result = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "transfer_id": identifier(request["transfer_id"], "transfer_id"),
+        "source_finalize_receipts": sorted(
+            receipts, key=lambda item: item["subject_authority_id"]
+        ),
+        "evidence_refs": authority_evidence(request["evidence_refs"], "evidence_refs"),
+        "now": timestamp(request["now"]),
+    }
+    reject_sensitive(result, "activate federation")
+    return result
+
+
+def validate_enable_subordinate(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "transfer_id",
+            "target_activation_receipt",
+            "now",
+        },
+        label="enable-subordinate request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    result = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "transfer_id": identifier(request["transfer_id"], "transfer_id"),
+        "target_activation_receipt": validate_authority_receipt(
+            request["target_activation_receipt"], "target_activation_receipt"
+        ),
+        "now": timestamp(request["now"]),
+    }
+    reject_sensitive(result, "enable subordinate")
+    return result
+
+
+def validate_abort_authority_transfer(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "transfer_id",
+            "expected_authority_state",
+            "expected_state_revision",
+            "target_activation_absent",
+            "reason_code",
+            "evidence_refs",
+            "now",
+        },
+        label="abort-authority-transfer request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    result = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "transfer_id": identifier(request["transfer_id"], "transfer_id"),
+        "expected_authority_state": enum(
+            request["expected_authority_state"],
+            "expected_authority_state",
+            {"SOURCE_PREPARED", "TARGET_STAGED"},
+        ),
+        "expected_state_revision": bounded_int(
+            request["expected_state_revision"],
+            "expected_state_revision",
+            0,
+            2_147_483_647,
+        ),
+        "target_activation_absent": boolean(
+            request["target_activation_absent"], "target_activation_absent"
+        ),
+        "reason_code": identifier(request["reason_code"], "reason_code"),
+        "evidence_refs": authority_evidence(request["evidence_refs"], "evidence_refs"),
+        "now": timestamp(request["now"]),
+    }
+    reject_sensitive(result, "abort authority transfer")
+    return result
+
+
 def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
     request = strict(
         value,
@@ -5595,7 +6788,10 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
         request["plugin_version"], "plugin_version", 80, single_line=True
     )
     if (
-        re.fullmatch(r"0\.3\.(?:0|1|2|3|4|5|6)(?:\+codex\.\d{14})?", plugin_version)
+        re.fullmatch(
+            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.0)(?:\+codex\.\d{14})?",
+            plugin_version,
+        )
         is None
     ):
         fail(
@@ -7341,6 +8537,12 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--configured-capacity", type=int, default=4)
     for name in (
         "record-policy-rule",
+        "prepare-authority-transfer",
+        "stage-federation",
+        "finalize-authority-transfer",
+        "activate-federation",
+        "enable-subordinate",
+        "abort-authority-transfer",
         "prepare-launch",
         "effective-rules",
         "classify-decision",
@@ -7379,6 +8581,27 @@ def main(argv: list[str] | None = None) -> int:
         plane = Plane(state_dir, ledger)
         operations: dict[str, tuple[Callable[[Any], Any], str]] = {
             "record-policy-rule": (plane.record_rule, "record-policy-rule"),
+            "prepare-authority-transfer": (
+                plane.prepare_authority_transfer,
+                "prepare-authority-transfer",
+            ),
+            "stage-federation": (plane.stage_federation, "stage-federation"),
+            "finalize-authority-transfer": (
+                plane.finalize_authority_transfer,
+                "finalize-authority-transfer",
+            ),
+            "activate-federation": (
+                plane.activate_federation,
+                "activate-federation",
+            ),
+            "enable-subordinate": (
+                plane.enable_subordinate,
+                "enable-subordinate",
+            ),
+            "abort-authority-transfer": (
+                plane.abort_authority_transfer,
+                "abort-authority-transfer",
+            ),
             "prepare-launch": (plane.prepare_launch, "prepare-launch"),
             "effective-rules": (plane.effective_rules, "effective-rules"),
             "classify-decision": (plane.classify, "classify-decision"),

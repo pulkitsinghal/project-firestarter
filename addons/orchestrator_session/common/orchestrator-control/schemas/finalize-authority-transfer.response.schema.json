@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/finalize-authority-transfer-response-1.0.schema.json",
+  "title": "finalize-authority-transfer success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interface_version",
+    "ok",
+    "operation",
+    "result"
+  ],
+  "properties": {
+    "interface_version": {
+      "const": "1.0"
+    },
+    "ok": {
+      "const": true
+    },
+    "operation": {
+      "const": "finalize-authority-transfer"
+    },
+    "result": {
+      "$ref": "https://firestarter.invalid/orchestrator-control/authority-transfer-receipt-1.0.schema.json"
+    }
+  }
+}

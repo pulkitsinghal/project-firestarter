@@ -19,7 +19,6 @@ import json
 import os
 import re
 import secrets
-import shutil
 import signal
 import socket
 import stat
@@ -1363,8 +1362,19 @@ class AttestationServer:
 
 def copy_stream(source: BinaryIO, destination: BinaryIO, *, close: bool) -> None:
     try:
-        shutil.copyfileobj(source, destination, length=64 * 1024)
-        destination.flush()
+        read1 = getattr(source, "read1", None)
+        while True:
+            if callable(read1):
+                chunk = read1(64 * 1024)
+            else:
+                try:
+                    chunk = os.read(source.fileno(), 64 * 1024)
+                except (AttributeError, OSError):
+                    chunk = source.read(64 * 1024)
+            if not chunk:
+                break
+            destination.write(chunk)
+            destination.flush()
     except (BrokenPipeError, OSError, ValueError):
         pass
     finally:

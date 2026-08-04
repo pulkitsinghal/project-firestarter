@@ -160,7 +160,7 @@ def status(
         "ok": True,
         "operation": "status",
         "result": {
-            "schema_version": "1.3",
+            "schema_version": "1.4",
             "revision": 12,
             "policy_revision": 1,
             "tasks": tasks,

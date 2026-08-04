@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-08-03
+
+- Add schema-1.4 owner-operated leadership transfer: two or more drained roots
+  prepare immutable receipts, one empty successor stages them, every source is
+  demoted before the successor activates, and the sources are then enabled as
+  separate subordinate capacity shards. The federation root cannot launch into
+  its own ledger, source hosts must be disarmed, and all transfer steps are
+  idempotent and crash-resumable.
+- Preserve each subordinate's configured capacity so two four-lane shards
+  report federated capacity eight without a direct `4→8` mutation. Policy and
+  PM-proxy decisions remain rooted in the sole active federation root.
+- Replace the Desktop stdio proxy's fixed-size `copyfileobj` reads with
+  partial-read forwarding and per-frame flushes. Add a long-lived-pipe
+  regression proving a small JSON-RPC initialize frame crosses before EOF.
+
 ## 0.3.6 - 2026-08-03
 
 - Add a covered-root-only typed capacity compare-and-set with explicit expected
