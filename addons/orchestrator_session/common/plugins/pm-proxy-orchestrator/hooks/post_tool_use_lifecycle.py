@@ -28,6 +28,9 @@ OBSERVATION_TOOLS = {
     "codex_appwait_threads",
 }
 LIFECYCLE_TOOL = "mcp__pm_proxy_orchestrator__pm_proxy_lifecycle_watchdog"
+CONTROL_SCHEMA_HOLD_TOOL = (
+    "mcp__pm_proxy_orchestrator__pm_proxy_acknowledge_control_schema_hold"
+)
 LOCK_TIMEOUT_SECONDS = 0.25
 LOCK_RETRY_SECONDS = 0.01
 MAX_LIFECYCLE_SESSIONS = 512
@@ -82,6 +85,24 @@ def response_ok(value: Any) -> bool:
         return False
     structured = wrapped.get("structuredContent")
     return isinstance(structured, dict) and structured.get("ok") is True
+
+
+def response_payload(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(value, dict) or value.get("isError") is True:
+        return None
+    structured = value.get("structuredContent")
+    if isinstance(structured, dict):
+        return structured
+    wrapped = value.get("result")
+    if not isinstance(wrapped, dict) or wrapped.get("isError") is True:
+        return None
+    structured = wrapped.get("structuredContent")
+    return structured if isinstance(structured, dict) else None
 
 
 def acquire_lock(handle: Any) -> bool:
@@ -199,6 +220,37 @@ def main() -> int:
         external_id = tool_input.get("external_thread_id")
         if not isinstance(external_id, str) or not response_ok(
             event.get("tool_response")
+        ):
+            return 1
+        return 0 if update(session_id, [], external_id) else 1
+    if tool_name == CONTROL_SCHEMA_HOLD_TOOL:
+        tool_input = event.get("tool_input")
+        payload = response_payload(event.get("tool_response"))
+        result = payload.get("result") if isinstance(payload, dict) else None
+        grant = (
+            result.get("bootstrap_recovery_grant")
+            if isinstance(result, dict)
+            else None
+        )
+        external_id = (
+            tool_input.get("external_thread_id")
+            if isinstance(tool_input, dict)
+            else None
+        )
+        if (
+            not isinstance(external_id, str)
+            or not external_id
+            or not isinstance(payload, dict)
+            or payload.get("ok") is not True
+            or payload.get("operation") != "acknowledge-control-schema-hold"
+            or not isinstance(result, dict)
+            or result.get("external_thread_id") != external_id
+            or result.get("hold_state") != "CONTROL_SCHEMA_HOLD"
+            or result.get("required_action") != "AWAIT_CONTROL_REPAIR"
+            or not isinstance(grant, dict)
+            or grant.get("status") != "REVOKED"
+            or grant.get("consumed_before_dispatch") is not True
+            or grant.get("host_attested") is not True
         ):
             return 1
         return 0 if update(session_id, [], external_id) else 1

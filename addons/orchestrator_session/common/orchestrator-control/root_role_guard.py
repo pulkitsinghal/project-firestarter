@@ -37,6 +37,8 @@ ORCHESTRATION_ACTIONS = frozenset(
         "launch_visible_task",
         "deduplicate_ownership",
         "route_pm_proxy_decision",
+        "acknowledge_control_schema_hold",
+        "record_setup_failure",
         "monitor_receipt",
         "monitor_handback",
         "refill_capacity",

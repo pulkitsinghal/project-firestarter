@@ -1,6 +1,6 @@
 # Codex Desktop host adapter
 
-Version `0.4.0` includes an opt-in desktop host adapter for one exact root task.
+Version `0.4.2` includes an opt-in desktop host adapter for one exact root task.
 It does not export `ROOT_ORCHESTRATOR_ROLE` to the normal desktop process and it
 does not infer root identity from a prompt, working directory, project, or
 model-visible field.
@@ -32,7 +32,8 @@ For the exact bound root task, the proxy adds Codex's supported per-tool
 `approval_mode="approve"` setting to only these typed MCP controls: `doctor`,
 `status`, bounded capacity reconfiguration, runtime verification,
 `prepare-launch`, launch receipt, heartbeat, lifecycle watchdog, close/refill,
-archive and refill receipts, slot status, and watchdog refill. It does not
+archive and refill receipts, slot status, watchdog refill, exact setup-failure
+repair, typed owner-decision routing, and one-use schema-hold recovery. It does not
 change the user's global approval policy or plugin
 configuration. The native hook denies that prompt-free set for every other task
 ID in the isolated host. Expired-lease reconciliation remains outside the grant,
@@ -88,7 +89,7 @@ non-secret instance ID.
 ## Operator workflow
 
 Run these commands from an owner-controlled terminal, outside an enforced root
-task. First install the complete `0.4.0` plugin, recreate the runtime pin for the
+task. First install the complete `0.4.2` plugin, recreate the runtime pin for the
 reviewed clean Firestarter runtime, and run doctor. Keep any global
 `ROOT_ORCHESTRATOR_ROLE` export unset.
 
@@ -134,6 +135,15 @@ worker tasks can run through the same host because their distinct task IDs are
 attested as workers rather than inheriting the root role. Their ordinary
 task-domain permissions are unchanged, but they cannot use the root's
 prompt-free PM-proxy control surface.
+
+An exceptional schema hold first requires the owner-operated
+`issue-bootstrap-recovery-grant` command against a clean reviewed source whose
+`origin/master` still equals the authorized base. The grant binds the exact
+task, ticket, receipt, claim fence, state/policy revisions, configured capacity,
+root/host instance, runtime/plugin digests, and typed decision for at most five
+minutes. Relaunch the isolated host with `--bootstrap-grant` pointing to that
+private file. The MCP route revokes it before dispatch and records one use even
+when the hold call fails; it cannot authorize another tool or a second attempt.
 
 Immediately run the disposable closed-path canary. Prove exact root denial and
 zero side effect, one worker task-domain allowance, one reserved create with an

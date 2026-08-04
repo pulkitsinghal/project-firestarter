@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-08-04
+
+- Add truthful `completed_local_only` and `completed_local_artifact` closure
+  routes with exact provenance, hosted-CI/deployment truth, content-verified
+  privacy-safe SHA-256 manifests, rollback/cleanup evidence, and strict replay.
+- Add receipt-fenced control-schema holds, expired-unreceipted setup-failure
+  poisoning, and exact one-claim release without generic repair authority.
+- Route only typed owner decisions to one pinned private sink with exact
+  receipt, source/request replay, recursion, privacy, and no-sink-authority
+  protections. PM-proxy decisions return automatically and verified owner-gate
+  decisions pass through unchanged.
+- Bind the single hold-recovery operation to a short-lived, one-use private
+  desktop bootstrap grant. Other task-domain, owner-gated, and generic control
+  paths remain outside the prompt-free grant.
+- Stop and join both stdio forwarding threads before proxy shutdown, including
+  when stdin remains open after the child exits, so Python cannot abort while a
+  daemon reader still owns a buffered-stream lock during interpreter cleanup.
+
 ## 0.4.0 - 2026-08-03
 
 - Add schema-1.4 owner-operated leadership transfer: two or more drained roots

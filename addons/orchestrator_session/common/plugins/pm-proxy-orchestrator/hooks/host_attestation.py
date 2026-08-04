@@ -149,7 +149,11 @@ def resolve_attestation(event: dict[str, Any]) -> dict[str, str]:
         or OPAQUE.fullmatch(instance_id) is None
     ):
         raise HostAttestationError("ROOT_HOST_ATTESTATION_INVALID")
-    return {"decision": decision, "control_grant": control_grant}
+    return {
+        "decision": decision,
+        "control_grant": control_grant,
+        "instance_id": instance_id,
+    }
 
 
 def resolve(event: dict[str, Any]) -> str:

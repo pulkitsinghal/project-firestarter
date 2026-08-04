@@ -125,6 +125,13 @@ class PreToolUseHookTest(unittest.TestCase):
         server = runpy.run_path(str(ROOT / "scripts" / "mcp_server.py"))
         registered = server["TOOLS"]
         self.assertTrue(registered)
+        self.assertTrue(
+            {
+                "pm_proxy_acknowledge_control_schema_hold",
+                "pm_proxy_record_setup_failure",
+                "pm_proxy_route_owner_decision",
+            }.issubset(registered)
+        )
         for name in registered:
             admitted = invoke(f"mcp__pm_proxy_orchestrator__{name}")
             self.assertEqual("", admitted.stdout, name)
@@ -132,6 +139,101 @@ class PreToolUseHookTest(unittest.TestCase):
             "mcp__pm_proxy_orchestrator__pm_proxy_arbitrary_future_exec"
         )
         self.assertIn("ROOT_ORCHESTRATOR_UNKNOWN_TOOL_DENIED", unknown.stdout)
+
+    def test_owner_decision_sink_requires_exact_private_route_and_admits_once(self):
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-owner-route-") as temp:
+            home = Path(temp)
+            state = home / ".codex" / "orchestrator-state" / "session"
+            state.mkdir(parents=True, mode=0o700)
+            os.chmod(state.parent, 0o700)
+            os.chmod(state.parent.parent, 0o700)
+            envelope = {
+                "envelope_version": "1.0",
+                "kind": "OWNER_DECISION_REQUEST",
+                "route_request_id": "route-screenbench-42",
+                "source_thread_id": "screenbench-worker-42",
+                "sink_thread_id": "019fcb3b-f5dc-7df3-9fe1-efe5b2e09a69",
+                "request_id": "screenbench-decision-42",
+                "decision_code": "production-gate",
+                "option_codes": ["approve", "deny"],
+                "evidence_refs": ["receipt-screenbench-42"],
+                "action_type": "PRODUCTION_CHANGE",
+                "gate_type": "PRODUCTION_CHANGE",
+                "classification": "OWNER_GATE",
+                "reason_code": "ENUMERATED_PRODUCTION_CHANGE",
+                "rule_ids": ["BR-GATE-001"],
+                "verified_owner_gate": True,
+                "capacity_reserved": False,
+                "sink_authority": False,
+                "recursion_depth": 0,
+            }
+            ledger = {
+                "version": "1.0",
+                "routes": [
+                    {
+                        "source_thread_id": envelope["source_thread_id"],
+                        "request_id": envelope["request_id"],
+                        "route_request_id": envelope["route_request_id"],
+                        "sink_thread_id": envelope["sink_thread_id"],
+                        "status": "PENDING",
+                        "envelope": envelope,
+                        "recorded_at": "2026-08-04T18:00:00Z",
+                    }
+                ],
+            }
+            ledger_path = state / ".owner-decision-routes.json"
+            ledger_path.write_text(
+                json.dumps(ledger, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            os.chmod(ledger_path, 0o600)
+            message = (
+                "<pm_proxy_owner_decision_envelope>\n"
+                + json.dumps(envelope, sort_keys=True, separators=(",", ":"))
+                + "\n</pm_proxy_owner_decision_envelope>"
+            )
+            tool_input = {
+                "threadId": envelope["sink_thread_id"],
+                "message": message,
+            }
+            admitted = invoke(
+                "codex_appsend_message_to_thread",
+                tool_input=tool_input,
+                tool_use_id="route-owner-decision-once",
+                home=home,
+            )
+            self.assertEqual("", admitted.stdout)
+            replay = invoke(
+                "codex_appsend_message_to_thread",
+                tool_input=tool_input,
+                tool_use_id="route-owner-decision-twice",
+                home=home,
+            )
+            self.assertIn("ROOT_OWNER_DECISION_ALREADY_ADMITTED", replay.stdout)
+            raw = invoke(
+                "codex_appsend_message_to_thread",
+                tool_input={
+                    "threadId": envelope["sink_thread_id"],
+                    "message": "Please approve a production change",
+                },
+                home=home,
+            )
+            self.assertIn("ROOT_OWNER_DECISION_ROUTE_REQUIRED", raw.stdout)
+            recursive = dict(envelope)
+            recursive["source_thread_id"] = envelope["sink_thread_id"]
+            recursive_message = (
+                "<pm_proxy_owner_decision_envelope>\n"
+                + json.dumps(recursive, sort_keys=True, separators=(",", ":"))
+                + "\n</pm_proxy_owner_decision_envelope>"
+            )
+            rejected = invoke(
+                "codex_appsend_message_to_thread",
+                tool_input={
+                    "threadId": envelope["sink_thread_id"],
+                    "message": recursive_message,
+                },
+                home=home,
+            )
+            self.assertIn("ROOT_OWNER_DECISION_ROUTE_REQUIRED", rejected.stdout)
 
     def test_create_requires_fresh_exact_ticket_and_is_admitted_once(self):
         with tempfile.TemporaryDirectory(prefix="pm-proxy-hook-home-") as temp:

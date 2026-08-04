@@ -21,7 +21,9 @@
         "capacity": {"type": "object"},
         "evidence_count": {"type": "integer"},
         "resource_count": {"type": "integer"},
-        "reclaimed_bytes": {"type": "integer"}
+        "reclaimed_bytes": {"type": "integer"},
+        "local_artifact_manifest_sha256": {"type": ["string", "null"]},
+        "control_schema_hold_released": {"type": "boolean"}
       }
     }
   }

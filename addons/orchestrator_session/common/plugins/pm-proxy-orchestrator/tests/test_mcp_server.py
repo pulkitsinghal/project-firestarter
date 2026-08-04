@@ -9,6 +9,7 @@ from pathlib import Path
 
 from tests.support import (
     BRIDGE,
+    classify_request,
     config_verified_runtime_attestation,
     iso,
     launch_request,
@@ -283,6 +284,208 @@ class McpServerTest(unittest.TestCase):
             item for item in status_value["tasks"] if item["task_id"] == "avatar-rig"
         )
         self.assertEqual("EXPIRED", expired_task["freshness"]["state"])
+
+    def test_setup_failure_and_owner_decision_mcp_routes_are_exact_and_replayable(self) -> None:
+        assert self.process.stdin is not None
+        assert self.process.stdout is not None
+        self.process.stdin.write(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": "list-new-tools",
+                    "method": "tools/list",
+                    "params": {},
+                }
+            )
+            + "\n"
+        )
+        self.process.stdin.flush()
+        discovered = json.loads(self.process.stdout.readline())
+        names = {item["name"] for item in discovered["result"]["tools"]}
+        self.assertTrue(
+            {
+                "pm_proxy_acknowledge_control_schema_hold",
+                "pm_proxy_record_setup_failure",
+                "pm_proxy_route_owner_decision",
+            }.issubset(names)
+        )
+        plugin_version = json.loads(
+            (PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )["version"]
+        self.record_owner_adoption(
+            {
+                "interface_version": "1.0",
+                "request_id": "repair-route-adoption",
+                "adoption_mode": "COVERED_PATH_GUARDRAIL",
+                "plugin_version": plugin_version,
+                "proofs": {
+                    "pre_tool_denial_verified": True,
+                    "typed_mcp_control_verified": True,
+                    "reserved_create_admission_verified": True,
+                    "lifecycle_debt_clear_verified": True,
+                    "archive_refill_fence_verified": True,
+                    "no_side_effect_canary_verified": True,
+                    "hosted_paths_uncovered": True,
+                    "universal_coverage_claimed": False,
+                },
+                "now": iso(),
+            }
+        )
+        failed_launch = launch_request(
+            task_id="refill-screen-sanitizer-red-team-012",
+            source_event_key="source-refill-screen-sanitizer-red-team-012",
+            outcome_key="outcome-refill-screen-sanitizer-red-team-012",
+            idempotency_key="idem-refill-screen-sanitizer-red-team-012",
+        )
+        failed_launch["priority"] = 940
+        failed_launch["target"]["repo_root"] = str(self.target)
+        failed_launch["target"]["remote"] = "https://github.com/example/project.git"
+        failed_launch["target"]["path"] = "/docs"
+        failed_launch["target"]["resource_mode"] = "path"
+        failed_launch["context"]["repo"] = "github.com/example/project"
+        failed_launch["context"]["path"] = "/docs"
+        prepared = self.call(
+            "pm_proxy_prepare_launch",
+            {
+                **self.common(),
+                "ticket_id": "refill-screen-sanitizer-red-team-012",
+                "recycle_request": recycle_request(request_id="recycle-p940-012"),
+                "launch_request": failed_launch,
+            },
+        )["result"]
+        self.assertIsNot(prepared.get("isError"), True, prepared)
+        setup_request = {
+            "interface_version": "1.0",
+            "request_id": "setup-failure-p940-012",
+            "reason_code": "CREATE_THREAD_FAILED",
+            "evidence_refs": ["synthetic-expired-unreceipted-p940"],
+            "configured_capacity": 4,
+            "runnable_queue_count": 0,
+            "empty_outcome": "EMPTY",
+            "blocked_audits": [],
+            "successor_candidates": [],
+            "now": iso(minutes=31),
+        }
+        failed = self.call(
+            "pm_proxy_record_setup_failure",
+            {
+                **self.common(),
+                "ticket_id": "refill-screen-sanitizer-red-team-012",
+                "request": setup_request,
+            },
+        )["result"]
+        self.assertIsNot(failed.get("isError"), True, failed)
+        failure = failed["structuredContent"]["result"]
+        self.assertEqual("FAILED", failure["state"])
+        self.assertEqual(1, failure["released_claim_count"])
+        self.assertEqual(1, failure["poisoned_outbox_count"])
+        self.assertIsNone(failure["successor"])
+        self.assertFalse(
+            (self.state / "screen-sanitizer-red-team-021.ticket.json").exists()
+        )
+        replay_request = json.loads(json.dumps(setup_request))
+        replay_request["now"] = iso(minutes=32)
+        replay = self.call(
+            "pm_proxy_record_setup_failure",
+            {
+                **self.common(),
+                "ticket_id": "refill-screen-sanitizer-red-team-012",
+                "request": replay_request,
+            },
+        )["result"]
+        self.assertIsNot(replay.get("isError"), True, replay)
+        self.assertEqual(failure, replay["structuredContent"]["result"])
+
+        routed_launch = launch_request(task_id="screenbench-owner-route")
+        routed_launch["target"]["repo_root"] = str(self.target)
+        routed_launch["target"]["remote"] = "https://github.com/example/project.git"
+        routed_launch["target"]["path"] = "/src"
+        routed_launch["target"]["resource_mode"] = "path"
+        routed_launch["context"]["repo"] = "github.com/example/project"
+        routed_launch["context"]["path"] = "/src"
+        routed = self.call(
+            "pm_proxy_prepare_launch",
+            {
+                **self.common(),
+                "ticket_id": "screenbench-owner-route",
+                "recycle_request": recycle_request(request_id="recycle-screenbench-route"),
+                "launch_request": routed_launch,
+            },
+        )["result"]
+        self.assertIsNot(routed.get("isError"), True, routed)
+        receipted = self.call(
+            "pm_proxy_record_launch_receipt",
+            {
+                **self.common(),
+                "ticket_id": "screenbench-owner-route",
+                "external_thread_id": "screenbench-owner-worker",
+                "runtime_attestation": config_verified_runtime_attestation(),
+                "request_id": "receipt-screenbench-owner-route",
+                "now": iso(minutes=2),
+            },
+        )["result"]
+        self.assertIsNot(receipted.get("isError"), True, receipted)
+        status = self.call("pm_proxy_status", self.common())["result"][
+            "structuredContent"
+        ]["result"]
+        decision = classify_request(
+            action_type="PRODUCTION_CHANGE",
+            gate_type="PRODUCTION_CHANGE",
+            request_id="screenbench-owner-decision",
+        )
+        decision["state_revision"] = status["revision"]
+        decision["policy_snapshot_revision"] = status["policy_revision"]
+        decision["context"]["action"] = "decision-classification"
+        decision["now"] = iso(minutes=3)
+        route_arguments = {
+            **self.common(),
+            "ticket_id": "screenbench-owner-route",
+            "external_thread_id": "screenbench-owner-worker",
+            "route_request_id": "route-screenbench-owner-decision",
+            "decision_request": decision,
+            "approval": {
+                "request_id": "screenbench-owner-decision",
+                "decision_code": "production-gate",
+                "option_codes": ["approve", "deny"],
+                "evidence_refs": ["receipt-screenbench-owner-route"],
+            },
+            "now": iso(minutes=3),
+        }
+        first_route = self.call(
+            "pm_proxy_route_owner_decision", route_arguments
+        )["result"]
+        self.assertIsNot(first_route.get("isError"), True, first_route)
+        route = first_route["structuredContent"]["result"]
+        self.assertEqual("OWNER_GATE", route["classification"])
+        self.assertFalse(route["replayed"])
+        self.assertIn("<pm_proxy_owner_decision_envelope>", route["message"])
+        replayed_route = self.call(
+            "pm_proxy_route_owner_decision", route_arguments
+        )["result"]
+        self.assertTrue(replayed_route["structuredContent"]["result"]["replayed"])
+        conflicting_arguments = json.loads(json.dumps(route_arguments))
+        conflicting_arguments["route_request_id"] = (
+            "route-screenbench-owner-decision-conflict"
+        )
+        conflicted_route = self.call(
+            "pm_proxy_route_owner_decision", conflicting_arguments
+        )["result"]
+        self.assertTrue(conflicted_route["isError"])
+        self.assertEqual(
+            "owner-decision-route-conflict",
+            conflicted_route["structuredContent"]["error"]["code"],
+        )
+        ledger_path = self.state / ".owner-decision-routes.json"
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        self.assertEqual(1, len(ledger["routes"]))
+        serialized = json.dumps(ledger, sort_keys=True).lower()
+        for forbidden in (
+            "prompt", "command", "secret", "credentials", "patient_text",
+            "credential_url",
+        ):
+            self.assertNotIn(forbidden, serialized)
 
     def test_runtime_pin_rejects_mismatch_and_bundle_drift(self) -> None:
         mismatched = self.call(

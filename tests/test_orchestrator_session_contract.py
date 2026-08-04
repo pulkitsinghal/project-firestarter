@@ -36,6 +36,8 @@ REQUIRED_FILES = {
     "orchestrator-control/root_role_guard.py",
     "orchestrator-control/schemas/adaptive-capacity-audit.request.schema.json",
     "orchestrator-control/schemas/adaptive-capacity-audit.response.schema.json",
+    "orchestrator-control/schemas/acknowledge-control-schema-hold.request.schema.json",
+    "orchestrator-control/schemas/acknowledge-control-schema-hold.response.schema.json",
     "orchestrator-control/schemas/classify-decision.request.schema.json",
     "orchestrator-control/schemas/classify-decision.response.schema.json",
     "orchestrator-control/schemas/configure-capacity.request.schema.json",
@@ -274,7 +276,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         self.assertEqual(entry["name"], manifest["name"])
         self.assertRegex(
             manifest["version"],
-            r"^0\.4\.0(?:\+codex\.\d{14})?$",
+            r"^0\.4\.2(?:\+codex\.\d{14})?$",
         )
         self.assertEqual("./skills/", manifest["skills"])
         self.assertEqual("./.mcp.json", manifest["mcpServers"])
@@ -313,7 +315,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         canonical_bytes = CANONICAL_BILL.read_bytes()
         canonical_text = canonical_bytes.decode("utf-8")
         self.assertEqual(
-            "1.4.0",
+            "1.4.2",
             (ADDON / "orchestrator-control" / "VERSION")
             .read_text(encoding="utf-8")
             .strip(),

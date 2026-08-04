@@ -39,6 +39,8 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 RULE_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+CONTROL_SCHEMA_HOLD_DECISION = "CONTROL_SCHEMA_DEFECT_NO_TRUTHFUL_TERMINAL_ROUTE"
+CONTROL_SCHEMA_HOLD_REPLAY_TARGET = "completed_local_only"
 TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 PUBLIC_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .,&()'’+-]{0,79}$")
 PUBLIC_LABEL_SENSITIVE = re.compile(
@@ -1111,6 +1113,17 @@ CREATE TABLE IF NOT EXISTS lifecycle_watchdog_requests (
   request_hash TEXT NOT NULL,
   task_id TEXT NOT NULL REFERENCES tasks(task_id),
   result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS control_schema_holds (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+  ticket_id TEXT NOT NULL,
+  replay_target TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  released_at TEXT,
+  release_handback_id TEXT,
   recorded_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS lease_expirations (
@@ -3432,6 +3445,17 @@ class Plane:
                 return json.loads(existing["result_json"])
             task = self.checked_task(connection, request, {"RUNNING", "BLOCKED"})
             self.require_external_receipt(connection, request)
+            active_hold = connection.execute(
+                """SELECT 1 FROM control_schema_holds
+                   WHERE task_id=? AND released_at IS NULL""",
+                (request["task_id"],),
+            ).fetchone()
+            if active_hold is not None:
+                fail(
+                    "CONTROL_SCHEMA_HOLD_ACTIVE",
+                    "a control-schema hold rejects duration progress churn until its exact terminal replay",
+                    exit_status=EXIT_CONFLICT,
+                )
             timing = connection.execute(
                 "SELECT * FROM task_timing WHERE task_id=?",
                 (request["task_id"],),
@@ -4095,6 +4119,58 @@ class Plane:
             )
         return canonical_external_id
 
+    @staticmethod
+    def verify_local_artifact(
+        task: sqlite3.Row, artifact: dict[str, Any]
+    ) -> None:
+        target = json.loads(task["target_json"])
+        root = Path(target["repo_root"])
+        scoped_prefix = target["path"].lstrip("/")
+        for entry in artifact["entries"]:
+            relative = entry["relative_path"]
+            if scoped_prefix and not (
+                relative == scoped_prefix
+                or relative.startswith(scoped_prefix.rstrip("/") + "/")
+            ):
+                fail(
+                    "ARTIFACT_SCOPE_INVALID",
+                    "local artifact is outside the task's owned repository path",
+                )
+            candidate = root.joinpath(*PurePosixPath(relative).parts)
+            no_symlink_components(candidate)
+            try:
+                candidate.resolve(strict=False).relative_to(root)
+            except ValueError:
+                fail("ARTIFACT_PATH_INVALID", "local artifact escaped the repository")
+            if entry["transition"] == "removed":
+                if candidate.exists() or candidate.is_symlink():
+                    fail(
+                        "ARTIFACT_CONTENT_MISMATCH",
+                        "removed artifact is still present",
+                    )
+                continue
+            if (
+                not candidate.is_file()
+                or candidate.is_symlink()
+                or candidate.stat().st_size > 67_108_864
+            ):
+                fail(
+                    "ARTIFACT_CONTENT_INVALID",
+                    "local artifact must be a bounded regular file",
+                )
+            content_digest = hashlib.sha256()
+            with candidate.open("rb") as handle:
+                while True:
+                    chunk = handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    content_digest.update(chunk)
+            if content_digest.hexdigest() != entry["after_sha256"]:
+                fail(
+                    "ARTIFACT_CONTENT_MISMATCH",
+                    "local artifact content does not match its manifest digest",
+                )
+
     def record_handback(self, raw: Any) -> dict[str, Any]:
         request = validate_handback(raw)
         connection = self.connect()
@@ -4104,42 +4180,20 @@ class Plane:
             existing = connection.execute(
                 "SELECT * FROM handbacks WHERE handback_id=?", (request["handback_id"],)
             ).fetchone()
-            request_hash = digest(
-                {
-                    "handback_id": request["handback_id"],
-                    "task_id": request["task_id"],
-                    "policy_snapshot_revision": request["policy_snapshot_revision"],
-                    "lease_epoch": request["lease_epoch"],
-                    "fencing_token": request["fencing_token"],
-                    "external_thread_id": request["external_thread_id"],
-                    "disposition": request["disposition"],
-                    "public_metadata": request.get("public_metadata"),
-                    "successor_task_id": (
-                        request["successor_request"]["task_id"]
-                        if request["successor_request"]
-                        else None
-                    ),
-                    "capacity": {
-                        key: request["capacity"][key]
-                        for key in (
-                            "configured_capacity",
-                            "runnable_queue_count",
-                            "terminal_status",
-                            "clean_handback",
-                            "empty_outcome",
-                        )
-                    },
-                    "blocked_audits": [
-                        {
-                            "task_id": audit["task_id"],
-                            "classification": audit["classification"],
-                            "outcome": audit["outcome"],
-                            "reason_code": audit["reason_code"],
-                        }
-                        for audit in request["capacity"]["blocked_audits"]
-                    ],
+            semantic_request = {
+                key: value
+                for key, value in request.items()
+                if key != "now"
+            }
+            if semantic_request["successor_request"] is not None:
+                semantic_request["successor_request"] = {
+                    key: value
+                    for key, value in semantic_request[
+                        "successor_request"
+                    ].items()
+                    if key != "prompt"
                 }
-            )
+            request_hash = digest(semantic_request)
             if existing:
                 if existing["request_hash"] != request_hash:
                     fail("IDEMPOTENCY_CONFLICT", "handback_id input changed", exit_status=EXIT_CONFLICT)
@@ -4155,6 +4209,18 @@ class Plane:
                 return replay
             task = self.checked_task(connection, request, {"RUNNING", "BLOCKED", "FAILED"})
             self.require_external_receipt(connection, request)
+            if request["disposition"] in {
+                "completed_local_only",
+                "completed_local_artifact",
+            }:
+                target = json.loads(task["target_json"])
+                if request["exact_refs"]["base_sha"] != target["base_sha"]:
+                    fail(
+                        "BASE_PROVENANCE_MISMATCH",
+                        "local completion base SHA does not match the owned target",
+                    )
+            if request["local_artifact"] is not None:
+                self.verify_local_artifact(task, request["local_artifact"])
             before = task["state"]
             active_before_release = self.active_or_reserved_count(connection)
             predecessor_occupied_slot = before == "RUNNING"
@@ -4239,6 +4305,31 @@ class Plane:
                     "CLEANUP_OWNERSHIP_UNPROVEN",
                     "terminal handback must disposition its registered owner claim",
                 )
+            if request["disposition"] in {
+                "completed_local_only",
+                "completed_local_artifact",
+            }:
+                removed_claim_ids = {
+                    item["id"]
+                    for item in request["resources"]
+                    if item["disposition"] == "removed"
+                }
+                if not active_claim_ids.issubset(removed_claim_ids):
+                    fail(
+                        "CLEANUP_OWNERSHIP_UNPROVEN",
+                        "local completion must explicitly remove its exact owner claim",
+                    )
+            hold = connection.execute(
+                "SELECT * FROM control_schema_holds WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if hold is not None and hold["released_at"] is None:
+                if request["disposition"] != hold["replay_target"]:
+                    fail(
+                        "CONTROL_SCHEMA_HOLD_REPLAY_MISMATCH",
+                        "control-schema hold requires its exact typed replay",
+                        exit_status=EXIT_CONFLICT,
+                    )
             closure = {
                 "disposition": request["disposition"],
                 "exact_refs": request["exact_refs"],
@@ -4249,7 +4340,9 @@ class Plane:
                 "review_finding_count": len(request["review_findings"]),
                 "hosted_ci": request["hosted_ci"],
                 "deployment_state": request["deployment_state"],
+                "external_delivery": request["external_delivery"],
                 "artifact_count": len(request["artifacts"]),
+                "local_artifact": request["local_artifact"],
                 "resources": [
                     {
                         "id": item["id"],
@@ -4260,6 +4353,9 @@ class Plane:
                 ],
                 "dependency_count": len(request["dependencies"]),
                 "next_action_recorded": bool(request["next_action"]),
+                "control_schema_hold_released": bool(
+                    hold is not None and hold["released_at"] is None
+                ),
             }
             connection.execute(
                 "UPDATE tasks SET state='ARCHIVE_PENDING',closure_json=?,updated_at=? WHERE task_id=?",
@@ -4273,6 +4369,16 @@ class Plane:
                    WHERE task_id=?""",
                 (request["now"], request["task_id"]),
             )
+            if hold is not None and hold["released_at"] is None:
+                connection.execute(
+                    """UPDATE control_schema_holds
+                       SET released_at=?,release_handback_id=? WHERE task_id=?""",
+                    (
+                        request["now"],
+                        request["handback_id"],
+                        request["task_id"],
+                    ),
+                )
             active = self.active_or_reserved_count(connection)
             if capacity["runnable_queue_count"] > 0:
                 expected_active = min(
@@ -4406,6 +4512,14 @@ class Plane:
                     item.get("bytes", 0)
                     for item in request["resources"]
                     if item["disposition"] == "removed"
+                ),
+                "local_artifact_manifest_sha256": (
+                    None
+                    if request["local_artifact"] is None
+                    else request["local_artifact"]["manifest_sha256"]
+                ),
+                "control_schema_hold_released": bool(
+                    hold is not None and hold["released_at"] is None
                 ),
             }
             stored_result = dict(result)
@@ -4840,23 +4954,14 @@ class Plane:
 
     def record_setup_failure(self, raw: Any) -> dict[str, Any]:
         request = validate_setup_failure(raw)
-        request_hash = digest(
-            {
-                "request_id": request["request_id"],
-                "task_id": request["task_id"],
-                "policy_snapshot_revision": request["policy_snapshot_revision"],
-                "lease_epoch": request["lease_epoch"],
-                "fencing_token": request["fencing_token"],
-                "reason_code": request["reason_code"],
-                "configured_capacity": request["configured_capacity"],
-                "runnable_queue_count": request["runnable_queue_count"],
-                "empty_outcome": request["empty_outcome"],
-                "candidate_task_ids": [
-                    candidate["task_id"]
-                    for candidate in request["successor_candidates"]
-                ],
-            }
-        )
+        semantic_request = {
+            key: value for key, value in request.items() if key != "now"
+        }
+        semantic_request["successor_candidates"] = [
+            {key: value for key, value in candidate.items() if key != "prompt"}
+            for candidate in request["successor_candidates"]
+        ]
+        request_hash = digest(semantic_request)
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -4903,6 +5008,41 @@ class Plane:
                     "setup failure requires the current pending create outbox",
                     exit_status=EXIT_CONFLICT,
                 )
+            if (
+                request["expected_outbox_id"] is not None
+                and request["expected_outbox_id"] != outbox["outbox_id"]
+            ):
+                fail(
+                    "SETUP_OUTBOX_MISMATCH",
+                    "setup failure outbox binding changed",
+                    exit_status=EXIT_CONFLICT,
+                )
+            active_claims = connection.execute(
+                """SELECT * FROM owner_claims
+                   WHERE task_id=? AND status='active'""",
+                (request["task_id"],),
+            ).fetchall()
+            if len(active_claims) != 1:
+                fail(
+                    "SETUP_CLAIM_INVALID",
+                    "setup failure requires exactly one active reservation claim",
+                    exit_status=EXIT_CONFLICT,
+                )
+            failed_claim = active_claims[0]
+            if (
+                failed_claim["lease_epoch"] != request["lease_epoch"]
+                or failed_claim["fencing_token"] != request["fencing_token"]
+                or (
+                    request["expected_owner_claim_id"] is not None
+                    and request["expected_owner_claim_id"]
+                    != failed_claim["claim_id"]
+                )
+            ):
+                fail(
+                    "SETUP_CLAIM_MISMATCH",
+                    "setup failure claim binding changed",
+                    exit_status=EXIT_CONFLICT,
+                )
             saga = connection.execute(
                 "SELECT * FROM capacity_sagas WHERE successor_task_id=?",
                 (request["task_id"],),
@@ -4923,17 +5063,31 @@ class Plane:
                 "UPDATE tasks SET state='FAILED',updated_at=? WHERE task_id=?",
                 (request["now"], request["task_id"]),
             )
-            connection.execute(
+            released = connection.execute(
                 """UPDATE owner_claims SET status='released',heartbeat_at=?
-                   WHERE task_id=? AND status='active'""",
-                (request["now"], request["task_id"]),
+                   WHERE claim_id=? AND task_id=? AND status='active'
+                     AND lease_epoch=? AND fencing_token=?""",
+                (
+                    request["now"],
+                    failed_claim["claim_id"],
+                    request["task_id"],
+                    request["lease_epoch"],
+                    request["fencing_token"],
+                ),
             )
-            connection.execute(
+            poisoned = connection.execute(
                 """UPDATE outbox
                    SET state='poisoned',attempts=attempts+1,updated_at=?
-                   WHERE outbox_id=?""",
-                (request["now"], outbox["outbox_id"]),
+                   WHERE outbox_id=? AND task_id=? AND kind='CREATE_THREAD'
+                     AND state='pending'""",
+                (request["now"], outbox["outbox_id"], request["task_id"]),
             )
+            if released.rowcount != 1 or poisoned.rowcount != 1:
+                fail(
+                    "SETUP_RELEASE_CONFLICT",
+                    "setup failure did not release exactly its own claim and outbox",
+                    exit_status=EXIT_CONFLICT,
+                )
             selected = None
             rejected: list[dict[str, str]] = []
             candidates = sorted(
@@ -5037,6 +5191,9 @@ class Plane:
                 "state": "FAILED",
                 "failed_outbox_id": outbox["outbox_id"],
                 "outbox_state": "poisoned",
+                "released_owner_claim_id": failed_claim["claim_id"],
+                "released_claim_count": released.rowcount,
+                "poisoned_outbox_count": poisoned.rowcount,
                 "successor": selected,
                 "rejected_candidates": rejected,
                 "capacity": self.capacity_result(connection, capacity_row),
@@ -5074,6 +5231,7 @@ class Plane:
                 "FAILED",
                 {
                     "failed_outbox_id": outbox["outbox_id"],
+                    "released_owner_claim_id": failed_claim["claim_id"],
                     "outbox_state": "poisoned",
                     "capacity_eligible": False,
                     "selected_successor_task_id": selected_task_id,
@@ -5273,6 +5431,227 @@ class Plane:
             "updated_at": row["updated_at"],
         }
 
+    def acknowledge_control_schema_hold(self, raw: Any) -> dict[str, Any]:
+        """Preserve one objectively completed worker until its exact replay is valid.
+
+        This is deliberately not a generic terminalization or lease-repair path.  It
+        records one receipt-fenced hold while leaving the task, owner claim, external
+        receipt, capacity lane, fence, evidence, and progress fields untouched.
+        """
+
+        request = validate_control_schema_hold(raw)
+        request_hash = digest(
+            {key: value for key, value in request.items() if key != "now"}
+        )
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(
+                connection, "acknowledge-control-schema-hold"
+            )
+            existing = connection.execute(
+                "SELECT * FROM control_schema_holds WHERE request_id=?",
+                (request["request_id"],),
+            ).fetchone()
+            if existing is not None:
+                if existing["request_hash"] != request_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "control-schema hold request input changed",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                replay = json.loads(existing["result_json"])
+                replay["replayed"] = True
+                connection.commit()
+                return replay
+
+            state_revision = int(self.metadata(connection, "revision"))
+            policy_revision = int(self.metadata(connection, "policy_revision"))
+            configured_capacity = int(
+                self.metadata(connection, "configured_capacity")
+            )
+            if request["expected_state_revision"] != state_revision:
+                fail(
+                    "STATE_REVISION_CONFLICT",
+                    "control-schema hold uses a stale state revision",
+                    exit_status=EXIT_CONFLICT,
+                    details={"current_state_revision": state_revision},
+                )
+            if request["expected_policy_revision"] != policy_revision:
+                fail(
+                    "POLICY_REVISION_CONFLICT",
+                    "control-schema hold uses a stale policy revision",
+                    exit_status=EXIT_CONFLICT,
+                    details={"current_policy_revision": policy_revision},
+                )
+            if request["expected_configured_capacity"] != configured_capacity:
+                fail(
+                    "CAPACITY_CONFIGURATION_MISMATCH",
+                    "control-schema hold cannot change configured capacity",
+                    exit_status=EXIT_CONFLICT,
+                    details={"current_configured_capacity": configured_capacity},
+                )
+
+            task = self.checked_task(connection, request, {"RUNNING"})
+            if task["source_event_key"] != request["ticket_id"]:
+                fail(
+                    "RECEIPT_MISMATCH",
+                    "control-schema hold ticket does not identify the task",
+                )
+            self.require_external_receipt(connection, request)
+            claim = connection.execute(
+                """SELECT * FROM owner_claims
+                   WHERE task_id=? AND status='active'""",
+                (request["task_id"],),
+            ).fetchone()
+            if (
+                claim is None
+                or claim["lease_epoch"] != request["lease_epoch"]
+                or claim["fencing_token"] != request["fencing_token"]
+            ):
+                fail(
+                    "STALE_FENCE",
+                    "control-schema hold requires the exact active owner claim",
+                    exit_status=EXIT_CONFLICT,
+                )
+            lifecycle = connection.execute(
+                "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if (
+                lifecycle is None
+                or lifecycle["lifecycle_state"] != "INTERRUPT_REQUIRED"
+                or lifecycle["worker_status"] != "completed"
+                or lifecycle["remaining_work_json"] is not None
+                or not json.loads(lifecycle["completion_signals_json"])
+                or not json.loads(lifecycle["evidence_refs_json"])
+            ):
+                fail(
+                    "CONTROL_SCHEMA_HOLD_INELIGIBLE",
+                    "only an objectively completed terminalization candidate may enter the hold",
+                    exit_status=EXIT_CONFLICT,
+                    details={
+                        "lifecycle_present": lifecycle is not None,
+                        "lifecycle_state": (
+                            None if lifecycle is None else lifecycle["lifecycle_state"]
+                        ),
+                        "worker_status": (
+                            None if lifecycle is None else lifecycle["worker_status"]
+                        ),
+                        "remaining_work_absent": bool(
+                            lifecycle is not None
+                            and lifecycle["remaining_work_json"] is None
+                        ),
+                        "completion_signals_present": bool(
+                            lifecycle is not None
+                            and json.loads(lifecycle["completion_signals_json"])
+                        ),
+                        "evidence_refs_present": bool(
+                            lifecycle is not None
+                            and json.loads(lifecycle["evidence_refs_json"])
+                        ),
+                    },
+                )
+
+            timing = connection.execute(
+                "SELECT current_lane FROM task_timing WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            lane = None if timing is None else timing["current_lane"]
+            lease_expired = utc_instant(claim["expires_at"]) <= utc_instant(
+                request["now"]
+            )
+            connection.execute(
+                """UPDATE lifecycle_watchdog
+                   SET lifecycle_state='CONTROL_SCHEMA_HOLD',
+                       required_action='AWAIT_CONTROL_REPAIR',updated_at=?
+                   WHERE task_id=?""",
+                (request["now"], request["task_id"]),
+            )
+            result = {
+                "ticket_id": request["ticket_id"],
+                "task_id": request["task_id"],
+                "external_thread_id": request["external_thread_id"],
+                "policy_snapshot_revision": request[
+                    "policy_snapshot_revision"
+                ],
+                "lease_epoch": request["lease_epoch"],
+                "fencing_token": request["fencing_token"],
+                "hold_state": "CONTROL_SCHEMA_HOLD",
+                "required_action": "AWAIT_CONTROL_REPAIR",
+                "replay_target": request["replay_target"],
+                "authorization_request_id": request[
+                    "authorization_request_id"
+                ],
+                "decision_request_id": request["decision_request_id"],
+                "decision_id": request["decision_id"],
+                "preservation": {
+                    "task_state": "RUNNING",
+                    "claim_status": "active",
+                    "owner_claim_id": claim["claim_id"],
+                    "occupied_lane": True,
+                    "lane": lane,
+                    "external_worker_state": "PRESERVED",
+                    "capacity_released": False,
+                    "handback_created": False,
+                    "archive_created": False,
+                    "refill_created": False,
+                    "lease_expired_at_acknowledgement": lease_expired,
+                    "completion_signals": json.loads(
+                        lifecycle["completion_signals_json"]
+                    ),
+                    "evidence_refs": json.loads(
+                        lifecycle["evidence_refs_json"]
+                    ),
+                    "progress_ref": lifecycle["progress_ref"],
+                    "progress_observed_at": lifecycle[
+                        "progress_observed_at"
+                    ],
+                },
+                "replayed": False,
+            }
+            connection.execute(
+                """INSERT INTO control_schema_holds(
+                  request_id,request_hash,task_id,ticket_id,replay_target,
+                  result_json,released_at,release_handback_id,recorded_at
+                ) VALUES(?,?,?,?,?,?,NULL,NULL,?)""",
+                (
+                    request["request_id"],
+                    request_hash,
+                    request["task_id"],
+                    request["ticket_id"],
+                    request["replay_target"],
+                    canonical(result),
+                    request["now"],
+                ),
+            )
+            self.event(
+                connection,
+                request["now"],
+                request["task_id"],
+                request["request_id"],
+                "CONTROL_SCHEMA_HOLD_ACKNOWLEDGED",
+                "AWAIT_CONTROL_REPAIR",
+                ["BR-CLOSE-001", "BR-LAUNCH-001"],
+                "INTERRUPT_REQUIRED",
+                "CONTROL_SCHEMA_HOLD",
+                {
+                    "ticket_id": request["ticket_id"],
+                    "lease_epoch": request["lease_epoch"],
+                    "fencing_token": request["fencing_token"],
+                    "replay_target": request["replay_target"],
+                    "occupied_lane": True,
+                    "lease_expired_at_acknowledgement": lease_expired,
+                },
+            )
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def lifecycle_watchdog(self, raw: Any) -> dict[str, Any]:
         request = validate_lifecycle_watchdog(raw)
         capacity_projection = None
@@ -5397,6 +5776,12 @@ class Plane:
                 prior_state = (
                     "RUNNING" if previous is None else previous["lifecycle_state"]
                 )
+                if prior_state == "CONTROL_SCHEMA_HOLD":
+                    fail(
+                        "CONTROL_SCHEMA_HOLD_ACTIVE",
+                        "a control-schema hold accepts only its exact terminal replay",
+                        exit_status=EXIT_CONFLICT,
+                    )
                 if (
                     prior_state == "INTERRUPT_REQUIRED"
                     and fresh_progress
@@ -6789,7 +7174,7 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
     )
     if (
         re.fullmatch(
-            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.0)(?:\+codex\.\d{14})?",
+            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2))(?:\+codex\.\d{14})?",
             plugin_version,
         )
         is None
@@ -7196,6 +7581,208 @@ def validate_receipt(value: Any, kind: str) -> dict[str, Any]:
     return output
 
 
+def validate_control_schema_hold(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "authorization_request_id",
+            "decision_request_id",
+            "decision_id",
+            "decision",
+            "root_thread_id",
+            "ticket_id",
+            "task_id",
+            "external_thread_id",
+            "expected_state_revision",
+            "expected_policy_revision",
+            "expected_configured_capacity",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "replay_target",
+            "now",
+        },
+        label="acknowledge-control-schema-hold request",
+    )
+    base = validate_receipt(
+        {
+            key: request[key]
+            for key in (
+                "interface_version",
+                "request_id",
+                "task_id",
+                "policy_snapshot_revision",
+                "lease_epoch",
+                "fencing_token",
+                "now",
+            )
+        },
+        "archive",
+    )
+    if request["decision"] != CONTROL_SCHEMA_HOLD_DECISION:
+        fail(
+            "DECISION_DENIED",
+            "control-schema hold requires the exact typed owner decision",
+        )
+    if request["replay_target"] != CONTROL_SCHEMA_HOLD_REPLAY_TARGET:
+        fail(
+            "SCHEMA_INVALID",
+            "control-schema hold replay target is invalid",
+        )
+    output = {
+        **base,
+        "authorization_request_id": identifier(
+            request["authorization_request_id"], "authorization_request_id"
+        ),
+        "decision_request_id": identifier(
+            request["decision_request_id"], "decision_request_id"
+        ),
+        "decision_id": identifier(request["decision_id"], "decision_id"),
+        "decision": request["decision"],
+        "root_thread_id": identifier(
+            request["root_thread_id"], "root_thread_id"
+        ),
+        "ticket_id": identifier(request["ticket_id"], "ticket_id"),
+        "external_thread_id": identifier(
+            request["external_thread_id"], "external_thread_id"
+        ),
+        "expected_state_revision": bounded_int(
+            request["expected_state_revision"],
+            "expected_state_revision",
+            0,
+            2_147_483_647,
+        ),
+        "expected_policy_revision": bounded_int(
+            request["expected_policy_revision"],
+            "expected_policy_revision",
+            1,
+            1_000_000,
+        ),
+        "expected_configured_capacity": bounded_int(
+            request["expected_configured_capacity"],
+            "expected_configured_capacity",
+            1,
+            64,
+        ),
+        "replay_target": request["replay_target"],
+    }
+    reject_sensitive(output, "control-schema hold")
+    return output
+
+
+def privacy_safe_artifact_path(value: Any) -> str:
+    raw = text(value, "artifact relative_path", 512, single_line=True)
+    if (
+        raw.startswith(("/", "\\"))
+        or "\\" in raw
+        or ":" in raw
+        or raw != PurePosixPath(raw).as_posix()
+    ):
+        fail("ARTIFACT_PATH_INVALID", "artifact path must be canonical and relative")
+    parts = PurePosixPath(raw).parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        fail("ARTIFACT_PATH_INVALID", "artifact path cannot traverse the repository")
+    if any(part.startswith(".") for part in parts):
+        fail("ARTIFACT_PATH_INVALID", "artifact path cannot target hidden state")
+    reject_sensitive(raw, "artifact relative path")
+    return raw
+
+
+def validate_local_artifact(value: Any) -> dict[str, Any]:
+    artifact = strict(
+        value,
+        {"algorithm", "entries", "manifest_sha256", "rollback"},
+        label="local_artifact",
+    )
+    if artifact["algorithm"] != "sha256":
+        fail("ARTIFACT_ALGORITHM_INVALID", "local artifact algorithm must be sha256")
+    if (
+        not isinstance(artifact["entries"], list)
+        or not 1 <= len(artifact["entries"]) <= 256
+    ):
+        fail("ARTIFACT_MANIFEST_INVALID", "artifact manifest must be bounded and non-empty")
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_entry in artifact["entries"]:
+        entry = strict(
+            raw_entry,
+            {"relative_path", "transition", "before_sha256", "after_sha256"},
+            label="local_artifact entry",
+        )
+        relative_path = privacy_safe_artifact_path(entry["relative_path"])
+        folded = relative_path.casefold()
+        if folded in seen:
+            fail("ARTIFACT_PATH_DUPLICATE", "artifact paths must be unique")
+        seen.add(folded)
+        transition = entry["transition"]
+        if transition not in {"created", "modified", "removed"}:
+            fail("ARTIFACT_TRANSITION_INVALID", "artifact transition is invalid")
+        before = entry["before_sha256"]
+        after = entry["after_sha256"]
+        for label, candidate in (("before_sha256", before), ("after_sha256", after)):
+            if candidate is not None and (
+                not isinstance(candidate, str)
+                or SHA256_RE.fullmatch(candidate) is None
+            ):
+                fail("ARTIFACT_DIGEST_INVALID", f"artifact {label} is invalid")
+        valid_shape = (
+            transition == "created" and before is None and after is not None
+        ) or (
+            transition == "modified"
+            and before is not None
+            and after is not None
+            and before != after
+        ) or (
+            transition == "removed" and before is not None and after is None
+        )
+        if not valid_shape:
+            fail(
+                "ARTIFACT_TRANSITION_INVALID",
+                "artifact digest transition is not a real state change",
+            )
+        entries.append(
+            {
+                "relative_path": relative_path,
+                "transition": transition,
+                "before_sha256": before,
+                "after_sha256": after,
+            }
+        )
+    entries.sort(key=lambda item: item["relative_path"])
+    manifest = {"algorithm": "sha256", "entries": entries}
+    if len(canonical(manifest).encode("utf-8")) > 65_536:
+        fail("ARTIFACT_MANIFEST_INVALID", "artifact manifest exceeds its size bound")
+    manifest_sha256 = text(
+        artifact["manifest_sha256"],
+        "local_artifact.manifest_sha256",
+        64,
+        single_line=True,
+    )
+    if SHA256_RE.fullmatch(manifest_sha256) is None or digest(manifest) != manifest_sha256:
+        fail("ARTIFACT_MANIFEST_DIGEST_MISMATCH", "artifact manifest digest is not canonical")
+    rollback = strict(
+        artifact["rollback"],
+        {"strategy", "evidence_ref"},
+        label="local_artifact rollback",
+    )
+    if rollback["strategy"] != "restore_base":
+        fail("ARTIFACT_ROLLBACK_INVALID", "local artifact rollback must restore the exact base")
+    result = {
+        **manifest,
+        "manifest_sha256": manifest_sha256,
+        "rollback": {
+            "strategy": "restore_base",
+            "evidence_ref": coarse_label(
+                rollback["evidence_ref"], "local_artifact.rollback.evidence_ref"
+            ),
+        },
+    }
+    reject_sensitive(result, "local artifact manifest")
+    return result
+
+
 def validate_handback(value: Any) -> dict[str, Any]:
     request = strict(
         value,
@@ -7223,7 +7810,7 @@ def validate_handback(value: Any) -> dict[str, Any]:
             "block",
             "now",
         },
-        {"capacity", "public_metadata"},
+        {"capacity", "public_metadata", "external_delivery", "local_artifact"},
         label="record-handback request",
     )
     base = validate_receipt(
@@ -7241,7 +7828,15 @@ def validate_handback(value: Any) -> dict[str, Any]:
         },
         "archive",
     )
-    if request["disposition"] not in {"completed", "blocked", "failed", "superseded", "duplicate"}:
+    if request["disposition"] not in {
+        "completed",
+        "completed_local_only",
+        "completed_local_artifact",
+        "blocked",
+        "failed",
+        "superseded",
+        "duplicate",
+    }:
         fail("SCHEMA_INVALID", "handback disposition is invalid")
     exact_input = strict(
         request["exact_refs"],
@@ -7263,6 +7858,30 @@ def validate_handback(value: Any) -> dict[str, Any]:
     )
     if exact_refs["base_sha"] is None:
         fail("HANDBACK_INCOMPLETE", "handback requires the exact base SHA")
+    local_only_completion = request["disposition"] == "completed_local_only"
+    local_artifact_completion = (
+        request["disposition"] == "completed_local_artifact"
+    )
+    if local_only_completion and (
+        exact_refs["candidate_sha"] is None
+        or exact_refs["candidate_sha"] == exact_refs["base_sha"]
+        or any(
+            exact_refs[key] is not None
+            for key in ("pr_url", "merge_sha", "default_sha")
+        )
+    ):
+        fail(
+            "LOCAL_ONLY_REFS_INVALID",
+            "completed_local_only requires distinct base/candidate SHAs and no delivery refs",
+        )
+    if local_artifact_completion and any(
+        exact_refs[key] is not None
+        for key in ("candidate_sha", "pr_url", "merge_sha", "default_sha")
+    ):
+        fail(
+            "LOCAL_ARTIFACT_REFS_INVALID",
+            "completed_local_artifact permits only exact base provenance",
+        )
     zero_change_completion = (
         request["disposition"] == "completed"
         and request["deployment_state"] == "not_performed"
@@ -7314,6 +7933,13 @@ def validate_handback(value: Any) -> dict[str, Any]:
     steps = bounded_int(hosted["steps"], "hosted_ci.steps", 0, 1_000_000)
     if steps == 0 and hosted["status"] == "pass":
         fail("CI_TRUTH_INVALID", "zero-step CI cannot be passing")
+    if (local_only_completion or local_artifact_completion) and not (
+        hosted["status"] == "unexecuted" and steps == 0
+    ):
+        fail(
+            "CI_TRUTH_INVALID",
+            "local completion requires literal unexecuted zero-step hosted CI",
+        )
     resources = []
     if not isinstance(request["resources"], list):
         fail("SCHEMA_INVALID", "resources must be a list")
@@ -7332,7 +7958,13 @@ def validate_handback(value: Any) -> dict[str, Any]:
                 "bytes": byte_count,
             }
         )
-    if request["disposition"] in {"completed", "superseded", "duplicate"} and not resources:
+    if request["disposition"] in {
+        "completed",
+        "completed_local_only",
+        "completed_local_artifact",
+        "superseded",
+        "duplicate",
+    } and not resources:
         fail("HANDBACK_INCOMPLETE", "terminal handback requires resource disposition")
     raw_capacity = request.get("capacity")
     if request["disposition"] != "blocked" and raw_capacity is None:
@@ -7378,7 +8010,8 @@ def validate_handback(value: Any) -> dict[str, Any]:
         )
     if (
         raw_capacity["terminal_status"] == "interrupted/notLoaded"
-        and request["disposition"] != "completed"
+        and request["disposition"]
+        not in {"completed", "completed_local_only", "completed_local_artifact"}
     ):
         fail(
             "HANDBACK_INCOMPLETE",
@@ -7417,6 +8050,74 @@ def validate_handback(value: Any) -> dict[str, Any]:
             raw_capacity["blocked_audits"], "capacity.blocked_audits"
         ),
     }
+    artifacts = string_list(request["artifacts"], "artifacts")
+    local_artifact = (
+        None
+        if request.get("local_artifact") is None
+        else validate_local_artifact(request["local_artifact"])
+    )
+    external_delivery = request.get("external_delivery")
+    if external_delivery is not None and external_delivery not in {
+        "not_performed",
+        "performed",
+        "unavailable",
+    }:
+        fail("SCHEMA_INVALID", "external_delivery is invalid")
+    if local_only_completion or local_artifact_completion:
+        if external_delivery != "not_performed":
+            fail(
+                "EXTERNAL_DELIVERY_INVALID",
+                "local completion requires external_delivery=not_performed",
+            )
+        if request["deployment_state"] != "not_performed":
+            fail(
+                "DEPLOYMENT_TRUTH_INVALID",
+                "local completion cannot claim deployment",
+            )
+        if any(item["result"] != "pass" for item in checks):
+            fail(
+                "HANDBACK_INCOMPLETE",
+                "local completion requires passing typed checks",
+            )
+        if any(item["disposition"] == "remove" for item in resources):
+            fail(
+                "CLEANUP_INCOMPLETE",
+                "local completion cannot leave pending cleanup",
+            )
+    if local_only_completion and local_artifact is not None:
+        fail(
+            "LOCAL_ARTIFACT_INVALID",
+            "completed_local_only cannot carry a local artifact manifest",
+        )
+    if local_artifact_completion:
+        if local_artifact is None:
+            fail(
+                "LOCAL_ARTIFACT_INVALID",
+                "completed_local_artifact requires a verified manifest",
+            )
+        manifest_paths = [
+            item["relative_path"] for item in local_artifact["entries"]
+        ]
+        if sorted(artifacts) != manifest_paths or len(artifacts) != len(set(artifacts)):
+            fail(
+                "ARTIFACT_MANIFEST_MISMATCH",
+                "artifacts must exactly match the canonical relative-path manifest",
+            )
+        retained = {
+            item["id"]
+            for item in resources
+            if item["disposition"] == "retain"
+        }
+        if not set(manifest_paths).issubset(retained):
+            fail(
+                "ARTIFACT_CLEANUP_INVALID",
+                "each local artifact must have an explicit retain disposition",
+            )
+    elif local_artifact is not None:
+        fail(
+            "LOCAL_ARTIFACT_INVALID",
+            "local artifact manifests require completed_local_artifact",
+        )
     output = {
         **base,
         "handback_id": identifier(request["handback_id"], "handback_id"),
@@ -7436,7 +8137,7 @@ def validate_handback(value: Any) -> dict[str, Any]:
             single_line=True,
         ),
         "privacy_boundary": text(request["privacy_boundary"], "privacy_boundary", 1000, single_line=True),
-        "artifacts": string_list(request["artifacts"], "artifacts"),
+        "artifacts": artifacts,
         "resources": resources,
         "dependencies": string_list(request["dependencies"], "dependencies"),
         "next_action": text(request["next_action"], "next_action", 2000, single_line=True),
@@ -7446,6 +8147,8 @@ def validate_handback(value: Any) -> dict[str, Any]:
         "external_thread_id": identifier(
             request["external_thread_id"], "external_thread_id"
         ),
+        "external_delivery": external_delivery,
+        "local_artifact": local_artifact,
     }
     if request.get("public_metadata") is not None:
         output["public_metadata"] = validate_public_metadata(
@@ -7926,6 +8629,7 @@ def validate_setup_failure(value: Any) -> dict[str, Any]:
             "successor_candidates",
             "now",
         },
+        {"expected_outbox_id", "expected_owner_claim_id"},
         label="record-setup-failure request",
     )
     base = validate_receipt(
@@ -7977,6 +8681,18 @@ def validate_setup_failure(value: Any) -> dict[str, Any]:
             request["blocked_audits"], "setup failure blocked_audits"
         ),
         "successor_candidates": candidates,
+        "expected_outbox_id": (
+            None
+            if request.get("expected_outbox_id") is None
+            else identifier(request["expected_outbox_id"], "expected_outbox_id")
+        ),
+        "expected_owner_claim_id": (
+            None
+            if request.get("expected_owner_claim_id") is None
+            else identifier(
+                request["expected_owner_claim_id"], "expected_owner_claim_id"
+            )
+        ),
     }
     reject_sensitive(output, "setup failure")
     return output
@@ -8555,6 +9271,7 @@ def parser() -> argparse.ArgumentParser:
         "configure-capacity",
         "capacity-watchdog",
         "lifecycle-watchdog",
+        "acknowledge-control-schema-hold",
         "takeover-lease",
         "reconcile-expired-lease",
         "record-heartbeat",
@@ -8626,6 +9343,10 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "capacity-watchdog": (plane.capacity_watchdog, "capacity-watchdog"),
             "lifecycle-watchdog": (plane.lifecycle_watchdog, "lifecycle-watchdog"),
+            "acknowledge-control-schema-hold": (
+                plane.acknowledge_control_schema_hold,
+                "acknowledge-control-schema-hold",
+            ),
             "takeover-lease": (plane.takeover_lease, "takeover-lease"),
             "reconcile-expired-lease": (
                 plane.reconcile_expired_lease,
