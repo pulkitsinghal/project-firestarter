@@ -136,6 +136,22 @@ class RootRoleGuardTests(unittest.TestCase):
         self.assertEqual("ALLOW", result["decision"])
         self.assertEqual("ROOT_ORCHESTRATION_ALLOWED", result["reason_code"])
 
+    def test_new_repair_routes_are_typed_orchestration_not_generic_execution(
+        self,
+    ) -> None:
+        for action in (
+            "acknowledge_control_schema_hold",
+            "record_setup_failure",
+            "route_pm_proxy_decision",
+        ):
+            with self.subTest(action=action):
+                result = self.evaluate(action)
+                self.assertEqual("ORCHESTRATION", result["classification"])
+                self.assertEqual("ALLOW", result["decision"])
+                self.assertEqual(
+                    "ROOT_ORCHESTRATION_ALLOWED", result["reason_code"]
+                )
+
     def test_truthful_statuses_require_matching_worker_evidence(self) -> None:
         cases = {
             "assigned": [launch_receipt()],

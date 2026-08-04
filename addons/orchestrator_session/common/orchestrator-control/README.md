@@ -20,12 +20,24 @@ service and not a replacement policy source.
 - The caller selects a local state directory. The CLI enforces directory mode
   `0700`, database mode `0600`, current-user ownership, and no symlink path
   components.
-- Control bundle `1.4.0` advances state schema to `1.4` and migrates an existing
-  schema `1.0` through `1.3` database in place. Re-running `init` adds stable
+- Control bundle `1.4.2` retains state schema `1.4` and migrates an existing
+  schema `1.0` through `1.3` database in place. This patch adds truthful local
+  closure, receipt-fenced schema holds, and exact setup-failure repair. Re-running
+  `init` adds stable
   authority identity, transfer receipts, and federation membership without
   changing configured capacity. The stable JSON interface remains `1.0`;
-  copying an older database over a migrated database is not a supported
-  rollback.
+copying an older database over a migrated database is not a supported
+rollback.
+- `completed_local_only` requires exact distinct base/candidate commits while
+  structurally rejecting all delivery refs; `completed_local_artifact` requires
+  exact base provenance plus a canonical bounded SHA-256 relative-path manifest
+  whose current files match real create/modify/remove transitions. Both require
+  literal unexecuted zero-step hosted CI, no external delivery/deployment, exact
+  owner-claim cleanup, and an explicit EMPTY or owner-gated refill proof.
+- `CONTROL_SCHEMA_HOLD` accepts only the exact decision, receipt, claim, epoch,
+  fence, state/policy revisions, capacity, and replay target. It preserves the
+  occupied lane and lifecycle evidence without accepting progress churn. The
+  only release is the exact typed terminal handback.
 - Raw prompts are returned ephemerally to the wrapper and are not stored or
   hashed. Handback evidence is validated but only typed redacted summaries are
   retained. Legacy dashboard JSON is quarantined byte-for-byte for rollback and

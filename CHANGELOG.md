@@ -6,6 +6,17 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- ORC truthful local closure and decision routing: control bundle `1.4.2` and
+  PM-proxy plugin `0.4.2` add exact local-only/local-artifact handbacks,
+  content-verified privacy-safe SHA-256 manifests, receipt-fenced schema holds,
+  one-claim expired setup-failure repair, and typed owner-gate routing to one
+  pinned private sink without reserving capacity or granting sink authority.
+  One-use bootstrap recovery, strict replay/tamper/cleanup checks, and named
+  fence 38/41/42 plus P940 synthetic regressions keep the new paths fail closed.
+- PM-proxy stdio shutdown fencing: forwarding threads stop cooperatively and
+  are joined before interpreter finalization, including when Desktop leaves
+  stdin open after the child app-server exits, preventing Python's buffered
+  reader finalization abort.
 - PM-proxy Desktop launcher hardening: the repository adapter now passes its
   owner-private Electron data directory as an explicit command-line switch
   before macOS single-instance selection, records that exact isolation value,

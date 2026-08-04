@@ -66,6 +66,51 @@ class DesktopHostAdapterTest(unittest.TestCase):
             os.close(destination_read)
         self.assertFalse(thread.is_alive())
 
+    def test_proxy_joins_blocked_input_before_python_finalization(self):
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-stream-exit-") as raw:
+            root = private(Path(raw))
+            fake = write_executable(root / "fake-codex", "#!/bin/sh\nexit 0\n")
+            token = "stream-shutdown-token"
+            session_path = root / "session.json"
+            session = self.full_session(
+                instance=root,
+                fake_codex=fake,
+                token=token,
+                now=ADAPTER.utc_now(),
+            )
+            ADAPTER.atomic_private_json(session_path, session)
+            environment = dict(os.environ)
+            environment.update(
+                {
+                    ADAPTER.SESSION_ENV: str(session_path),
+                    ADAPTER.TOKEN_ENV: token,
+                    ADAPTER.REAL_CODEX_ENV: str(fake),
+                }
+            )
+            process = subprocess.Popen(
+                [sys.executable, str(ADAPTER_PATH), "app-server"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=environment,
+            )
+            assert process.stdin is not None
+            try:
+                return_code = process.wait(timeout=5)
+                stdout = "" if process.stdout is None else process.stdout.read()
+                stderr = "" if process.stderr is None else process.stderr.read()
+            finally:
+                process.stdin.close()
+                if process.stdout is not None:
+                    process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
+            self.assertEqual(0, return_code, stderr)
+            self.assertEqual("", stdout)
+            self.assertNotIn("Fatal Python error", stderr)
+            self.assertNotIn("_enter_buffered_busy", stderr)
+
     def test_exact_root_is_guarded_worker_is_not_and_adapter_loss_fails_closed(self):
         with tempfile.TemporaryDirectory(prefix="pm-proxy-host-attestation-") as raw:
             root = private(Path(raw))
@@ -416,6 +461,9 @@ for line in sys.stdin:
             "approval_grant_sha256": ADAPTER.approval_grant_digest(),
             "app_server_pid": None,
             "armed": True,
+            "bootstrap_recovery_grant_id": None,
+            "bootstrap_recovery_grant_path": None,
+            "bootstrap_recovery_grant_sha256": None,
             "codex_cli": str(fake_codex),
             "codex_cli_sha256": ADAPTER.digest(fake_codex),
             "created_at": ADAPTER.iso(now),
@@ -441,15 +489,19 @@ for line in sys.stdin:
         }
 
     @staticmethod
-    def verified_pin() -> dict[str, str]:
+    def verified_pin() -> dict[str, object]:
         return {
+            "configured_capacity": 4,
             "runtime_sha256": "1" * 64,
+            "state_revision": 1,
+            "policy_revision": 1,
             "dispatcher_adoption_sha256": "2" * 64,
             "prompt_free_control_grant_verified": True,
         }
 
     def test_prompt_free_grant_is_exact_per_tool_and_precedes_app_server(self):
         expected = {
+            "pm_proxy_acknowledge_control_schema_hold",
             "pm_proxy_close_and_refill",
             "pm_proxy_configure_capacity",
             "pm_proxy_doctor",
@@ -459,6 +511,8 @@ for line in sys.stdin:
             "pm_proxy_record_archive_receipt",
             "pm_proxy_record_launch_receipt",
             "pm_proxy_record_refill_receipt",
+            "pm_proxy_record_setup_failure",
+            "pm_proxy_route_owner_decision",
             "pm_proxy_slot_status",
             "pm_proxy_status",
             "pm_proxy_verify_runtime",
@@ -569,6 +623,11 @@ for line in sys.stdin:
                             "structuredContent": {
                                 "ok": True,
                                 "result": {
+                                    "revision": 7,
+                                    "policy_revision": 2,
+                                    "worker_capacity": {
+                                        "configured_capacity": 4,
+                                    },
                                     "lifecycle_watchdog": {
                                         "dispatcher_adoption": adoption,
                                     },
@@ -1250,6 +1309,98 @@ for line in sys.stdin:
                 ADAPTER.plugin_tree_digest(first),
                 ADAPTER.plugin_tree_digest(second),
             )
+
+    def test_bootstrap_grant_binds_project_source_and_runtime_plugin_tree(self):
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-bootstrap-adapter-") as raw:
+            root = private(Path(raw))
+            instance = private(root / "instance")
+            state = private(root / "state")
+            project = private(root / "project")
+            source_plugin = private(project / "pm-proxy-orchestrator")
+            now = ADAPTER.utc_now().replace(microsecond=0)
+            pin = {
+                "project_root": str(project),
+                "runtime_sha256": "a" * 64,
+                "state_revision": 607,
+                "policy_revision": 2,
+                "configured_capacity": 5,
+            }
+            grant = {
+                "authorization_request_id": "owner-authorization-1",
+                "base_sha": "b" * 40,
+                "configured_capacity": 5,
+                "decision": "CONTROL_SCHEMA_DEFECT_NO_TRUTHFUL_TERMINAL_ROUTE",
+                "decision_id": "decision-1",
+                "decision_request_id": "decision-request-1",
+                "expected_state_revision": 607,
+                "expires_at": ADAPTER.iso(now + dt.timedelta(seconds=60)),
+                "external_thread_id": "worker-1",
+                "fencing_token": 38,
+                "grant_id": "grant-1",
+                "grant_version": ADAPTER.BOOTSTRAP_GRANT_VERSION,
+                "instance_dir": str(instance),
+                "instance_id": "instance-1",
+                "issued_at": ADAPTER.iso(now - dt.timedelta(seconds=1)),
+                "lease_epoch": 1,
+                "max_uses": 1,
+                "operation": "pm_proxy_acknowledge_control_schema_hold",
+                "plugin_root": str(source_plugin),
+                "plugin_tree_sha256": "c" * 64,
+                "plugin_version": ADAPTER.manifest()["version"],
+                "policy_snapshot_revision": 2,
+                "policy_revision": 2,
+                "project_root": str(project),
+                "request_id": "hold-request-1",
+                "replay_target": "completed_local_only",
+                "root_thread_id": "root-thread-1",
+                "runtime_sha256": "a" * 64,
+                "source_commit_sha": "d" * 40,
+                "state_dir": str(state),
+                "task_id": "task-1",
+                "ticket_id": "ticket-1",
+            }
+            grant["binding_sha256"] = ADAPTER.canonical_sha256(grant)
+            grant_path = instance / "bootstrap-recovery-grant-grant-1.json"
+            ADAPTER.atomic_private_json(grant_path, grant)
+            with (
+                mock.patch.object(
+                    ADAPTER, "source_plugin_root", return_value=source_plugin
+                ),
+                mock.patch.object(
+                    ADAPTER, "plugin_tree_digest", return_value="c" * 64
+                ),
+            ):
+                validated = ADAPTER.validate_bootstrap_recovery_grant(
+                    grant_path,
+                    instance_id="instance-1",
+                    instance_dir=instance,
+                    root_thread_id="root-thread-1",
+                    state_dir=state,
+                    version=ADAPTER.manifest()["version"],
+                    pin=pin,
+                )
+                self.assertEqual("grant-1", validated["grant_id"])
+                grant["plugin_root"] = str(instance)
+                grant["binding_sha256"] = ADAPTER.canonical_sha256(
+                    {
+                        key: value
+                        for key, value in grant.items()
+                        if key != "binding_sha256"
+                    }
+                )
+                ADAPTER.atomic_private_json(grant_path, grant)
+                with self.assertRaisesRegex(
+                    ADAPTER.AdapterError, "bootstrap-grant-stale-or-mismatched"
+                ):
+                    ADAPTER.validate_bootstrap_recovery_grant(
+                        grant_path,
+                        instance_id="instance-1",
+                        instance_dir=instance,
+                        root_thread_id="root-thread-1",
+                        state_dir=state,
+                        version=ADAPTER.manifest()["version"],
+                        pin=pin,
+                    )
 
     def test_stop_disarms_and_targets_only_recorded_isolated_processes(self):
         with tempfile.TemporaryDirectory(prefix="pm-proxy-host-stop-") as raw:

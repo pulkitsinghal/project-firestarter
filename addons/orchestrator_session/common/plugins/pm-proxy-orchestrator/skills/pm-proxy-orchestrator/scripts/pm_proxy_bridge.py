@@ -25,6 +25,7 @@ LAUNCH_RECEIPT_TTL_SECONDS = 300
 MAX_MACHINE_OUTPUT = 1_048_576
 MAX_REQUEST_BYTES = 524_288
 CLI_TIMEOUT_SECONDS = 15
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 RUNTIME_POLICY_REQUIRED = {
     "root_model": "gpt-5.6-sol",
     "root_reasoning_effort": "xhigh",
@@ -37,6 +38,7 @@ RUNTIME_POLICY_REQUIRED = {
     "service_tier_attestation_allowed": ["config-verified", "runtime"],
     "parent_attestation_required": True,
 }
+OWNER_DECISION_SINK_THREAD_ID = "019fcb3b-f5dc-7df3-9fe1-efe5b2e09a69"
 
 REQUIRED_SCHEMAS = {
     "shared.schema.json": "shared-1.0.schema.json",
@@ -83,6 +85,8 @@ LIFECYCLE_SCHEMAS = {
     "dispatcher-adoption.request.schema.json": "dispatcher-adoption-request-1.0.schema.json",
     "dispatcher-adoption.response.schema.json": "dispatcher-adoption-response-1.0.schema.json",
     "reconcile-expired-lease.request.schema.json": "reconcile-expired-lease-request-1.0.schema.json",
+    "acknowledge-control-schema-hold.request.schema.json": "acknowledge-control-schema-hold-request-1.0.schema.json",
+    "acknowledge-control-schema-hold.response.schema.json": "acknowledge-control-schema-hold-response-1.0.schema.json",
 }
 FEDERATION_SCHEMAS = {
     "authority-transfer-receipt.schema.json": "authority-transfer-receipt-1.0.schema.json",
@@ -338,6 +342,74 @@ def validate_setup_failure_request(request: dict[str, Any]) -> None:
     scan_strings(sanitized, durable=True)
 
 
+def validate_owner_decision_route_request(request: dict[str, Any]) -> None:
+    required = {
+        "interface_version", "route_request_id", "source_thread_id",
+        "sink_thread_id", "origin", "recursion_depth", "decision_request",
+        "approval", "now",
+    }
+    if not isinstance(request, dict) or set(request) != required:
+        raise BridgeError(
+            "SCHEMA_INVALID", "owner-decision route fields are invalid", exit_status=2
+        )
+    if request.get("interface_version") != INTERFACE_VERSION:
+        raise BridgeError("INTERFACE_INCOMPATIBLE", "route interface is incompatible", exit_status=2)
+    if (
+        request.get("sink_thread_id") != OWNER_DECISION_SINK_THREAD_ID
+        or request.get("source_thread_id") == OWNER_DECISION_SINK_THREAD_ID
+        or request.get("origin") != "WORKER"
+        or request.get("recursion_depth") != 0
+    ):
+        raise BridgeError(
+            "DECISION_ROUTE_RECURSION_DENIED",
+            "owner-decision sink cannot originate, recurse, or gain authority",
+            exit_status=2,
+        )
+    decision = request.get("decision_request")
+    approval = request.get("approval")
+    if not isinstance(decision, dict) or not isinstance(approval, dict):
+        raise BridgeError("SCHEMA_INVALID", "typed decision and approval are required", exit_status=2)
+    if decision.get("interface_version") != INTERFACE_VERSION or decision.get("now") != request.get("now"):
+        raise BridgeError("SCHEMA_INVALID", "decision route clock or interface changed", exit_status=2)
+    if set(approval) != {"request_id", "decision_code", "option_codes", "evidence_refs"}:
+        raise BridgeError("SCHEMA_INVALID", "approval envelope fields are invalid", exit_status=2)
+    if approval.get("request_id") != decision.get("request_id"):
+        raise BridgeError("DECISION_ROUTE_CONFLICT", "approval request does not match classification", exit_status=3)
+    for key in ("route_request_id", "source_thread_id"):
+        value = request.get(key)
+        if not isinstance(value, str) or ID_RE.fullmatch(value) is None:
+            raise BridgeError("SCHEMA_INVALID", f"{key} is invalid", exit_status=2)
+    for key in ("request_id", "decision_code"):
+        value = approval.get(key)
+        if not isinstance(value, str) or ID_RE.fullmatch(value) is None:
+            raise BridgeError("SCHEMA_INVALID", f"approval.{key} is invalid", exit_status=2)
+    for key, maximum in (("option_codes", 8), ("evidence_refs", 16)):
+        values = approval.get(key)
+        if (
+            not isinstance(values, list)
+            or not values
+            or len(values) > maximum
+            or len(values) != len(set(values))
+            or any(not isinstance(item, str) or ID_RE.fullmatch(item) is None for item in values)
+        ):
+            raise BridgeError("SCHEMA_INVALID", f"approval.{key} is invalid", exit_status=2)
+    forbidden = {
+        "prompt", "command", "command_text", "hash", "secret", "secrets",
+        "credential", "credentials", "credential_url", "private_text",
+        "patient_text", "url",
+    }
+    stack = [request]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            if any(str(key).lower() in forbidden for key in current):
+                raise BridgeError("PRIVACY_DENIED", "decision route contains a forbidden field", exit_status=2)
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    scan_strings(request, durable=True)
+
+
 def version_tuple(value: str, label: str) -> tuple[int, int]:
     parts = value.split(".")
     if len(parts) < 2 or not all(part.isdigit() for part in parts[:2]):
@@ -450,6 +522,7 @@ def run_cli(
         "capacity-watchdog",
         "configure-capacity",
         "lifecycle-watchdog",
+        "acknowledge-control-schema-hold",
         "recycle-queue",
         "record-duration-progress",
         "record-duration-observation",
@@ -936,6 +1009,27 @@ def require_fresh_unreceipted(ticket: dict[str, Any], now: str) -> None:
         raise BridgeError("RECEIPT_STALE", "launch receipt deadline expired", exit_status=2)
 
 
+def require_unreceipted_setup_ticket(ticket: dict[str, Any], now: str) -> None:
+    """Allow exact setup rollback both before and after receipt expiry."""
+
+    parse_time(now)
+    if ticket["receipt"] is not None:
+        raise BridgeError(
+            "RECEIPT_CONFLICT", "launch receipt already recorded", exit_status=3
+        )
+    handback = ticket.get("handback")
+    if handback is not None and (
+        not isinstance(handback, dict)
+        or set(handback) != {"recorded_at", "state"}
+        or handback.get("state") != "FAILED"
+    ):
+        raise BridgeError(
+            "SETUP_FAILURE_REPLAY_CONFLICT",
+            "setup failure ticket has a different terminal state",
+            exit_status=3,
+        )
+
+
 def require_committed_receipt(ticket: dict[str, Any]) -> dict[str, Any]:
     receipt = ticket.get("receipt")
     if not isinstance(receipt, dict) or set(receipt) != {
@@ -1083,6 +1177,16 @@ def build_parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--request", required=True)
     lifecycle.add_argument("--successor-ticket")
 
+    decision_route = sub.add_parser("route-owner-decision")
+    decision_route.add_argument("--ticket", required=True)
+    decision_route.add_argument("--external-thread-id", required=True)
+    decision_route.add_argument("--request", required=True)
+
+    acknowledge_hold = sub.add_parser("acknowledge-control-schema-hold")
+    acknowledge_hold.add_argument("--ticket", required=True)
+    acknowledge_hold.add_argument("--external-thread-id", required=True)
+    acknowledge_hold.add_argument("--request", required=True)
+
     duration_progress = sub.add_parser("record-duration-progress")
     duration_progress.add_argument("--ticket", required=True)
     duration_progress.add_argument("--external-thread-id", required=True)
@@ -1095,7 +1199,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     setup_failure = sub.add_parser("record-setup-failure")
     setup_failure.add_argument("--ticket", required=True)
-    setup_failure.add_argument("--successor-ticket", required=True)
+    setup_failure.add_argument("--successor-ticket")
     setup_failure.add_argument("--request", required=True)
 
     takeover = sub.add_parser("takeover-lease")
@@ -1146,6 +1250,88 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         request = load_json_file(args.request, "root-action request")
         validate_request(request, durable=True)
         return success(operation, run_root_guard(cli, state_dir, request))
+
+    if operation == "route-owner-decision":
+        request = load_json_file(args.request, "route-owner-decision request")
+        validate_owner_decision_route_request(request)
+        _path, ticket = load_ticket(args.ticket)
+        require_active_receipt(ticket, request["now"])
+        require_external_identity(ticket, args.external_thread_id)
+        if request["source_thread_id"] != ticket["receipt"]["external_thread_id"]:
+            raise BridgeError(
+                "RECEIPT_MISMATCH",
+                "decision route source is not the receipt-backed worker",
+                exit_status=2,
+            )
+        classified = run_cli(
+            cli,
+            state_dir,
+            "classify-decision",
+            request=request["decision_request"],
+        )
+        route = classified.get("classification")
+        owner_prompt_required = classified.get("owner_prompt_required")
+        if route == "PM_PROXY" and owner_prompt_required is False:
+            return success(
+                operation,
+                {
+                    "classification": "PM_PROXY",
+                    "auto_return": True,
+                    "route_required": False,
+                    "source_thread_id": request["source_thread_id"],
+                    "request_id": request["approval"]["request_id"],
+                    "reason_code": classified["reason_code"],
+                    "owner_prompt_required": False,
+                    "notification_deduplicated": classified[
+                        "notification_deduplicated"
+                    ],
+                    "sink_thread_id": None,
+                    "decision_envelope": None,
+                },
+            )
+        if route != "OWNER_GATE" or owner_prompt_required is not True:
+            raise BridgeError(
+                "OWNER_GATE_DOWNGRADE",
+                "only a verified typed owner gate may reach the owner sink",
+                exit_status=2,
+            )
+        envelope = {
+            "envelope_version": "1.0",
+            "kind": "OWNER_DECISION_REQUEST",
+            "route_request_id": request["route_request_id"],
+            "source_thread_id": request["source_thread_id"],
+            "sink_thread_id": OWNER_DECISION_SINK_THREAD_ID,
+            "request_id": request["approval"]["request_id"],
+            "decision_code": request["approval"]["decision_code"],
+            "option_codes": request["approval"]["option_codes"],
+            "evidence_refs": request["approval"]["evidence_refs"],
+            "action_type": request["decision_request"]["action_type"],
+            "gate_type": request["decision_request"]["gate_type"],
+            "classification": "OWNER_GATE",
+            "reason_code": classified["reason_code"],
+            "rule_ids": classified["rule_ids"],
+            "verified_owner_gate": True,
+            "capacity_reserved": False,
+            "sink_authority": False,
+            "recursion_depth": 0,
+        }
+        return success(
+            operation,
+            {
+                "classification": "OWNER_GATE",
+                "auto_return": False,
+                "route_required": True,
+                "source_thread_id": request["source_thread_id"],
+                "request_id": request["approval"]["request_id"],
+                "reason_code": classified["reason_code"],
+                "owner_prompt_required": True,
+                "notification_deduplicated": classified[
+                    "notification_deduplicated"
+                ],
+                "sink_thread_id": OWNER_DECISION_SINK_THREAD_ID,
+                "decision_envelope": envelope,
+            },
+        )
 
     if operation in {
         "record-policy-rule",
@@ -1487,6 +1673,68 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             },
         )
 
+    if operation == "acknowledge-control-schema-hold":
+        if not schema_at_least(health["schema_version"], (1, 4)):
+            raise BridgeError(
+                "FEATURE_UNSUPPORTED",
+                "control-schema hold acknowledgement requires Firestarter schema 1.4",
+                exit_status=2,
+            )
+        request = load_json_file(
+            args.request, "acknowledge-control-schema-hold request"
+        )
+        validate_request(request, durable=True)
+        _path, ticket = load_ticket(args.ticket)
+        receipt = require_committed_receipt(ticket)
+        require_external_identity(ticket, args.external_thread_id)
+        inject_ticket_fields(request, ticket)
+        request["external_thread_id"] = receipt["external_thread_id"]
+        if request.get("ticket_id") != ticket["source_event_key"]:
+            raise BridgeError(
+                "RECEIPT_MISMATCH",
+                "control-schema hold ticket identity changed",
+                exit_status=2,
+            )
+        result = run_cli(
+            cli,
+            state_dir,
+            "acknowledge-control-schema-hold",
+            request=request,
+        )
+        preservation = result.get("preservation")
+        exact = {
+            "ticket_id": ticket["source_event_key"],
+            "task_id": ticket["task_id"],
+            "external_thread_id": receipt["external_thread_id"],
+            "policy_snapshot_revision": ticket["policy_snapshot_revision"],
+            "lease_epoch": ticket["lease_epoch"],
+            "fencing_token": ticket["fencing_token"],
+            "hold_state": "CONTROL_SCHEMA_HOLD",
+            "required_action": "AWAIT_CONTROL_REPAIR",
+            "replay_target": "completed_local_only",
+        }
+        if any(result.get(key) != value for key, value in exact.items()):
+            raise BridgeError(
+                "MACHINE_RESPONSE_INVALID",
+                "control-schema hold result changed its exact binding",
+            )
+        if (
+            not isinstance(preservation, dict)
+            or preservation.get("task_state") != "RUNNING"
+            or preservation.get("claim_status") != "active"
+            or preservation.get("occupied_lane") is not True
+            or preservation.get("external_worker_state") != "PRESERVED"
+            or preservation.get("capacity_released") is not False
+            or preservation.get("handback_created") is not False
+            or preservation.get("archive_created") is not False
+            or preservation.get("refill_created") is not False
+        ):
+            raise BridgeError(
+                "MACHINE_RESPONSE_INVALID",
+                "control-schema hold did not preserve the occupied fenced task",
+            )
+        return success(operation, result)
+
     if operation == "record-handback":
         request = load_json_file(args.request, "record-handback request")
         validate_handback_request(request)
@@ -1505,11 +1753,12 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "external_thread_id"
             ]
         result = run_cli(cli, state_dir, "record-handback", request=request)
-        ticket["handback"] = {
-            "recorded_at": request["now"],
-            "state": result.get("state"),
-        }
-        replace_ticket(path, ticket)
+        if ticket.get("handback") is None:
+            ticket["handback"] = {
+                "recorded_at": request["now"],
+                "state": result.get("state"),
+            }
+            replace_ticket(path, ticket)
         return success("record-handback", result)
 
     if operation in {"record-duration-progress", "record-duration-observation"}:
@@ -1548,9 +1797,37 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         request = load_json_file(args.request, "record-setup-failure request")
         validate_setup_failure_request(request)
         path, ticket = load_ticket(args.ticket)
-        require_fresh_unreceipted(ticket, request.get("now"))
+        require_unreceipted_setup_ticket(ticket, request.get("now"))
         inject_ticket_fields(request, ticket)
+        outbox = ticket.get("outbox")
+        if not isinstance(outbox, dict) or not isinstance(
+            outbox.get("outbox_id"), str
+        ):
+            raise BridgeError(
+                "RECEIPT_INVALID",
+                "setup failure requires its exact create outbox",
+                exit_status=2,
+            )
+        request["expected_outbox_id"] = outbox["outbox_id"]
+        if not isinstance(ticket.get("owner_claim_id"), str):
+            raise BridgeError(
+                "RECEIPT_INVALID",
+                "setup failure requires its exact owner claim",
+                exit_status=2,
+            )
+        request["expected_owner_claim_id"] = ticket["owner_claim_id"]
         result = run_cli(cli, state_dir, operation, request=request)
+        if (
+            result.get("failed_outbox_id") != outbox["outbox_id"]
+            or result.get("released_owner_claim_id")
+            != ticket["owner_claim_id"]
+            or result.get("released_claim_count") != 1
+            or result.get("poisoned_outbox_count") != 1
+        ):
+            raise BridgeError(
+                "MACHINE_RESPONSE_INVALID",
+                "setup failure changed its exact outbox or claim binding",
+            )
         ticket["handback"] = {
             "recorded_at": request["now"],
             "state": result.get("state"),
@@ -1559,6 +1836,12 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         successor = result.get("successor")
         successor_launch = None
         if successor is not None:
+            if args.successor_ticket is None:
+                raise BridgeError(
+                    "SUCCESSOR_TICKET_REQUIRED",
+                    "selected setup-failure successor requires an exact ticket path",
+                    exit_status=2,
+                )
             envelope, rule_ids = validate_prepare_result(successor)
             selected = next(
                 (
@@ -1612,6 +1895,18 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "ticket": str(successor_path),
                 "fencing_token": envelope["fencing_token"],
             }
+        elif args.successor_ticket is not None:
+            successor_path = require_absolute(
+                args.successor_ticket,
+                "successor ticket",
+                must_exist=False,
+            )
+            if successor_path.exists():
+                raise BridgeError(
+                    "SUCCESSOR_TICKET_CONFLICT",
+                    "empty setup recovery cannot create a successor ticket",
+                    exit_status=2,
+                )
         return success(
             operation,
             {

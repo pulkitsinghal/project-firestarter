@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/acknowledge-control-schema-hold-response-1.0.schema.json",
+  "title": "acknowledge-control-schema-hold success response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "ok", "operation", "result"],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "ok": {"const": true},
+    "operation": {"const": "acknowledge-control-schema-hold"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ticket_id",
+        "task_id",
+        "external_thread_id",
+        "policy_snapshot_revision",
+        "lease_epoch",
+        "fencing_token",
+        "hold_state",
+        "required_action",
+        "replay_target",
+        "authorization_request_id",
+        "decision_request_id",
+        "decision_id",
+        "preservation",
+        "replayed"
+      ],
+      "properties": {
+        "ticket_id": {"type": "string"},
+        "task_id": {"type": "string"},
+        "external_thread_id": {"type": "string"},
+        "policy_snapshot_revision": {"type": "integer"},
+        "lease_epoch": {"type": "integer"},
+        "fencing_token": {"type": "integer"},
+        "hold_state": {"const": "CONTROL_SCHEMA_HOLD"},
+        "required_action": {"const": "AWAIT_CONTROL_REPAIR"},
+        "replay_target": {"const": "completed_local_only"},
+        "authorization_request_id": {"type": "string"},
+        "decision_request_id": {"type": "string"},
+        "decision_id": {"type": "string"},
+        "preservation": {"type": "object"},
+        "replayed": {"type": "boolean"}
+      }
+    }
+  }
+}

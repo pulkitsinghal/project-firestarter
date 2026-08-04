@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 import re
@@ -2762,6 +2763,410 @@ class ControlPlaneTests(unittest.TestCase):
         ]
         closed = self.run_cli("record-handback", handback)["result"]
         self.assertEqual("ARCHIVE_PENDING", closed["state"])
+
+    def test_stream_recorder_fence_38_hold_local_only_empty_and_exact_replay(self) -> None:
+        with sqlite3.connect(self.state / "orchestrator.sqlite3") as connection:
+            connection.execute("UPDATE metadata SET value='38' WHERE key='next_fence'")
+        connection.close()
+        launch = self.prepare(
+            "stream-recorder-fence-38",
+            source_event_key="stream-recorder-ticket-38",
+        )
+        launch["lease_expires_at"] = "2026-07-28T18:30:00Z"
+        prepared = self.run_cli("prepare-launch", launch)
+        required = prepared["result"]["envelope"]["receipt_required"]
+        self.assertEqual(38, required["fencing_token"])
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(
+                prepared,
+                "stream-recorder-fence-38",
+                now="2026-07-28T18:10:00Z",
+            ),
+        )
+        database = self.state / "orchestrator.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO lifecycle_watchdog(
+                   task_id,lifecycle_state,worker_status,completion_signals_json,
+                   evidence_refs_json,remaining_work_json,progress_ref,
+                   progress_observed_at,handback_deadline_checks,
+                   handback_deadline_limit,required_action,interrupt_receipt_id,
+                   updated_at
+                ) VALUES(?,'INTERRUPT_REQUIRED','completed',?,?,NULL,?,?,2,2,
+                         'INTERRUPT',NULL,?)""",
+                (
+                    "task-stream-recorder-fence-38",
+                    json.dumps(["worker-final"]),
+                    json.dumps(["evidence:stream-recorder-38"]),
+                    "progress:stream-recorder-38",
+                    "2026-07-28T18:20:00Z",
+                    "2026-07-28T18:20:00Z",
+                ),
+            )
+            connection.execute(
+                "UPDATE owner_claims SET expires_at=? WHERE task_id=?",
+                (
+                    "2026-07-28T18:30:00Z",
+                    "task-stream-recorder-fence-38",
+                ),
+            )
+        connection.close()
+        status = self.run_cli("status")["result"]
+        lifecycle_connection = sqlite3.connect(database)
+        lifecycle_connection.row_factory = sqlite3.Row
+        lifecycle_before_hold = lifecycle_connection.execute(
+            "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+            ("task-stream-recorder-fence-38",),
+        ).fetchone()
+        self.assertIsNotNone(lifecycle_before_hold)
+        self.assertEqual("INTERRUPT_REQUIRED", lifecycle_before_hold["lifecycle_state"])
+        self.assertEqual("completed", lifecycle_before_hold["worker_status"])
+        self.assertIsNone(lifecycle_before_hold["remaining_work_json"])
+        self.assertTrue(json.loads(lifecycle_before_hold["completion_signals_json"]))
+        self.assertTrue(json.loads(lifecycle_before_hold["evidence_refs_json"]))
+        lifecycle_connection.close()
+        hold_request = {
+            "interface_version": "1.0",
+            "request_id": "hold-stream-recorder-38",
+            "authorization_request_id": "owner-authorization-stream-recorder-38",
+            "decision_request_id": "decision-request-stream-recorder-38",
+            "decision_id": "decision-stream-recorder-38",
+            "decision": "CONTROL_SCHEMA_DEFECT_NO_TRUTHFUL_TERMINAL_ROUTE",
+            "root_thread_id": "root-stream-recorder-38",
+            "ticket_id": "stream-recorder-ticket-38",
+            "task_id": "task-stream-recorder-fence-38",
+            "external_thread_id": "thread-stream-recorder-fence-38",
+            "expected_state_revision": status["revision"],
+            "expected_policy_revision": status["policy_revision"],
+            "expected_configured_capacity": status["worker_capacity"][
+                "configured_capacity"
+            ],
+            "policy_snapshot_revision": required["policy_snapshot_revision"],
+            "lease_epoch": required["lease_epoch"],
+            "fencing_token": 38,
+            "replay_target": "completed_local_only",
+            "now": "2026-07-28T20:00:00Z",
+        }
+        held = self.run_cli(
+            "acknowledge-control-schema-hold", hold_request
+        )["result"]
+        self.assertEqual("CONTROL_SCHEMA_HOLD", held["hold_state"])
+        self.assertEqual("AWAIT_CONTROL_REPAIR", held["required_action"])
+        self.assertTrue(
+            held["preservation"]["lease_expired_at_acknowledgement"]
+        )
+        self.assertEqual(
+            ["evidence:stream-recorder-38"],
+            held["preservation"]["evidence_refs"],
+        )
+        refreshed_hold = json.loads(json.dumps(hold_request))
+        refreshed_hold["now"] = "2026-07-28T20:01:00Z"
+        replayed_hold = self.run_cli(
+            "acknowledge-control-schema-hold", refreshed_hold
+        )["result"]
+        self.assertTrue(replayed_hold["replayed"])
+        changed_hold = json.loads(json.dumps(hold_request))
+        changed_hold["decision_id"] = "different-decision"
+        conflict = self.run_cli(
+            "acknowledge-control-schema-hold",
+            changed_hold,
+            expected=control.EXIT_CONFLICT,
+        )
+        self.assertEqual("IDEMPOTENCY_CONFLICT", conflict["error"]["code"])
+
+        duration_churn = {
+            "interface_version": "1.0",
+            "request_id": "duration-churn-stream-recorder-38",
+            "task_id": required["task_id"],
+            "policy_snapshot_revision": required["policy_snapshot_revision"],
+            "lease_epoch": required["lease_epoch"],
+            "fencing_token": 38,
+            "external_thread_id": "thread-stream-recorder-fence-38",
+            "runtime_state": "active",
+            "actual": {
+                "active_seconds": 61,
+                "queue_seconds": 2,
+                "setup_seconds": 5,
+                "tool_wait_seconds": 1,
+                "external_wait_seconds": 0,
+                "total_wall_seconds": 70,
+                "first_evidence_seconds": 10,
+                "safe_close_seconds": None,
+            },
+            "successor_request": None,
+            "now": "2026-07-28T20:01:30Z",
+        }
+        rejected_churn = self.run_cli(
+            "record-duration-progress",
+            duration_churn,
+            expected=control.EXIT_CONFLICT,
+        )
+        self.assertEqual(
+            "CONTROL_SCHEMA_HOLD_ACTIVE", rejected_churn["error"]["code"]
+        )
+
+        handback = self.handback(
+            prepared,
+            "stream-recorder-fence-38",
+            disposition="completed_local_only",
+            now="2026-07-28T20:02:00Z",
+        )
+        handback["exact_refs"] = {
+            "base_sha": BASE_SHA,
+            "candidate_sha": "b" * 40,
+            "pr_url": None,
+            "merge_sha": None,
+            "default_sha": None,
+        }
+        handback["external_delivery"] = "not_performed"
+        handback["resources"] = [
+            {
+                "id": prepared["result"]["envelope"]["owner_claim_id"],
+                "disposition": "removed",
+                "reason": "exact fenced owner claim released",
+                "bytes": 0,
+            }
+        ]
+        closed = self.run_cli("record-handback", handback)["result"]
+        self.assertTrue(closed["control_schema_hold_released"])
+        self.assertEqual("EMPTY", closed["capacity"]["outcome"])
+        refreshed_handback = json.loads(json.dumps(handback))
+        refreshed_handback["now"] = "2026-07-28T20:03:00Z"
+        self.assertEqual(
+            closed,
+            self.run_cli("record-handback", refreshed_handback)["result"],
+        )
+        altered_handback = json.loads(json.dumps(handback))
+        altered_handback["exact_refs"]["candidate_sha"] = "d" * 40
+        altered = self.run_cli(
+            "record-handback", altered_handback, expected=control.EXIT_CONFLICT
+        )
+        self.assertEqual("IDEMPOTENCY_CONFLICT", altered["error"]["code"])
+        archive = {
+            "interface_version": "1.0",
+            "request_id": "archive-stream-recorder-38",
+            "task_id": required["task_id"],
+            "policy_snapshot_revision": required["policy_snapshot_revision"],
+            "lease_epoch": required["lease_epoch"],
+            "fencing_token": 38,
+            "now": "2026-07-28T20:04:00Z",
+        }
+        archived = self.run_cli("record-archive-receipt", archive)["result"]
+        self.assertEqual("ARCHIVED", archived["state"])
+
+    def test_screen_sanitizer_fence_41_artifact_privacy_tamper_and_rollback(self) -> None:
+        with sqlite3.connect(self.state / "orchestrator.sqlite3") as connection:
+            connection.execute("UPDATE metadata SET value='41' WHERE key='next_fence'")
+        prepared = self.run_cli(
+            "prepare-launch", self.prepare("screen-sanitizer-fence-41")
+        )
+        required = prepared["result"]["envelope"]["receipt_required"]
+        self.assertEqual(41, required["fencing_token"])
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(prepared, "screen-sanitizer-fence-41"),
+        )
+        relative_path = "docs/screen-sanitizer-report.json"
+        raw_marker = "SYNTHETIC_PRIVATE_ARTIFACT_CONTENT_MUST_NOT_PERSIST"
+        artifact_path = self.repo / relative_path
+        artifact_path.write_text(raw_marker, encoding="utf-8")
+        after = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+        entry = {
+            "relative_path": relative_path,
+            "transition": "created",
+            "before_sha256": None,
+            "after_sha256": after,
+        }
+
+        def manifest(entries: list[dict[str, object]]) -> dict[str, object]:
+            body = {"algorithm": "sha256", "entries": entries}
+            return {
+                **body,
+                "manifest_sha256": control.digest(body),
+                "rollback": {
+                    "strategy": "restore_base",
+                    "evidence_ref": "rollback-screen-sanitizer-41",
+                },
+            }
+
+        base = self.handback(
+            prepared,
+            "screen-sanitizer-fence-41",
+            disposition="completed_local_artifact",
+        )
+        base["exact_refs"] = {
+            "base_sha": BASE_SHA,
+            "candidate_sha": None,
+            "pr_url": None,
+            "merge_sha": None,
+            "default_sha": None,
+        }
+        base["external_delivery"] = "not_performed"
+        base["artifacts"] = [relative_path]
+        base["resources"] = [
+            {
+                "id": prepared["result"]["envelope"]["owner_claim_id"],
+                "disposition": "removed",
+                "reason": "exact owner claim released",
+                "bytes": 0,
+            },
+            {
+                "id": relative_path,
+                "disposition": "retain",
+                "reason": "bounded synthetic local artifact",
+                "bytes": artifact_path.stat().st_size,
+            },
+        ]
+        base["local_artifact"] = manifest([entry])
+
+        cases: list[tuple[str, dict[str, object], str]] = []
+        traversal = json.loads(json.dumps(base))
+        traversal["local_artifact"] = manifest(
+            [{**entry, "relative_path": "../private/report.json"}]
+        )
+        cases.append(("traversal", traversal, "ARTIFACT_PATH_INVALID"))
+        duplicate = json.loads(json.dumps(base))
+        duplicate["local_artifact"] = manifest(
+            [entry, {**entry, "relative_path": relative_path.upper()}]
+        )
+        cases.append(("duplicate", duplicate, "ARTIFACT_PATH_DUPLICATE"))
+        algorithm = json.loads(json.dumps(base))
+        algorithm["local_artifact"]["algorithm"] = "sha512"
+        cases.append(("algorithm", algorithm, "ARTIFACT_ALGORITHM_INVALID"))
+        equal_digest = json.loads(json.dumps(base))
+        equal_entry = {
+            **entry,
+            "transition": "modified",
+            "before_sha256": after,
+        }
+        equal_digest["local_artifact"] = manifest([equal_entry])
+        cases.append(("equal-digest", equal_digest, "ARTIFACT_TRANSITION_INVALID"))
+        content = json.loads(json.dumps(base))
+        content_entry = {**entry, "after_sha256": "f" * 64}
+        content["local_artifact"] = manifest([content_entry])
+        cases.append(("content", content, "ARTIFACT_CONTENT_MISMATCH"))
+        delivery = json.loads(json.dumps(base))
+        delivery["external_delivery"] = "performed"
+        cases.append(("delivery", delivery, "EXTERNAL_DELIVERY_INVALID"))
+        cleanup = json.loads(json.dumps(base))
+        cleanup["resources"] = cleanup["resources"][:1]
+        cases.append(("cleanup", cleanup, "ARTIFACT_CLEANUP_INVALID"))
+        for index, (label, candidate, code) in enumerate(cases):
+            with self.subTest(label=label):
+                candidate["request_id"] = f"artifact-reject-{index}"
+                candidate["handback_id"] = f"artifact-reject-{index}"
+                rejected = self.run_cli("record-handback", candidate, expected=2)
+                self.assertEqual(code, rejected["error"]["code"])
+
+        symlink_path = self.repo / "docs/screen-sanitizer-link.json"
+        symlink_path.symlink_to(artifact_path.name)
+        symlink = json.loads(json.dumps(base))
+        symlink_entry = {**entry, "relative_path": "docs/screen-sanitizer-link.json"}
+        symlink["local_artifact"] = manifest([symlink_entry])
+        symlink["artifacts"] = [symlink_entry["relative_path"]]
+        symlink["resources"][1]["id"] = symlink_entry["relative_path"]
+        symlink["request_id"] = "artifact-reject-symlink"
+        symlink["handback_id"] = "artifact-reject-symlink"
+        rejected_symlink = self.run_cli("record-handback", symlink, expected=2)
+        self.assertIn(
+            rejected_symlink["error"]["code"],
+            {"SYMLINK_ESCAPE", "PATH_SYMLINK_FORBIDDEN", "ARTIFACT_CONTENT_INVALID"},
+        )
+
+        closed = self.run_cli("record-handback", base)["result"]
+        self.assertEqual(
+            base["local_artifact"]["manifest_sha256"],
+            closed["local_artifact_manifest_sha256"],
+        )
+        self.assertEqual("EMPTY", closed["capacity"]["outcome"])
+        database_bytes = (self.state / "orchestrator.sqlite3").read_bytes()
+        self.assertNotIn(raw_marker.encode(), database_bytes)
+
+    def test_p940_expired_setup_failure_only_poisoned_012_and_never_reused_021(self) -> None:
+        failed_request = self.prepare(
+            "p940-placeholder", path="/docs", priority=940
+        )
+        failed_request.update(
+            {
+                "request_id": "prepare-refill-screen-sanitizer-red-team-012",
+                "source_event_key": "source-refill-screen-sanitizer-red-team-012",
+                "idempotency_key": "idem-refill-screen-sanitizer-red-team-012",
+                "outcome_key": "outcome-refill-screen-sanitizer-red-team-012",
+                "task_id": "refill-screen-sanitizer-red-team-012",
+                "title": "Expired P940 setup reservation",
+                "lease_expires_at": "2026-07-28T18:15:00Z",
+            }
+        )
+        failed = self.run_cli("prepare-launch", failed_request)
+        unrelated_request = self.prepare(
+            "unrelated-021", path="/src", priority=930
+        )
+        unrelated_request.update(
+            {
+                "request_id": "prepare-screen-sanitizer-red-team-021",
+                "source_event_key": "source-screen-sanitizer-red-team-021",
+                "idempotency_key": "idem-screen-sanitizer-red-team-021",
+                "outcome_key": "outcome-screen-sanitizer-red-team-021",
+                "task_id": "screen-sanitizer-red-team-021",
+                "title": "Unrelated setup reservation",
+            }
+        )
+        unrelated = self.run_cli("prepare-launch", unrelated_request)
+        failed_envelope = failed["result"]["envelope"]
+        failed_required = failed_envelope["receipt_required"]
+        unrelated_envelope = unrelated["result"]["envelope"]
+        request = {
+            "interface_version": "1.0",
+            "request_id": "setup-failure-p940-012",
+            "task_id": "refill-screen-sanitizer-red-team-012",
+            "policy_snapshot_revision": failed_required["policy_snapshot_revision"],
+            "lease_epoch": failed_required["lease_epoch"],
+            "fencing_token": failed_required["fencing_token"],
+            "reason_code": "CREATE_THREAD_FAILED",
+            "evidence_refs": ["synthetic-expired-unreceipted-p940"],
+            "configured_capacity": 4,
+            "runnable_queue_count": 0,
+            "empty_outcome": "EMPTY",
+            "blocked_audits": [],
+            "successor_candidates": [],
+            "expected_outbox_id": failed["result"]["outbox"]["outbox_id"],
+            "expected_owner_claim_id": failed_envelope["owner_claim_id"],
+            "now": "2026-07-28T20:00:00Z",
+        }
+        wrong = json.loads(json.dumps(request))
+        wrong["request_id"] = "setup-failure-p940-wrong-binding"
+        wrong["expected_owner_claim_id"] = unrelated_envelope["owner_claim_id"]
+        rejected = self.run_cli(
+            "record-setup-failure", wrong, expected=control.EXIT_CONFLICT
+        )
+        self.assertEqual("SETUP_CLAIM_MISMATCH", rejected["error"]["code"])
+        recovered = self.run_cli("record-setup-failure", request)["result"]
+        self.assertEqual("FAILED", recovered["state"])
+        self.assertEqual("poisoned", recovered["outbox_state"])
+        self.assertEqual(1, recovered["released_claim_count"])
+        self.assertEqual(1, recovered["poisoned_outbox_count"])
+        self.assertEqual(failed_envelope["owner_claim_id"], recovered["released_owner_claim_id"])
+        self.assertIsNone(recovered["successor"])
+        self.assertEqual("EMPTY", recovered["capacity"]["outcome"])
+        refreshed = json.loads(json.dumps(request))
+        refreshed["now"] = "2026-07-28T20:05:00Z"
+        self.assertEqual(
+            recovered,
+            self.run_cli("record-setup-failure", refreshed)["result"],
+        )
+        with sqlite3.connect(self.state / "orchestrator.sqlite3") as connection:
+            connection.row_factory = sqlite3.Row
+            unrelated_outbox = connection.execute(
+                "SELECT state FROM outbox WHERE task_id=? AND kind='CREATE_THREAD'",
+                ("screen-sanitizer-red-team-021",),
+            ).fetchone()
+            unrelated_claim = connection.execute(
+                "SELECT status FROM owner_claims WHERE claim_id=?",
+                (unrelated_envelope["owner_claim_id"],),
+            ).fetchone()
+        self.assertEqual("pending", unrelated_outbox["state"])
+        self.assertEqual("active", unrelated_claim["status"])
 
     def test_sanitized_public_metadata_persists_only_in_launch_and_handback(self) -> None:
         request = self.prepare("public-metadata")

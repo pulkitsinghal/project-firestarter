@@ -63,6 +63,7 @@ ROOT_CONTROL_PLANE_ALLOW = {
     "codex_appcreate_thread",
 }
 ROOT_CONTROL_PLANE_MCP_ALLOW = {
+    "mcp__pm_proxy_orchestrator__pm_proxy_acknowledge_control_schema_hold",
     "mcp__pm_proxy_orchestrator__pm_proxy_close_and_refill",
     "mcp__pm_proxy_orchestrator__pm_proxy_configure_capacity",
     "mcp__pm_proxy_orchestrator__pm_proxy_doctor",
@@ -72,9 +73,11 @@ ROOT_CONTROL_PLANE_MCP_ALLOW = {
     "mcp__pm_proxy_orchestrator__pm_proxy_record_archive_receipt",
     "mcp__pm_proxy_orchestrator__pm_proxy_record_launch_receipt",
     "mcp__pm_proxy_orchestrator__pm_proxy_record_refill_receipt",
+    "mcp__pm_proxy_orchestrator__pm_proxy_record_setup_failure",
     "mcp__pm_proxy_orchestrator__pm_proxy_reconcile_expired_lease",
     "mcp__pm_proxy_orchestrator__pm_proxy_slot_status",
     "mcp__pm_proxy_orchestrator__pm_proxy_status",
+    "mcp__pm_proxy_orchestrator__pm_proxy_route_owner_decision",
     "mcp__pm_proxy_orchestrator__pm_proxy_verify_runtime",
     "mcp__pm_proxy_orchestrator__pm_proxy_watchdog_refill",
 }
@@ -127,6 +130,9 @@ ARCHIVE_READY_OUTCOMES = {
 LOCK_TIMEOUT_SECONDS = 0.25
 LOCK_RETRY_SECONDS = 0.01
 MAX_ADMISSIONS = 512
+OWNER_DECISION_SINK_THREAD_ID = "019fcb3b-f5dc-7df3-9fe1-efe5b2e09a69"
+OWNER_DECISION_BEGIN = "<pm_proxy_owner_decision_envelope>"
+OWNER_DECISION_END = "</pm_proxy_owner_decision_envelope>"
 
 
 def deny(reason: str) -> dict[str, Any]:
@@ -322,6 +328,24 @@ def active_admission_keys(state: Path) -> set[str] | None:
         task_id = ticket.get("task_id")
         if isinstance(task_id, str) and ticket_archive_ready(state, ticket):
             active.add(f"archive:{task_id}")
+    route_path = state / ".owner-decision-routes.json"
+    if route_path.exists():
+        route_ledger = read_private_json(route_path)
+        if (
+            route_ledger is None
+            or set(route_ledger) != {"version", "routes"}
+            or route_ledger.get("version") != "1.0"
+            or not isinstance(route_ledger.get("routes"), list)
+        ):
+            return None
+        for route in route_ledger["routes"]:
+            if not isinstance(route, dict) or route.get("status") != "PENDING":
+                continue
+            source = route.get("source_thread_id")
+            request_id = route.get("request_id")
+            if not isinstance(source, str) or not isinstance(request_id, str):
+                return None
+            active.add(f"owner-decision:{source}:{request_id}")
     return active
 
 
@@ -404,6 +428,72 @@ def admission_denial(kind: str, outcome: str) -> dict[str, Any] | None:
     return deny(f"ROOT_ADMISSION_{outcome}")
 
 
+def matching_owner_decision(tool_input: dict[str, Any]) -> tuple[Path, dict[str, Any]] | None:
+    thread_id = tool_input.get("threadId") or tool_input.get("thread_id")
+    message = tool_input.get("message")
+    if thread_id != OWNER_DECISION_SINK_THREAD_ID or not isinstance(message, str):
+        return None
+    prefix = OWNER_DECISION_BEGIN + "\n"
+    suffix = "\n" + OWNER_DECISION_END
+    if not message.startswith(prefix) or not message.endswith(suffix):
+        return None
+    envelope = strict_object(message[len(prefix) : -len(suffix)])
+    required = {
+        "envelope_version", "kind", "route_request_id", "source_thread_id",
+        "sink_thread_id", "request_id", "decision_code", "option_codes",
+        "evidence_refs", "action_type", "gate_type", "classification",
+        "reason_code", "rule_ids", "verified_owner_gate", "capacity_reserved",
+        "sink_authority", "recursion_depth",
+    }
+    if (
+        envelope is None
+        or set(envelope) != required
+        or envelope.get("envelope_version") != "1.0"
+        or envelope.get("kind") != "OWNER_DECISION_REQUEST"
+        or envelope.get("sink_thread_id") != OWNER_DECISION_SINK_THREAD_ID
+        or envelope.get("source_thread_id") == OWNER_DECISION_SINK_THREAD_ID
+        or envelope.get("classification") != "OWNER_GATE"
+        or envelope.get("verified_owner_gate") is not True
+        or envelope.get("capacity_reserved") is not False
+        or envelope.get("sink_authority") is not False
+        or envelope.get("recursion_depth") != 0
+    ):
+        return None
+    for state in private_state_dirs():
+        ledger_path = state / ".owner-decision-routes.json"
+        try:
+            if (
+                not ledger_path.is_file()
+                or ledger_path.is_symlink()
+                or (ledger_path.stat().st_mode & 0o777) != 0o600
+                or ledger_path.stat().st_size > 2_000_000
+            ):
+                continue
+            ledger = strict_object(ledger_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        if (
+            ledger is None
+            or set(ledger) != {"version", "routes"}
+            or ledger.get("version") != "1.0"
+            or not isinstance(ledger.get("routes"), list)
+        ):
+            continue
+        matches = [
+            item
+            for item in ledger["routes"]
+            if isinstance(item, dict)
+            and item.get("source_thread_id") == envelope.get("source_thread_id")
+            and item.get("request_id") == envelope.get("request_id")
+            and item.get("sink_thread_id") == OWNER_DECISION_SINK_THREAD_ID
+            and item.get("status") == "PENDING"
+            and item.get("envelope") == envelope
+        ]
+        if len(matches) == 1:
+            return state, envelope
+    return None
+
+
 def control_plane_decision(event: dict[str, Any], tool_name: str) -> dict[str, Any] | None:
     tool_input = event.get("tool_input")
     if not isinstance(tool_input, dict):
@@ -423,6 +513,28 @@ def control_plane_decision(event: dict[str, Any], tool_name: str) -> dict[str, A
             admit_once(
                 state,
                 f"create:{outbox.get('outbox_id')}",
+                event.get("tool_use_id"),
+            ),
+        )
+    if tool_name in {
+        "codex_app__send_message_to_thread",
+        "codex_appsend_message_to_thread",
+    } and (
+        tool_input.get("threadId") == OWNER_DECISION_SINK_THREAD_ID
+        or tool_input.get("thread_id") == OWNER_DECISION_SINK_THREAD_ID
+    ):
+        matched = matching_owner_decision(tool_input)
+        if matched is None:
+            return deny("ROOT_OWNER_DECISION_ROUTE_REQUIRED")
+        state, envelope = matched
+        return admission_denial(
+            "OWNER_DECISION",
+            admit_once(
+                state,
+                "owner-decision:"
+                + str(envelope["source_thread_id"])
+                + ":"
+                + str(envelope["request_id"]),
                 event.get("tool_use_id"),
             ),
         )

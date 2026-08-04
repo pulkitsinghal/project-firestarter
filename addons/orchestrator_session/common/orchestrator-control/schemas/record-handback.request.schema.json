@@ -14,7 +14,7 @@
     "lease_epoch": {"type": "integer", "minimum": 1},
     "fencing_token": {"type": "integer", "minimum": 1},
     "external_thread_id": {"type": "string"},
-    "disposition": {"enum": ["completed", "blocked", "failed", "superseded", "duplicate"]},
+    "disposition": {"enum": ["completed", "completed_local_only", "completed_local_artifact", "blocked", "failed", "superseded", "duplicate"]},
     "exact_refs": {
       "type": "object",
       "additionalProperties": false,
@@ -54,8 +54,43 @@
       }
     },
     "deployment_state": {"enum": ["not_performed", "local_only", "owner_authorized_deployed", "unavailable"]},
+    "external_delivery": {"enum": ["not_performed", "performed", "unavailable"]},
     "privacy_boundary": {"type": "string"},
     "artifacts": {"type": "array", "items": {"type": "string"}},
+    "local_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "entries", "manifest_sha256", "rollback"],
+      "properties": {
+        "algorithm": {"const": "sha256"},
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["relative_path", "transition", "before_sha256", "after_sha256"],
+            "properties": {
+              "relative_path": {"type": "string", "minLength": 1, "maxLength": 512},
+              "transition": {"enum": ["created", "modified", "removed"]},
+              "before_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+              "after_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        },
+        "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "rollback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strategy", "evidence_ref"],
+          "properties": {
+            "strategy": {"const": "restore_base"},
+            "evidence_ref": {"type": "string"}
+          }
+        }
+      }
+    },
     "resources": {
       "type": "array",
       "items": {
@@ -142,6 +177,26 @@
     {
       "if": {"properties": {"disposition": {"not": {"const": "blocked"}}}},
       "then": {"required": ["capacity"]}
+    },
+    {
+      "if": {"properties": {"disposition": {"enum": ["completed_local_only", "completed_local_artifact"]}}},
+      "then": {
+        "required": ["external_delivery"],
+        "properties": {
+          "external_delivery": {"const": "not_performed"},
+          "deployment_state": {"const": "not_performed"},
+          "hosted_ci": {
+            "properties": {
+              "status": {"const": "unexecuted"},
+              "steps": {"const": 0}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"disposition": {"const": "completed_local_artifact"}}},
+      "then": {"required": ["local_artifact"]}
     }
   ]
 }

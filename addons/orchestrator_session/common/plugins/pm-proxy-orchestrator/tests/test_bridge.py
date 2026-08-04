@@ -157,6 +157,196 @@ class BridgeTestCase(unittest.TestCase):
         )
         self.assertEqual(heartbeat.returncode, 0, heartbeat.stderr)
 
+    def test_screenbench_fence_42_routes_only_exact_typed_owner_decisions(self):
+        initialized = self.run_bridge("init", "--now", iso())
+        self.assertEqual(0, initialized.returncode, initialized.stderr)
+        state_path = self.state / "fake-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        for index in range(41):
+            task_id = f"archived-fence-seed-{index:02d}"
+            state["tasks"][task_id] = {
+                "task_id": task_id,
+                "source_event_key": f"source-{task_id}",
+                "outcome_key": f"outcome-{task_id}",
+                "idempotency_key": f"idem-{task_id}",
+                "priority": 1,
+                "target": {
+                    "remote": "example.invalid/archive/seed",
+                    "repo_root": "/synthetic/archive",
+                    "path": f"/seed-{index}",
+                    "base_sha": "a" * 40,
+                    "resource_mode": "path",
+                },
+                "state": "ARCHIVED",
+                "external_thread_id": None,
+                "updated_at": iso(),
+                "block": None,
+            }
+        state_path.write_text(
+            json.dumps(state, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        os.chmod(state_path, 0o600)
+        prepared, ticket = self.prepare(task_id="screenbench-fence-42")
+        self.assertEqual(0, prepared.returncode, prepared.stderr)
+        ticket_value = json.loads(ticket.read_text(encoding="utf-8"))
+        self.assertEqual(42, ticket_value["fencing_token"])
+        receipted = self.receipt(
+            ticket, external_id="screenbench-worker-42", now=iso(minutes=1)
+        )
+        self.assertEqual(0, receipted.returncode, receipted.stderr)
+
+        def route_request(*, owner: bool) -> dict:
+            decision = classify_request(
+                action_type="PRODUCTION_CHANGE" if owner else "READ_INSPECT",
+                gate_type="PRODUCTION_CHANGE" if owner else "NONE",
+                request_id=(
+                    "screenbench-decision-owner"
+                    if owner
+                    else "screenbench-decision-pm"
+                ),
+            )
+            decision["now"] = iso(minutes=2)
+            return {
+                "interface_version": "1.0",
+                "route_request_id": (
+                    "screenbench-route-owner" if owner else "screenbench-route-pm"
+                ),
+                "source_thread_id": "screenbench-worker-42",
+                "sink_thread_id": "019fcb3b-f5dc-7df3-9fe1-efe5b2e09a69",
+                "origin": "WORKER",
+                "recursion_depth": 0,
+                "decision_request": decision,
+                "approval": {
+                    "request_id": decision["request_id"],
+                    "decision_code": "production-gate" if owner else "routine-read",
+                    "option_codes": ["approve", "deny"],
+                    "evidence_refs": ["receipt-screenbench-fence-42"],
+                },
+                "now": iso(minutes=2),
+            }
+
+        pm_path = write_json(
+            self.root / "screenbench-pm-route.json", route_request(owner=False)
+        )
+        pm = self.run_bridge(
+            "route-owner-decision",
+            "--ticket", str(ticket),
+            "--external-thread-id", "screenbench-worker-42",
+            "--request", str(pm_path),
+        )
+        self.assertEqual(0, pm.returncode, pm.stderr)
+        pm_result = self.parsed(pm)["result"]
+        self.assertTrue(pm_result["auto_return"])
+        self.assertFalse(pm_result["route_required"])
+        self.assertIsNone(pm_result["sink_thread_id"])
+        self.assertIsNone(pm_result["decision_envelope"])
+
+        owner_request = route_request(owner=True)
+        owner_path = write_json(
+            self.root / "screenbench-owner-route.json", owner_request
+        )
+        owner = self.run_bridge(
+            "route-owner-decision",
+            "--ticket", str(ticket),
+            "--external-thread-id", "screenbench-worker-42",
+            "--request", str(owner_path),
+        )
+        self.assertEqual(0, owner.returncode, owner.stderr)
+        envelope = self.parsed(owner)["result"]["decision_envelope"]
+        self.assertEqual("OWNER_GATE", envelope["classification"])
+        self.assertTrue(envelope["verified_owner_gate"])
+        self.assertFalse(envelope["capacity_reserved"])
+        self.assertFalse(envelope["sink_authority"])
+        self.assertEqual(0, envelope["recursion_depth"])
+        self.assertEqual(
+            "019fcb3b-f5dc-7df3-9fe1-efe5b2e09a69",
+            envelope["sink_thread_id"],
+        )
+
+        mismatch = json.loads(json.dumps(owner_request))
+        mismatch["approval"]["request_id"] = "different-request"
+        mismatch_path = write_json(
+            self.root / "screenbench-mismatch.json", mismatch
+        )
+        rejected = self.run_bridge(
+            "route-owner-decision",
+            "--ticket", str(ticket),
+            "--external-thread-id", "screenbench-worker-42",
+            "--request", str(mismatch_path),
+        )
+        self.assertEqual(3, rejected.returncode)
+        self.assertEqual(
+            "DECISION_ROUTE_CONFLICT", self.parsed(rejected)["error"]["code"]
+        )
+        wrong_source = self.run_bridge(
+            "route-owner-decision",
+            "--ticket", str(ticket),
+            "--external-thread-id", "screenbench-worker-other",
+            "--request", str(owner_path),
+        )
+        self.assertEqual(3, wrong_source.returncode)
+        self.assertEqual(
+            "EXTERNAL_MIRROR_STOP",
+            self.parsed(wrong_source)["error"]["code"],
+        )
+        stale = route_request(owner=True)
+        stale["now"] = iso(minutes=31)
+        stale["decision_request"]["now"] = stale["now"]
+        stale_path = write_json(self.root / "screenbench-stale.json", stale)
+        rejected_stale = self.run_bridge(
+            "route-owner-decision",
+            "--ticket", str(ticket),
+            "--external-thread-id", "screenbench-worker-42",
+            "--request", str(stale_path),
+        )
+        self.assertEqual(2, rejected_stale.returncode)
+        self.assertEqual(
+            "RECEIPT_STALE", self.parsed(rejected_stale)["error"]["code"]
+        )
+        unreceipted_path = self.root / "screenbench-unreceipted.ticket.json"
+        unreceipted = json.loads(ticket.read_text(encoding="utf-8"))
+        unreceipted["receipt"] = None
+        write_json(unreceipted_path, unreceipted)
+        os.chmod(unreceipted_path, 0o600)
+        rejected_missing = self.run_bridge(
+            "route-owner-decision",
+            "--ticket", str(unreceipted_path),
+            "--external-thread-id", "screenbench-worker-42",
+            "--request", str(owner_path),
+        )
+        self.assertEqual(2, rejected_missing.returncode)
+        self.assertEqual(
+            "RECEIPT_MISSING", self.parsed(rejected_missing)["error"]["code"]
+        )
+        recursive = json.loads(json.dumps(owner_request))
+        recursive["source_thread_id"] = recursive["sink_thread_id"]
+        recursive["recursion_depth"] = 1
+        recursive_path = write_json(
+            self.root / "screenbench-recursive.json", recursive
+        )
+        rejected = self.run_bridge(
+            "route-owner-decision",
+            "--ticket", str(ticket),
+            "--external-thread-id", "screenbench-worker-42",
+            "--request", str(recursive_path),
+        )
+        self.assertEqual(2, rejected.returncode)
+        self.assertEqual(
+            "DECISION_ROUTE_RECURSION_DENIED",
+            self.parsed(rejected)["error"]["code"],
+        )
+        downgraded = self.run_bridge(
+            "route-owner-decision",
+            "--ticket", str(ticket),
+            "--external-thread-id", "screenbench-worker-42",
+            "--request", str(owner_path),
+            env={"FAKE_CLI_MODE": "owner-downgrade"},
+        )
+        self.assertEqual(2, downgraded.returncode)
+        self.assertEqual(
+            "OWNER_GATE_DOWNGRADE", self.parsed(downgraded)["error"]["code"]
+        )
+
     def test_expired_lease_reconciliation_uses_ticket_without_rewriting_it(self):
         prepared, ticket = self.prepare(task_id="expired-owner")
         self.assertEqual(0, prepared.returncode, prepared.stderr)

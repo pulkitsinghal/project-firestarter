@@ -12,12 +12,15 @@
     "result": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["task_id", "state", "failed_outbox_id", "outbox_state", "successor", "rejected_candidates", "capacity"],
+      "required": ["task_id", "state", "failed_outbox_id", "outbox_state", "released_owner_claim_id", "released_claim_count", "poisoned_outbox_count", "successor", "rejected_candidates", "capacity"],
       "properties": {
         "task_id": {"type": "string"},
         "state": {"const": "FAILED"},
         "failed_outbox_id": {"type": "string"},
         "outbox_state": {"const": "poisoned"},
+        "released_owner_claim_id": {"type": "string"},
+        "released_claim_count": {"const": 1},
+        "poisoned_outbox_count": {"const": 1},
         "successor": {"type": ["object", "null"]},
         "rejected_candidates": {"type": "array", "items": {"type": "object"}},
         "capacity": {"type": "object"}

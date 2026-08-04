@@ -1,7 +1,7 @@
 # PM Proxy Orchestrator
 
-Version `0.4.0` is a source-only agent-CLI plugin for Firestarter control-plane
-interface `1.0` and control bundle `1.4.0`. It makes typed configured-capacity
+Version `0.4.2` is a source-only agent-CLI plugin for Firestarter control-plane
+interface `1.0` and control bundle `1.4.2`. It makes typed configured-capacity
 compare-and-set, task reservation, policy receipts, approval routing, fenced
 handback, successor creation, and queue recycling operational without installing
 anything globally.
@@ -21,7 +21,7 @@ lifecycle action. Hosted paths, opt-outs, reauthorization gaps, and universal
 non-spoofable caller identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
 
-Version `0.4.0` also includes an opt-in Desktop app-server proxy. An
+Version `0.4.2` also includes an opt-in Desktop app-server proxy. An
 owner-selected exact task ID is attested as root through a private local socket;
 other task IDs remain workers, so visible workers do not inherit a process-wide
 root role. The adapter requires current pin/doctor state and a fresh native-hook
@@ -30,6 +30,16 @@ directory on Desktop's command line before macOS single-instance selection,
 observes that exact switch with the adapter proxy, changes no global Codex
 configuration, and keeps the normal Desktop app as the recovery path. See
 `docs/DESKTOP_HOST_ADAPTER.md`.
+
+The patch adds two truthful local closure dispositions, an exact receipt-fenced
+schema hold, and one expired-unreceipted setup-failure route. Owner-only
+questions are classified from the receipt-backed source worker and emitted as a
+closed typed envelope for the pinned private sink; PM-proxy questions return to
+the worker immediately. The route consumes no worker slot, gives the sink no
+authority, and persists no prompt, command, hash, credential, private text, or
+credential-bearing URL. The hold is the only operation eligible for the
+short-lived bootstrap recovery grant, which is revoked before dispatch and is
+single-use under concurrent calls.
 
 After the exact current-version covered-path adoption and runtime pin verify,
 that isolated proxy also applies Codex's supported prompt-free mode to only the

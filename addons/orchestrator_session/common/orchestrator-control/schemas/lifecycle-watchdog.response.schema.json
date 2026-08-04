@@ -39,7 +39,8 @@
                 "COMPLETION_CANDIDATE",
                 "INTERRUPT_REQUIRED",
                 "COMPLETED",
-                "INTERRUPTED"
+                "INTERRUPTED",
+                "CONTROL_SCHEMA_HOLD"
               ]
             },
             "worker_status": {
@@ -55,7 +56,8 @@
                 "CONTINUE",
                 "REQUEST_HANDBACK",
                 "TERMINALIZE",
-                "ARCHIVE"
+                "ARCHIVE",
+                "AWAIT_CONTROL_REPAIR"
               ]
             },
             "interrupt_receipt_id": {"type": ["string", "null"]},

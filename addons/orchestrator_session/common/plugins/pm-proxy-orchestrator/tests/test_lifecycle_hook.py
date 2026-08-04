@@ -182,6 +182,88 @@ class LifecycleHookTest(unittest.TestCase):
                 ),
             )
 
+    def test_control_schema_hold_clears_only_with_exact_revoked_grant_receipt(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-hold-hook-") as temp:
+            home = Path(temp)
+            state_root = home / ".codex" / "orchestrator-state"
+            state_root.mkdir(parents=True, mode=0o700)
+            os.chmod(state_root.parent, 0o700)
+            observed = self.run_post(
+                home,
+                {
+                    "hook_event_name": "PostToolUse",
+                    "session_id": "root-session",
+                    "tool_name": "codex_appread_thread",
+                    "tool_input": {"threadId": "worker-held"},
+                    "tool_response": {"status": "completed"},
+                },
+            )
+            self.assertEqual(0, observed.returncode, observed.stderr)
+            response = {
+                "structuredContent": {
+                    "ok": True,
+                    "operation": "acknowledge-control-schema-hold",
+                    "result": {
+                        "external_thread_id": "worker-held",
+                        "hold_state": "CONTROL_SCHEMA_HOLD",
+                        "required_action": "AWAIT_CONTROL_REPAIR",
+                        "bootstrap_recovery_grant": {
+                            "status": "REVOKED",
+                            "consumed_before_dispatch": True,
+                            "host_attested": True,
+                        },
+                    },
+                }
+            }
+            mismatch = json.loads(json.dumps(response))
+            mismatch["structuredContent"]["result"][
+                "bootstrap_recovery_grant"
+            ]["status"] = "ISSUED"
+            rejected = self.run_post(
+                home,
+                {
+                    "hook_event_name": "PostToolUse",
+                    "session_id": "root-session",
+                    "tool_name": (
+                        "mcp__pm_proxy_orchestrator__"
+                        "pm_proxy_acknowledge_control_schema_hold"
+                    ),
+                    "tool_input": {"external_thread_id": "worker-held"},
+                    "tool_response": mismatch,
+                },
+            )
+            self.assertEqual(1, rejected.returncode)
+            ledger = json.loads(
+                (state_root / ".dispatcher-lifecycle.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(["worker-held"], ledger["root-session"])
+            cleared = self.run_post(
+                home,
+                {
+                    "hook_event_name": "PostToolUse",
+                    "session_id": "root-session",
+                    "tool_name": (
+                        "mcp__pm_proxy_orchestrator__"
+                        "pm_proxy_acknowledge_control_schema_hold"
+                    ),
+                    "tool_input": {"external_thread_id": "worker-held"},
+                    "tool_response": response,
+                },
+            )
+            self.assertEqual(0, cleared.returncode, cleared.stderr)
+            self.assertEqual(
+                {},
+                json.loads(
+                    (state_root / ".dispatcher-lifecycle.json").read_text(
+                        encoding="utf-8"
+                    )
+                ),
+            )
+
     def test_busy_lifecycle_lock_denies_observation_quickly(self) -> None:
         with tempfile.TemporaryDirectory(prefix="pm-proxy-lifecycle-lock-") as temp:
             home = Path(temp)

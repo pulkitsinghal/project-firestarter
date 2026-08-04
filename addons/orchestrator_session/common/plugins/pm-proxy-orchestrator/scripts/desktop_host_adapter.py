@@ -19,6 +19,7 @@ import json
 import os
 import re
 import secrets
+import select
 import signal
 import socket
 import stat
@@ -41,7 +42,9 @@ HOST_ATTESTATION = PLUGIN_ROOT / "hooks" / "host_attestation.py"
 HOOKS_MANIFEST = PLUGIN_ROOT / "hooks" / "hooks.json"
 INTERFACE_VERSION = "1.1"
 PROOF_VERSION = "1.0"
-SESSION_VERSION = "1.2"
+SESSION_VERSION = "1.3"
+BOOTSTRAP_GRANT_VERSION = "1.0"
+BOOTSTRAP_GRANT_MAX_TTL_SECONDS = 300
 PROOF_TTL_SECONDS = 15 * 60
 SESSION_TTL_SECONDS = 12 * 60 * 60
 MAX_JSON_BYTES = 2_000_000
@@ -53,6 +56,7 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 PLUGIN_ID = "pm-proxy-orchestrator@project-firestarter"
 MCP_SERVER_ID = "pm-proxy-orchestrator"
 REQUIRED_TOOLS = {
+    "pm_proxy_acknowledge_control_schema_hold",
     "pm_proxy_close_and_refill",
     "pm_proxy_configure_capacity",
     "pm_proxy_doctor",
@@ -62,6 +66,8 @@ REQUIRED_TOOLS = {
     "pm_proxy_record_archive_receipt",
     "pm_proxy_record_launch_receipt",
     "pm_proxy_record_refill_receipt",
+    "pm_proxy_record_setup_failure",
+    "pm_proxy_route_owner_decision",
     "pm_proxy_reconcile_expired_lease",
     "pm_proxy_slot_status",
     "pm_proxy_status",
@@ -69,6 +75,7 @@ REQUIRED_TOOLS = {
     "pm_proxy_watchdog_refill",
 }
 PROMPT_FREE_CONTROL_TOOLS = (
+    "pm_proxy_acknowledge_control_schema_hold",
     "pm_proxy_close_and_refill",
     "pm_proxy_configure_capacity",
     "pm_proxy_doctor",
@@ -78,6 +85,8 @@ PROMPT_FREE_CONTROL_TOOLS = (
     "pm_proxy_record_archive_receipt",
     "pm_proxy_record_launch_receipt",
     "pm_proxy_record_refill_receipt",
+    "pm_proxy_record_setup_failure",
+    "pm_proxy_route_owner_decision",
     "pm_proxy_slot_status",
     "pm_proxy_status",
     "pm_proxy_verify_runtime",
@@ -97,12 +106,14 @@ SESSION_ENV = "ORC_DESKTOP_HOST_SESSION"
 TOKEN_ENV = "ORC_DESKTOP_HOST_TOKEN"
 SOCKET_ENV = "ORC_DESKTOP_HOST_SOCKET"
 INSTANCE_ENV = "ORC_DESKTOP_HOST_INSTANCE_ID"
+BOOTSTRAP_GRANT_ENV = "ORC_DESKTOP_BOOTSTRAP_RECOVERY_GRANT"
 REAL_CODEX_ENV = "ORC_DESKTOP_REAL_CODEX"
 ADAPTER_ENV_VARS = {
     SESSION_ENV,
     TOKEN_ENV,
     SOCKET_ENV,
     INSTANCE_ENV,
+    BOOTSTRAP_GRANT_ENV,
     REAL_CODEX_ENV,
     "CODEX_CLI_PATH",
     "CODEX_APP_SERVER_FORCE_CLI",
@@ -153,6 +164,13 @@ def exact_keys(
 ) -> None:
     if set(value) - allowed or not required.issubset(value):
         raise AdapterError("fields-invalid")
+
+
+def canonical_sha256(value: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def digest(path: Path) -> str:
@@ -351,6 +369,24 @@ def plugin_tree_digest(root: Path) -> str:
     return tree.hexdigest()
 
 
+def source_plugin_root(project: Path) -> Path:
+    candidates = (
+        project / "pm-proxy-orchestrator",
+        project
+        / "addons"
+        / "orchestrator_session"
+        / "common"
+        / "plugins"
+        / "pm-proxy-orchestrator",
+    )
+    matches = [
+        path for path in candidates if path.is_dir() and not path.is_symlink()
+    ]
+    if len(matches) != 1:
+        raise AdapterError("bootstrap-plugin-path-invalid")
+    return secure_plugin_dir(matches[0].resolve(strict=True))
+
+
 def probe_hook() -> None:
     event = {
         "hook_event_name": "PreToolUse",
@@ -508,6 +544,7 @@ def mcp_doctor(state_dir: Path) -> tuple[str, dict[str, Any]]:
             "HOME": str(Path.home()),
             "LANG": os.environ.get("LANG", "C.UTF-8"),
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PYTHONDONTWRITEBYTECODE": "1",
         },
     )
     if completed.returncode != 0 or completed.stderr:
@@ -622,6 +659,23 @@ def mcp_doctor(state_dir: Path) -> tuple[str, dict[str, Any]]:
         and safety.get("automatic_launch_refill_scope") == "COVERED_PATH_ONLY"
     )
     bound_pin = dict(pin)
+    for key in ("revision", "policy_revision"):
+        if isinstance(status_result.get(key), bool) or not isinstance(
+            status_result.get(key), int
+        ):
+            raise AdapterError("typed-status-invalid")
+    worker_capacity = status_result.get("worker_capacity")
+    if (
+        not isinstance(worker_capacity, dict)
+        or isinstance(worker_capacity.get("configured_capacity"), bool)
+        or not isinstance(worker_capacity.get("configured_capacity"), int)
+    ):
+        raise AdapterError("typed-status-invalid")
+    bound_pin["state_revision"] = status_result["revision"]
+    bound_pin["policy_revision"] = status_result["policy_revision"]
+    bound_pin["configured_capacity"] = worker_capacity[
+        "configured_capacity"
+    ]
     bound_pin["prompt_free_control_grant_verified"] = grant_verified
     bound_pin["dispatcher_adoption_sha256"] = (
         hashlib.sha256(
@@ -793,6 +847,227 @@ def validate_proof(
     return proof
 
 
+def git_output(project: Path, *arguments: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(project), *arguments],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AdapterError("bootstrap-source-git-invalid") from exc
+    if completed.returncode != 0 or completed.stderr.strip():
+        raise AdapterError("bootstrap-source-git-invalid")
+    return completed.stdout.strip()
+
+
+def bootstrap_grant_fields() -> set[str]:
+    return {
+        "authorization_request_id", "base_sha", "binding_sha256",
+        "configured_capacity", "decision", "decision_id",
+        "decision_request_id", "expected_state_revision", "expires_at",
+        "external_thread_id", "fencing_token", "grant_id", "grant_version",
+        "instance_dir", "instance_id", "issued_at", "lease_epoch",
+        "max_uses", "operation", "plugin_root", "plugin_tree_sha256",
+        "plugin_version", "policy_snapshot_revision", "policy_revision",
+        "project_root", "request_id", "replay_target", "root_thread_id",
+        "runtime_sha256", "source_commit_sha", "state_dir", "task_id",
+        "ticket_id",
+    }
+
+
+def validate_bootstrap_recovery_grant(
+    path: Path,
+    *,
+    instance_id: str,
+    instance_dir: Path,
+    root_thread_id: str,
+    state_dir: Path,
+    version: str,
+    pin: Mapping[str, Any],
+) -> dict[str, Any]:
+    grant = read_private_json(path)
+    fields = bootstrap_grant_fields()
+    exact_keys(grant, fields, fields)
+    unsigned = {key: value for key, value in grant.items() if key != "binding_sha256"}
+    issued_at = parse_utc(grant.get("issued_at"))
+    expires_at = parse_utc(grant.get("expires_at"))
+    now = utc_now()
+    project_root = Path(str(pin.get("project_root")))
+    source_plugin = source_plugin_root(project_root)
+    if (
+        grant.get("grant_version") != BOOTSTRAP_GRANT_VERSION
+        or grant.get("operation") != "pm_proxy_acknowledge_control_schema_hold"
+        or grant.get("decision") != "CONTROL_SCHEMA_DEFECT_NO_TRUTHFUL_TERMINAL_ROUTE"
+        or grant.get("replay_target") != "completed_local_only"
+        or grant.get("max_uses") != 1
+        or issued_at > now
+        or expires_at < now
+        or (expires_at - issued_at).total_seconds() > BOOTSTRAP_GRANT_MAX_TTL_SECONDS
+        or path.parent != instance_dir
+        or grant.get("instance_id") != instance_id
+        or grant.get("instance_dir") != str(instance_dir)
+        or grant.get("root_thread_id") != root_thread_id
+        or grant.get("state_dir") != str(state_dir)
+        or grant.get("project_root") != str(project_root)
+        or grant.get("plugin_root") != str(source_plugin)
+        or grant.get("plugin_version") != version
+        or grant.get("plugin_tree_sha256") != plugin_tree_digest(source_plugin)
+        or grant.get("plugin_tree_sha256") != plugin_tree_digest(PLUGIN_ROOT)
+        or grant.get("runtime_sha256") != pin.get("runtime_sha256")
+        or grant.get("expected_state_revision") != pin.get("state_revision")
+        or grant.get("policy_revision") != pin.get("policy_revision")
+        or grant.get("configured_capacity") != pin.get("configured_capacity")
+        or grant.get("binding_sha256") != canonical_sha256(unsigned)
+    ):
+        raise AdapterError("bootstrap-grant-stale-or-mismatched")
+    opaque_fields = {
+        "authorization_request_id", "decision_id", "decision_request_id",
+        "external_thread_id", "grant_id", "instance_id", "root_thread_id",
+        "task_id", "ticket_id",
+    }
+    if any(
+        not isinstance(grant.get(key), str)
+        or OPAQUE.fullmatch(str(grant.get(key))) is None
+        for key in opaque_fields
+    ):
+        raise AdapterError("bootstrap-grant-stale-or-mismatched")
+    if any(
+        isinstance(grant.get(key), bool) or not isinstance(grant.get(key), int)
+        for key in (
+            "configured_capacity", "expected_state_revision", "fencing_token",
+            "lease_epoch", "max_uses", "policy_revision",
+            "policy_snapshot_revision",
+        )
+    ):
+        raise AdapterError("bootstrap-grant-stale-or-mismatched")
+    for key in ("base_sha", "source_commit_sha"):
+        if not isinstance(grant.get(key), str) or re.fullmatch(
+            r"[0-9a-f]{40}", str(grant.get(key))
+        ) is None:
+            raise AdapterError("bootstrap-grant-stale-or-mismatched")
+    return grant
+
+
+def issue_bootstrap_recovery_grant(args: argparse.Namespace) -> dict[str, Any]:
+    if (
+        OPAQUE.fullmatch(args.instance_id) is None
+        or OPAQUE.fullmatch(args.root_thread_id) is None
+        or OPAQUE.fullmatch(args.grant_id) is None
+    ):
+        raise AdapterError("bootstrap-grant-identity-invalid")
+    instance_dir = ensure_private_dir(Path(args.instance_dir))
+    state_dir = existing_private_dir(Path(args.state_dir))
+    codex_cli = secure_file(Path(args.codex_cli), executable=True)
+    project_root = Path(args.project_root)
+    if (
+        not project_root.is_absolute()
+        or project_root.is_symlink()
+        or project_root.resolve(strict=True) != project_root
+    ):
+        raise AdapterError("bootstrap-source-path-invalid")
+    current_manifest = manifest()
+    installed_plugin(codex_cli, current_manifest["version"])
+    version, pin = mcp_doctor(state_dir)
+    if version != current_manifest["version"] or pin.get("project_root") != str(project_root):
+        raise AdapterError("bootstrap-source-path-invalid")
+    source_plugin = source_plugin_root(project_root)
+    source_plugin_digest = plugin_tree_digest(source_plugin)
+    if source_plugin_digest != plugin_tree_digest(PLUGIN_ROOT):
+        raise AdapterError("bootstrap-plugin-tree-invalid")
+    validate_proof(instance_dir, codex_cli, state_dir, version, pin)
+    if git_output(project_root, "status", "--porcelain"):
+        raise AdapterError("bootstrap-source-not-clean")
+    base_sha = args.base_sha
+    if re.fullmatch(r"[0-9a-f]{40}", base_sha) is None:
+        raise AdapterError("bootstrap-source-base-invalid")
+    source_commit_sha = git_output(project_root, "rev-parse", "HEAD")
+    origin_master = git_output(project_root, "rev-parse", "refs/remotes/origin/master")
+    if origin_master != base_sha:
+        raise AdapterError("bootstrap-source-base-invalid")
+    ancestor = subprocess.run(
+        ["git", "-C", str(project_root), "merge-base", "--is-ancestor", base_sha, source_commit_sha],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    if ancestor.returncode != 0:
+        raise AdapterError("bootstrap-source-base-invalid")
+    expected = {
+        "state_revision": args.expected_state_revision,
+        "policy_revision": args.expected_policy_revision,
+        "configured_capacity": args.expected_configured_capacity,
+    }
+    if any(pin.get(key) != value for key, value in expected.items()):
+        raise AdapterError("bootstrap-state-binding-mismatch")
+    now = utc_now()
+    lifetime = args.lifetime_seconds
+    if lifetime < 1 or lifetime > BOOTSTRAP_GRANT_MAX_TTL_SECONDS:
+        raise AdapterError("bootstrap-grant-lifetime-invalid")
+    grant = {
+        "authorization_request_id": args.authorization_request_id,
+        "base_sha": base_sha,
+        "configured_capacity": args.expected_configured_capacity,
+        "decision": "CONTROL_SCHEMA_DEFECT_NO_TRUTHFUL_TERMINAL_ROUTE",
+        "decision_id": args.decision_id,
+        "decision_request_id": args.decision_request_id,
+        "expected_state_revision": args.expected_state_revision,
+        "expires_at": iso(now + dt.timedelta(seconds=lifetime)),
+        "external_thread_id": args.external_thread_id,
+        "fencing_token": args.fencing_token,
+        "grant_id": args.grant_id,
+        "grant_version": BOOTSTRAP_GRANT_VERSION,
+        "instance_dir": str(instance_dir),
+        "instance_id": args.instance_id,
+        "issued_at": iso(now),
+        "lease_epoch": args.lease_epoch,
+        "max_uses": 1,
+        "operation": "pm_proxy_acknowledge_control_schema_hold",
+        "plugin_root": str(source_plugin),
+        "plugin_tree_sha256": source_plugin_digest,
+        "plugin_version": version,
+        "policy_snapshot_revision": args.policy_snapshot_revision,
+        "policy_revision": args.expected_policy_revision,
+        "project_root": str(project_root),
+        "request_id": args.request_id,
+        "replay_target": "completed_local_only",
+        "root_thread_id": args.root_thread_id,
+        "runtime_sha256": pin["runtime_sha256"],
+        "source_commit_sha": source_commit_sha,
+        "state_dir": str(state_dir),
+        "task_id": args.task_id,
+        "ticket_id": args.ticket_id,
+    }
+    opaque_values = (
+        args.authorization_request_id, args.decision_id,
+        args.decision_request_id, args.external_thread_id, args.request_id,
+        args.task_id, args.ticket_id,
+    )
+    if any(OPAQUE.fullmatch(value) is None for value in opaque_values):
+        raise AdapterError("bootstrap-grant-identity-invalid")
+    grant["binding_sha256"] = canonical_sha256(grant)
+    grant_path = instance_dir / f"bootstrap-recovery-grant-{args.grant_id}.json"
+    if grant_path.exists() or grant_path.is_symlink():
+        raise AdapterError("bootstrap-grant-already-exists")
+    atomic_private_json(grant_path, grant)
+    return {
+        "ok": True,
+        "result": {
+            "binding_sha256": grant["binding_sha256"],
+            "expires_at": grant["expires_at"],
+            "grant_id": grant["grant_id"],
+            "grant_path": str(grant_path),
+            "max_uses": 1,
+            "plugin_tree_sha256": grant["plugin_tree_sha256"],
+            "source_commit_sha": source_commit_sha,
+            "status": "ISSUED",
+        },
+    }
+
+
 def process_command(pid: Any) -> str | None:
     if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1:
         return None
@@ -883,6 +1158,7 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
         SOCKET_ENV,
         INSTANCE_ENV,
         REAL_CODEX_ENV,
+        BOOTSTRAP_GRANT_ENV,
     }
     if any(os.environ.get(name, "").strip() for name in private_host_environment):
         raise AdapterError("host-adapter-environment-must-be-unset")
@@ -908,6 +1184,22 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
         raise AdapterError("covered-path-adoption-not-verified")
     if not grant_enabled and adoption_sha256 is not None:
         raise AdapterError("covered-path-adoption-not-verified")
+    bootstrap_grant: dict[str, Any] | None = None
+    bootstrap_grant_path: Path | None = None
+    requested_bootstrap_grant = getattr(args, "bootstrap_grant", None)
+    if requested_bootstrap_grant is not None:
+        if not grant_enabled:
+            raise AdapterError("bootstrap-grant-requires-covered-path-adoption")
+        bootstrap_grant_path = Path(requested_bootstrap_grant)
+        bootstrap_grant = validate_bootstrap_recovery_grant(
+            bootstrap_grant_path,
+            instance_id=args.instance_id,
+            instance_dir=instance_dir,
+            root_thread_id=args.root_thread_id,
+            state_dir=state_dir,
+            version=server_version,
+            pin=pin,
+        )
     electron_data_dir = ensure_private_dir(instance_dir / "electron-data")
     desktop_isolation_argument = f"{USER_DATA_SWITCH}{electron_data_dir}"
     project: Path | None = None
@@ -932,6 +1224,15 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
             "approval_grant_sha256": approval_grant_digest(),
             "app_server_pid": None,
             "armed": True,
+            "bootstrap_recovery_grant_id": (
+                bootstrap_grant["grant_id"] if bootstrap_grant is not None else None
+            ),
+            "bootstrap_recovery_grant_path": (
+                str(bootstrap_grant_path) if bootstrap_grant_path is not None else None
+            ),
+            "bootstrap_recovery_grant_sha256": (
+                digest(bootstrap_grant_path) if bootstrap_grant_path is not None else None
+            ),
             "codex_cli": str(codex_cli),
             "codex_cli_sha256": digest(codex_cli),
             "created_at": iso(now),
@@ -1030,6 +1331,10 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
             "instance_id": args.instance_id,
             "normal_desktop_recovery_available": True,
             "root_thread_id": args.root_thread_id,
+            "bootstrap_recovery_grant_id": (
+                bootstrap_grant["grant_id"] if bootstrap_grant is not None else None
+            ),
+            "bootstrap_recovery_grant_bound": bootstrap_grant is not None,
             "prompt_free_control_grant_verified": grant_enabled,
             "runtime_pin_verified": True,
             "status": "STARTING",
@@ -1150,6 +1455,9 @@ def validate_session_from_environment() -> tuple[Path, dict[str, Any]]:
             "approval_grant_sha256",
             "app_server_pid",
             "armed",
+            "bootstrap_recovery_grant_id",
+            "bootstrap_recovery_grant_path",
+            "bootstrap_recovery_grant_sha256",
             "codex_cli",
             "codex_cli_sha256",
             "created_at",
@@ -1176,6 +1484,9 @@ def validate_session_from_environment() -> tuple[Path, dict[str, Any]]:
             "approval_grant_enabled",
             "approval_grant_sha256",
             "armed",
+            "bootstrap_recovery_grant_id",
+            "bootstrap_recovery_grant_path",
+            "bootstrap_recovery_grant_sha256",
             "codex_cli",
             "codex_cli_sha256",
             "desktop_executable",
@@ -1205,6 +1516,34 @@ def validate_session_from_environment() -> tuple[Path, dict[str, Any]]:
         proof_sha256 = digest(proof_path)
     except (AdapterError, OSError):
         raise AdapterError("host-session-invalid") from None
+    bootstrap_path_raw = session.get("bootstrap_recovery_grant_path")
+    bootstrap_id = session.get("bootstrap_recovery_grant_id")
+    bootstrap_sha256 = session.get("bootstrap_recovery_grant_sha256")
+    bootstrap_valid = False
+    if bootstrap_path_raw is None and bootstrap_id is None and bootstrap_sha256 is None:
+        bootstrap_valid = True
+    elif (
+        isinstance(bootstrap_path_raw, str)
+        and isinstance(bootstrap_id, str)
+        and isinstance(bootstrap_sha256, str)
+        and SHA256.fullmatch(bootstrap_sha256) is not None
+    ):
+        try:
+            bootstrap_path = Path(bootstrap_path_raw)
+            bootstrap_value = read_private_json(bootstrap_path)
+            bootstrap_valid = bool(
+                bootstrap_path.parent == session_path.parent
+                and digest(bootstrap_path) == bootstrap_sha256
+                and bootstrap_value.get("grant_id") == bootstrap_id
+                and bootstrap_value.get("instance_id") == session.get("instance_id")
+                and bootstrap_value.get("root_thread_id")
+                == session.get("root_thread_id")
+                and bootstrap_value.get("state_dir") == session.get("state_dir")
+                and bootstrap_value.get("plugin_version")
+                == session.get("plugin_version")
+            )
+        except (AdapterError, OSError):
+            bootstrap_valid = False
     if (
         session.get("session_version") != SESSION_VERSION
         or not isinstance(session.get("approval_grant_enabled"), bool)
@@ -1238,6 +1577,7 @@ def validate_session_from_environment() -> tuple[Path, dict[str, Any]]:
         or proof.get("plugin_version") != session.get("plugin_version")
         or session.get("hook_bundle_sha256") != hook_bundle_digest()
         or session.get("proof_sha256") != proof_sha256
+        or not bootstrap_valid
         or not hmac.compare_digest(str(session.get("token_sha256")), token_sha256)
     ):
         raise AdapterError("host-session-invalid")
@@ -1360,17 +1700,33 @@ class AttestationServer:
             pass
 
 
-def copy_stream(source: BinaryIO, destination: BinaryIO, *, close: bool) -> None:
+def copy_stream(
+    source: BinaryIO,
+    destination: BinaryIO,
+    *,
+    close: bool,
+    stopping: threading.Event | None = None,
+) -> None:
+    """Forward a pipe without leaving a buffered-reader daemon at shutdown."""
+
     try:
-        read1 = getattr(source, "read1", None)
+        try:
+            descriptor: int | None = source.fileno()
+        except (AttributeError, OSError, ValueError):
+            descriptor = None
         while True:
-            if callable(read1):
-                chunk = read1(64 * 1024)
-            else:
+            if stopping is not None and stopping.is_set():
+                break
+            if descriptor is not None:
                 try:
-                    chunk = os.read(source.fileno(), 64 * 1024)
-                except (AttributeError, OSError):
-                    chunk = source.read(64 * 1024)
+                    readable, _, _ = select.select([descriptor], [], [], 0.1)
+                except (OSError, ValueError):
+                    break
+                if not readable:
+                    continue
+                chunk = os.read(descriptor, 64 * 1024)
+            else:
+                chunk = source.read(64 * 1024)
             if not chunk:
                 break
             destination.write(chunk)
@@ -1392,6 +1748,10 @@ def run_proxy(arguments: list[str]) -> int:
     server = AttestationServer(session_path, session)
     server.start()
     child: subprocess.Popen[bytes] | None = None
+    input_thread: threading.Thread | None = None
+    output_thread: threading.Thread | None = None
+    input_stopping = threading.Event()
+    output_stopping = threading.Event()
     try:
         child_environment = dict(os.environ)
         for name in ADAPTER_ENV_VARS:
@@ -1399,6 +1759,10 @@ def run_proxy(arguments: list[str]) -> int:
         child_environment.pop("ROOT_ORCHESTRATOR_ROLE", None)
         child_environment[SOCKET_ENV] = str(server.path)
         child_environment[INSTANCE_ENV] = str(session["instance_id"])
+        if session.get("bootstrap_recovery_grant_path") is not None:
+            child_environment[BOOTSTRAP_GRANT_ENV] = str(
+                session["bootstrap_recovery_grant_path"]
+            )
         real_codex = Path(str(session["codex_cli"]))
         child_arguments = isolated_app_server_arguments(
             arguments,
@@ -1427,14 +1791,12 @@ def run_proxy(arguments: list[str]) -> int:
         input_thread = threading.Thread(
             target=copy_stream,
             args=(sys.stdin.buffer, child.stdin),
-            kwargs={"close": True},
-            daemon=True,
+            kwargs={"close": True, "stopping": input_stopping},
         )
         output_thread = threading.Thread(
             target=copy_stream,
             args=(child.stdout, sys.stdout.buffer),
-            kwargs={"close": False},
-            daemon=True,
+            kwargs={"close": False, "stopping": output_stopping},
         )
         input_thread.start()
         output_thread.start()
@@ -1446,11 +1808,27 @@ def run_proxy(arguments: list[str]) -> int:
         signal.signal(signal.SIGTERM, terminate_child)
         signal.signal(signal.SIGINT, terminate_child)
         return_code = child.wait()
+        input_stopping.set()
+        input_thread.join(timeout=2)
         output_thread.join(timeout=2)
+        if output_thread.is_alive():
+            output_stopping.set()
+            output_thread.join(timeout=2)
+        if input_thread.is_alive() or output_thread.is_alive():
+            raise AdapterError("proxy-stream-shutdown-failed")
         return return_code
     finally:
+        input_stopping.set()
+        output_stopping.set()
         if child is not None and child.poll() is None:
             child.terminate()
+            try:
+                child.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+        for thread in (input_thread, output_thread):
+            if thread is not None:
+                thread.join(timeout=2)
         server.stop()
         with session_lock(session_path.parent):
             current = read_private_json(session_path)
@@ -1476,6 +1854,36 @@ def parser() -> argparse.ArgumentParser:
     launch_parser.add_argument("--codex-cli", required=True)
     launch_parser.add_argument("--desktop-executable", required=True)
     launch_parser.add_argument("--project")
+    launch_parser.add_argument("--bootstrap-grant")
+    grant_parser = sub.add_parser("issue-bootstrap-recovery-grant")
+    grant_parser.add_argument("--instance-id", required=True)
+    grant_parser.add_argument("--instance-dir", required=True)
+    grant_parser.add_argument("--root-thread-id", required=True)
+    grant_parser.add_argument("--state-dir", required=True)
+    grant_parser.add_argument("--codex-cli", required=True)
+    grant_parser.add_argument("--project-root", required=True)
+    grant_parser.add_argument("--base-sha", required=True)
+    grant_parser.add_argument("--grant-id", required=True)
+    grant_parser.add_argument("--request-id", required=True)
+    grant_parser.add_argument("--authorization-request-id", required=True)
+    grant_parser.add_argument("--decision-request-id", required=True)
+    grant_parser.add_argument("--decision-id", required=True)
+    grant_parser.add_argument("--ticket-id", required=True)
+    grant_parser.add_argument("--task-id", required=True)
+    grant_parser.add_argument("--external-thread-id", required=True)
+    grant_parser.add_argument("--expected-state-revision", type=int, required=True)
+    grant_parser.add_argument("--expected-policy-revision", type=int, required=True)
+    grant_parser.add_argument(
+        "--expected-configured-capacity", type=int, required=True
+    )
+    grant_parser.add_argument("--policy-snapshot-revision", type=int, required=True)
+    grant_parser.add_argument("--lease-epoch", type=int, required=True)
+    grant_parser.add_argument("--fencing-token", type=int, required=True)
+    grant_parser.add_argument(
+        "--lifetime-seconds",
+        type=int,
+        default=BOOTSTRAP_GRANT_MAX_TTL_SECONDS,
+    )
     status_parser = sub.add_parser("status")
     status_parser.add_argument("--instance-dir", required=True)
     stop_parser = sub.add_parser("stop")
@@ -1490,7 +1898,13 @@ def emit(value: Mapping[str, Any], *, stream: Any = sys.stdout) -> None:
 
 def main() -> int:
     arguments = sys.argv[1:]
-    if arguments and arguments[0] not in {"verify", "launch", "status", "stop"}:
+    if arguments and arguments[0] not in {
+        "verify",
+        "issue-bootstrap-recovery-grant",
+        "launch",
+        "status",
+        "stop",
+    }:
         try:
             return run_proxy(arguments)
         except AdapterError as exc:
@@ -1500,6 +1914,8 @@ def main() -> int:
         args = parser().parse_args(arguments)
         if args.operation == "verify":
             value = verify(args)
+        elif args.operation == "issue-bootstrap-recovery-grant":
+            value = issue_bootstrap_recovery_grant(args)
         elif args.operation == "launch":
             value = launch(args)
         elif args.operation == "status":
