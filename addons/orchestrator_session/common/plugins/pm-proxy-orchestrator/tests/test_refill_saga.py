@@ -37,7 +37,10 @@ class RefillSagaTestCase(unittest.TestCase):
             config_verified_runtime_attestation(),
         )
 
-    def run_script(self, script: Path, *args: str):
+    def run_script(self, script: Path, *args: str, mode: str | None = None):
+        environment = os.environ.copy()
+        if mode is not None:
+            environment["FAKE_CLI_MODE"] = mode
         return subprocess.run(
             [
                 sys.executable,
@@ -50,6 +53,7 @@ class RefillSagaTestCase(unittest.TestCase):
             ],
             text=True,
             capture_output=True,
+            env=environment,
             check=False,
         )
 
@@ -96,6 +100,128 @@ class RefillSagaTestCase(unittest.TestCase):
         )
         self.assertEqual(receipt.returncode, 0, receipt.stderr)
         return ticket
+
+    def set_control_schema_hold(
+        self,
+        ticket_path: Path,
+        *,
+        fence: int,
+        replay_target: str = "completed_local_only",
+        hold_fence: int | None = None,
+    ) -> None:
+        ticket = json.loads(ticket_path.read_text(encoding="utf-8"))
+        ticket["fencing_token"] = fence
+        ticket_path.write_text(json.dumps(ticket, sort_keys=True) + "\n", encoding="utf-8")
+        state_path = self.state / "fake-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        task = state["tasks"][ticket["task_id"]]
+        task["fencing_token"] = fence
+        task["claim_fencing_token"] = fence
+        task["lifecycle"] = {
+            "task_id": ticket["task_id"],
+            "lifecycle_state": "CONTROL_SCHEMA_HOLD",
+        }
+        task["control_schema_hold"] = {
+            "hold_state": "CONTROL_SCHEMA_HOLD",
+            "ticket_id": ticket["source_event_key"],
+            "task_id": ticket["task_id"],
+            "external_thread_id": ticket["receipt"]["external_thread_id"],
+            "policy_snapshot_revision": ticket["policy_snapshot_revision"],
+            "lease_epoch": ticket["lease_epoch"],
+            "fencing_token": fence if hold_fence is None else hold_fence,
+            "replay_target": replay_target,
+        }
+        state_path.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
+
+    def set_terminal_evidence(
+        self,
+        ticket_path: Path,
+        *,
+        fence: int,
+        lifecycle_state: str = "INTERRUPT_REQUIRED",
+        worker_status: str,
+        completion_signals: list[str] | None = None,
+        required_action: str = "TERMINALIZE",
+    ) -> None:
+        ticket = json.loads(ticket_path.read_text(encoding="utf-8"))
+        ticket["fencing_token"] = fence
+        ticket_path.write_text(json.dumps(ticket, sort_keys=True) + "\n", encoding="utf-8")
+        state_path = self.state / "fake-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        task = state["tasks"][ticket["task_id"]]
+        task["fencing_token"] = fence
+        task["claim_fencing_token"] = fence
+        task["lifecycle"] = {
+            "task_id": ticket["task_id"],
+            "lifecycle_state": lifecycle_state,
+            "worker_status": worker_status,
+            "completion_signals": (
+                ["worker-final"]
+                if completion_signals is None
+                else completion_signals
+            ),
+            "required_action": required_action,
+        }
+        task["control_schema_hold"] = None
+        state_path.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
+
+    def local_only_handback(
+        self,
+        ticket_path: Path,
+        *,
+        handback_id: str,
+        now: str,
+        disposition: str = "completed_local_only",
+    ) -> Path:
+        ticket = json.loads(ticket_path.read_text(encoding="utf-8"))
+        value = handback_request(
+            task_id=ticket["task_id"],
+            handback_id=handback_id,
+            now=now,
+        )
+        for key in (
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+        ):
+            value[key] = ticket[key]
+        value["disposition"] = disposition
+        value["exact_refs"] = {
+            "base_sha": "a" * 40,
+            "candidate_sha": (
+                None if disposition == "completed_local_artifact" else "b" * 40
+            ),
+            "pr_url": None,
+            "merge_sha": None,
+            "default_sha": None,
+        }
+        value["external_delivery"] = "not_performed"
+        if disposition == "completed_local_artifact":
+            value["local_artifact"] = {
+                "algorithm": "sha256",
+                "entries": [
+                    {
+                        "relative_path": "synthetic/report.json",
+                        "transition": "created",
+                        "before_sha256": None,
+                        "after_sha256": "c" * 64,
+                    }
+                ],
+                "manifest_sha256": "d" * 64,
+                "rollback": {
+                    "strategy": "restore_base",
+                    "evidence_ref": "synthetic-rollback",
+                },
+            }
+        value["resources"] = [
+            {
+                "id": ticket["owner_claim_id"],
+                "disposition": "removed",
+                "reason": "synthetic fenced owner claim released",
+                "bytes": 0,
+            }
+        ]
+        return write_json(self.root / f"{handback_id}.json", value)
 
     def test_interrupted_notloaded_clean_handback_refills_once_without_owner_prompt(self):
         predecessor = self.start_predecessor()
@@ -224,6 +350,414 @@ class RefillSagaTestCase(unittest.TestCase):
             iso(minutes=4),
         )
         self.assertEqual(archived.returncode, 0, archived.stderr)
+
+    def test_stream_recorder_fence_38_expired_hold_replays_local_only_to_empty(self):
+        predecessor = self.start_predecessor()
+        self.set_control_schema_hold(predecessor, fence=38)
+        handback = self.local_only_handback(
+            predecessor,
+            handback_id="stream-recorder-fence-38",
+            now=iso(minutes=31),
+        )
+        refill = write_json(
+            self.root / "stream-recorder-refill.json",
+            refill_request(
+                request_id="stream-recorder-fence-38",
+                now=iso(minutes=31),
+            ),
+        )
+
+        closed = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        result = json.loads(closed.stdout)["result"]
+        self.assertEqual("EMPTY", result["outcome"])
+        self.assertTrue(result["capacity_released"])
+        self.assertEqual([], result["launches"])
+        state = json.loads((self.state / "fake-state.json").read_text(encoding="utf-8"))
+        task = state["tasks"]["task-predecessor"]
+        self.assertEqual("ARCHIVE_PENDING", task["state"])
+        self.assertIsNone(task["control_schema_hold"])
+        self.assertEqual("COMPLETED", task["lifecycle"]["lifecycle_state"])
+        saga = json.loads(
+            (self.state / "pm-proxy-refill-ledger.json").read_text(encoding="utf-8")
+        )["sagas"]["stream-recorder-fence-38"]
+        events = [item["event"] for item in saga["events"]]
+        self.assertEqual("CAPACITY_RELEASED", events[0])
+        self.assertIn("EMPTY", events)
+
+    def test_screen_sanitizer_fence_41_expired_terminal_evidence_replays_artifact(self):
+        predecessor = self.start_predecessor("-screen-sanitizer")
+        self.set_terminal_evidence(
+            predecessor,
+            fence=41,
+            worker_status="completed",
+        )
+        handback = self.local_only_handback(
+            predecessor,
+            handback_id="screen-sanitizer-fence-41",
+            now=iso(minutes=31),
+            disposition="completed_local_artifact",
+        )
+        refill = write_json(
+            self.root / "screen-sanitizer-fence-41-refill.json",
+            refill_request(
+                request_id="screen-sanitizer-fence-41",
+                now=iso(minutes=31),
+            ),
+        )
+
+        closed = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        self.assertEqual("EMPTY", json.loads(closed.stdout)["result"]["outcome"])
+        state = json.loads((self.state / "fake-state.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            "ARCHIVE_PENDING",
+            state["tasks"]["task-predecessor-screen-sanitizer"]["state"],
+        )
+
+    def test_screenbench_fence_42_expired_waiting_terminal_evidence_closes_empty(self):
+        predecessor = self.start_predecessor("-screenbench")
+        self.set_terminal_evidence(
+            predecessor,
+            fence=42,
+            worker_status="waiting",
+        )
+        handback = self.local_only_handback(
+            predecessor,
+            handback_id="screenbench-fence-42",
+            now=iso(minutes=31),
+        )
+        refill = write_json(
+            self.root / "screenbench-fence-42-refill.json",
+            refill_request(
+                request_id="screenbench-fence-42",
+                now=iso(minutes=31),
+            ),
+        )
+
+        closed = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        result = json.loads(closed.stdout)["result"]
+        self.assertEqual("EMPTY", result["outcome"])
+        self.assertTrue(result["capacity_released"])
+        self.assertEqual([], result["launches"])
+
+    def test_expired_completion_candidate_request_handback_replays_local_only(self):
+        predecessor = self.start_predecessor("-completion-candidate")
+        self.set_terminal_evidence(
+            predecessor,
+            fence=43,
+            lifecycle_state="COMPLETION_CANDIDATE",
+            worker_status="completed",
+            required_action="REQUEST_HANDBACK",
+        )
+        handback = self.local_only_handback(
+            predecessor,
+            handback_id="completion-candidate-fence-43",
+            now=iso(minutes=31),
+        )
+        refill = write_json(
+            self.root / "completion-candidate-fence-43-refill.json",
+            refill_request(
+                request_id="completion-candidate-fence-43",
+                now=iso(minutes=31),
+            ),
+        )
+
+        closed = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        self.assertEqual("EMPTY", json.loads(closed.stdout)["result"]["outcome"])
+
+    def test_expired_hold_mismatch_and_ordinary_expiry_remain_stale(self):
+        predecessor = self.start_predecessor()
+        handback = self.local_only_handback(
+            predecessor,
+            handback_id="stream-recorder-mismatch",
+            now=iso(minutes=31),
+        )
+        refill = write_json(
+            self.root / "stream-recorder-mismatch-refill.json",
+            refill_request(
+                request_id="stream-recorder-mismatch",
+                now=iso(minutes=31),
+            ),
+        )
+
+        ordinary = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(2, ordinary.returncode)
+        self.assertEqual("RECEIPT_STALE", json.loads(ordinary.stderr)["error"]["code"])
+
+        for label, replay_target, hold_fence in (
+            ("target", "completed_local_artifact", 38),
+            ("fence", "completed_local_only", 39),
+        ):
+            with self.subTest(label=label):
+                self.set_control_schema_hold(
+                    predecessor,
+                    fence=38,
+                    replay_target=replay_target,
+                    hold_fence=hold_fence,
+                )
+                handback = self.local_only_handback(
+                    predecessor,
+                    handback_id="stream-recorder-mismatch",
+                    now=iso(minutes=31),
+                )
+                rejected = self.run_script(
+                    REFILL,
+                    "close-and-refill",
+                    "--predecessor-ticket",
+                    str(predecessor),
+                    "--handback-request",
+                    str(handback),
+                    "--refill-request",
+                    str(refill),
+                )
+                self.assertEqual(2, rejected.returncode)
+                self.assertEqual(
+                    "RECEIPT_STALE",
+                    json.loads(rejected.stderr)["error"]["code"],
+                )
+                state = json.loads(
+                    (self.state / "fake-state.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(
+                    "RUNNING",
+                    state["tasks"]["task-predecessor"]["state"],
+                )
+                self.assertFalse(
+                    any(row["kind"] == "ARCHIVE_THREAD" for row in state["outbox"].values())
+                )
+
+    def test_close_and_refill_still_requires_a_committed_receipt(self):
+        predecessor = self.start_predecessor("-missing-receipt")
+        ticket = json.loads(predecessor.read_text(encoding="utf-8"))
+        ticket["receipt"] = None
+        predecessor.write_text(
+            json.dumps(ticket, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        handback = write_json(
+            self.root / "missing-receipt-handback.json",
+            handback_request(
+                task_id="task-predecessor-missing-receipt",
+                handback_id="missing-receipt",
+                now=iso(minutes=2),
+            ),
+        )
+        refill = write_json(
+            self.root / "missing-receipt-refill.json",
+            refill_request(request_id="missing-receipt"),
+        )
+
+        rejected = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(2, rejected.returncode)
+        self.assertEqual(
+            "RECEIPT_MISSING",
+            json.loads(rejected.stderr)["error"]["code"],
+        )
+
+    def test_expired_terminal_evidence_identity_and_lifecycle_mismatches_stay_stale(self):
+        predecessor = self.start_predecessor("-terminal-mismatch")
+        self.set_terminal_evidence(
+            predecessor,
+            fence=41,
+            worker_status="completed",
+        )
+        state_path = self.state / "fake-state.json"
+        baseline = json.loads(state_path.read_text(encoding="utf-8"))
+        refill = write_json(
+            self.root / "terminal-mismatch-refill.json",
+            refill_request(
+                request_id="terminal-mismatch",
+                now=iso(minutes=31),
+            ),
+        )
+
+        for label in (
+            "task",
+            "policy",
+            "lease",
+            "fence",
+            "thread",
+            "claim",
+            "missing-signals",
+            "wrong-action",
+            "running",
+            "nonlocal-disposition",
+        ):
+            with self.subTest(label=label):
+                state = json.loads(json.dumps(baseline))
+                task = state["tasks"]["task-predecessor-terminal-mismatch"]
+                if label == "task":
+                    task["task_id"] = "different-task"
+                elif label == "policy":
+                    task["policy_snapshot_revision"] += 1
+                elif label == "lease":
+                    task["lease_expires_at"] = iso(minutes=29)
+                elif label == "fence":
+                    task["claim_fencing_token"] += 1
+                elif label == "thread":
+                    task["receipt_external_thread_id"] = "different-thread"
+                elif label == "claim":
+                    task["owner_claim_id"] = "different-claim"
+                elif label == "missing-signals":
+                    task["lifecycle"]["completion_signals"] = []
+                elif label == "wrong-action":
+                    task["lifecycle"]["required_action"] = "CONTINUE"
+                elif label == "running":
+                    task["lifecycle"]["lifecycle_state"] = "RUNNING"
+                state_path.write_text(
+                    json.dumps(state, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                handback = self.local_only_handback(
+                    predecessor,
+                    handback_id=f"terminal-mismatch-{label}",
+                    now=iso(minutes=31),
+                )
+                if label == "nonlocal-disposition":
+                    value = json.loads(handback.read_text(encoding="utf-8"))
+                    value["disposition"] = "completed"
+                    handback.write_text(
+                        json.dumps(value, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                rejected = self.run_script(
+                    REFILL,
+                    "close-and-refill",
+                    "--predecessor-ticket",
+                    str(predecessor),
+                    "--handback-request",
+                    str(handback),
+                    "--refill-request",
+                    str(refill),
+                )
+                self.assertEqual(2, rejected.returncode)
+                self.assertEqual(
+                    "RECEIPT_STALE",
+                    json.loads(rejected.stderr)["error"]["code"],
+                )
+                unchanged = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    "RUNNING",
+                    unchanged["tasks"]["task-predecessor-terminal-mismatch"][
+                        "state"
+                    ],
+                )
+                self.assertFalse(
+                    any(
+                        row["kind"] == "ARCHIVE_THREAD"
+                        for row in unchanged["outbox"].values()
+                    )
+                )
+
+    def test_no_commit_retry_is_idempotent_and_releases_nothing_early(self):
+        predecessor = self.start_predecessor()
+        handback = write_json(
+            self.root / "screenbench-fence-42-no-commit.json",
+            handback_request(
+                task_id="task-predecessor",
+                handback_id="screenbench-fence-42-no-commit",
+                now=iso(minutes=2),
+            ),
+        )
+        refill = write_json(
+            self.root / "screenbench-fence-42-no-commit-refill.json",
+            refill_request(request_id="screenbench-fence-42-no-commit"),
+        )
+        command = (
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        before = json.loads((self.state / "fake-state.json").read_text(encoding="utf-8"))
+        failed = self.run_script(REFILL, *command, mode="fail-before-handback-commit")
+        self.assertEqual(2, failed.returncode)
+        self.assertEqual(
+            "SYNTHETIC_HANDBACK_NOT_COMMITTED",
+            json.loads(failed.stderr)["error"]["code"],
+        )
+        after_failure = json.loads(
+            (self.state / "fake-state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(before["recycle_revision"], after_failure["recycle_revision"])
+        self.assertEqual(
+            "RUNNING",
+            after_failure["tasks"]["task-predecessor"]["state"],
+        )
+        self.assertEqual({}, after_failure["handbacks"])
+        self.assertFalse(
+            any(row["kind"] == "ARCHIVE_THREAD" for row in after_failure["outbox"].values())
+        )
+        self.assertFalse((self.state / "pm-proxy-refill-ledger.json").exists())
+
+        closed = self.run_script(REFILL, *command)
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        replayed = self.run_script(REFILL, *command)
+        self.assertEqual(0, replayed.returncode, replayed.stderr)
+        self.assertTrue(json.loads(replayed.stdout)["result"]["replayed"])
+        state = json.loads((self.state / "fake-state.json").read_text(encoding="utf-8"))
+        archives = [row for row in state["outbox"].values() if row["kind"] == "ARCHIVE_THREAD"]
+        self.assertEqual(1, len(archives))
 
     def test_under_capacity_exact_replacement_is_not_still_runnable(self):
         predecessor = self.start_predecessor("-target")

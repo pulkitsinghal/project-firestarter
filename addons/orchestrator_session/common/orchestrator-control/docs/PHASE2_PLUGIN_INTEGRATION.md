@@ -269,10 +269,20 @@ output.
    fences immediately lose heartbeat, mutation, and handback authority.
 9. Treat closure and refill as one saga. Normalize `completed`, `archived`, and
    observed `interrupted/notLoaded` with a valid clean handback as terminal.
-   Before `record-handback`, reconcile live external state and call
-   `recycle-queue`. Select the highest-value eligible successor, if any, and
-   include its exact `prepare-launch` request plus the configured capacity,
-   runnable queue count, terminal observation, and bounded evidence refs.
+   Before `record-handback`, reconcile live external state, select the
+   highest-value eligible successor, if any, and include its exact
+   `prepare-launch` request plus the configured capacity, runnable queue count,
+   terminal observation, bounded evidence refs, and blocked-work audits.
+   Do not release claims through a standalone pre-handback recycle; the control
+   plane applies those audits in the atomic handback transaction.
+   An expired committed receipt remains stale except for
+   `completed_local_only` / `completed_local_artifact` backed by the exact
+   authoritative task, launch receipt, external thread, policy, lease, fence,
+   and active claim plus terminal lifecycle evidence: either its matching
+   `CONTROL_SCHEMA_HOLD`, or a non-empty `COMPLETION_CANDIDATE` /
+   `INTERRUPT_REQUIRED` signal set with the matching `REQUEST_HANDBACK` /
+   `TERMINALIZE` action. The wrapper only admits this replay; the control plane
+   still validates all completion evidence and commits release atomically.
 10. `record-handback` performs the exact ordered transition
     **handback → capacity release → blocked-work re-audit** before it reserves
     the successor and create outbox, records `EMPTY`/`OWNER_GATED` with evidence

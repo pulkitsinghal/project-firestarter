@@ -6490,10 +6490,31 @@ class Plane:
                     "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
                     (row["task_id"],),
                 ).fetchone()
+                control_schema_hold = connection.execute(
+                    """SELECT ticket_id,replay_target
+                       FROM control_schema_holds
+                       WHERE task_id=? AND released_at IS NULL""",
+                    (row["task_id"],),
+                ).fetchone()
+                launch = connection.execute(
+                    "SELECT receipt_json FROM launches WHERE task_id=?",
+                    (row["task_id"],),
+                ).fetchone()
+                launch_receipt = (
+                    None
+                    if launch is None or launch["receipt_json"] is None
+                    else json.loads(launch["receipt_json"])
+                )
                 claim = connection.execute(
                     """SELECT status,expires_at FROM owner_claims
                        WHERE task_id=? ORDER BY acquired_at DESC LIMIT 1""",
                     (row["task_id"],),
+                ).fetchone()
+                receipt_claim = connection.execute(
+                    """SELECT claim_id,lease_epoch,fencing_token,status,expires_at
+                       FROM owner_claims WHERE task_id=? AND fencing_token=?
+                       ORDER BY acquired_at DESC LIMIT 1""",
+                    (row["task_id"], row["fencing_token"]),
                 ).fetchone()
                 stale = (
                     None
@@ -6523,6 +6544,48 @@ class Plane:
                             None
                             if lifecycle is None
                             else self.lifecycle_result(lifecycle)
+                        ),
+                        "control_schema_hold": (
+                            None
+                            if control_schema_hold is None
+                            else {
+                                "hold_state": "CONTROL_SCHEMA_HOLD",
+                                "ticket_id": control_schema_hold["ticket_id"],
+                                "task_id": row["task_id"],
+                                "external_thread_id": row["external_thread_id"],
+                                "policy_snapshot_revision": row[
+                                    "policy_revision"
+                                ],
+                                "lease_epoch": row["lease_epoch"],
+                                "fencing_token": row["fencing_token"],
+                                "replay_target": control_schema_hold[
+                                    "replay_target"
+                                ],
+                            }
+                        ),
+                        "receipt_fence": (
+                            None
+                            if receipt_claim is None or launch_receipt is None
+                            else {
+                                "task_id": row["task_id"],
+                                "receipt_external_thread_id": launch_receipt[
+                                    "external_thread_id"
+                                ],
+                                "policy_snapshot_revision": row[
+                                    "policy_revision"
+                                ],
+                                "lease_epoch": row["lease_epoch"],
+                                "lease_expires_at": receipt_claim["expires_at"],
+                                "fencing_token": row["fencing_token"],
+                                "owner_claim_id": receipt_claim["claim_id"],
+                                "owner_claim_status": receipt_claim["status"],
+                                "claim_lease_epoch": receipt_claim[
+                                    "lease_epoch"
+                                ],
+                                "claim_fencing_token": receipt_claim[
+                                    "fencing_token"
+                                ],
+                            }
                         ),
                         "freshness": {
                             "evaluated_at": now,

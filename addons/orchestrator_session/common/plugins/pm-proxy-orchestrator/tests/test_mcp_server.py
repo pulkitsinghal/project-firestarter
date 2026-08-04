@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from tests.support import (
     BRIDGE,
     classify_request,
     config_verified_runtime_attestation,
+    handback_request,
     iso,
     launch_request,
     private_temp,
@@ -132,6 +136,118 @@ class McpServerTest(unittest.TestCase):
             "project_root": str(self.project),
             "state_dir": str(self.state),
         }
+
+    def adopt_current_plugin(self, request_id: str) -> None:
+        plugin_version = json.loads(
+            (PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )["version"]
+        self.record_owner_adoption(
+            {
+                "interface_version": "1.0",
+                "request_id": request_id,
+                "adoption_mode": "COVERED_PATH_GUARDRAIL",
+                "plugin_version": plugin_version,
+                "proofs": {
+                    "pre_tool_denial_verified": True,
+                    "typed_mcp_control_verified": True,
+                    "reserved_create_admission_verified": True,
+                    "lifecycle_debt_clear_verified": True,
+                    "archive_refill_fence_verified": True,
+                    "no_side_effect_canary_verified": True,
+                    "hosted_paths_uncovered": True,
+                    "universal_coverage_claimed": False,
+                },
+                "now": iso(),
+            }
+        )
+
+    def prepare_receipted_task(
+        self,
+        *,
+        ticket_id: str,
+        task_id: str,
+        fence: int,
+        path: str = "/",
+    ) -> dict:
+        with closing(
+            sqlite3.connect(self.state / "orchestrator.sqlite3")
+        ) as connection, connection:
+            connection.execute("UPDATE metadata SET value=? WHERE key='next_fence'", (str(fence),))
+        launch = launch_request(
+            task_id=task_id,
+            source_event_key=ticket_id,
+            outcome_key=f"outcome-{task_id}",
+            idempotency_key=f"idem-{task_id}",
+            repo_root=str(self.target),
+            remote="https://github.com/example/project.git",
+        )
+        launch["target"]["path"] = path
+        launch["target"]["resource_mode"] = "repo-wide" if path == "/" else "path"
+        launch["context"]["repo"] = "github.com/example/project"
+        launch["context"]["path"] = path
+        prepared = self.call(
+            "pm_proxy_prepare_launch",
+            {
+                **self.common(),
+                "ticket_id": ticket_id,
+                "recycle_request": recycle_request(request_id=f"recycle-{task_id}"),
+                "launch_request": launch,
+            },
+        )["result"]
+        self.assertIsNot(prepared.get("isError"), True, prepared)
+        receipted = self.call(
+            "pm_proxy_record_launch_receipt",
+            {
+                **self.common(),
+                "ticket_id": ticket_id,
+                "external_thread_id": f"thread-{task_id}",
+                "runtime_attestation": config_verified_runtime_attestation(),
+                "request_id": f"receipt-{task_id}",
+                "now": iso(minutes=1),
+            },
+        )["result"]
+        self.assertIsNot(receipted.get("isError"), True, receipted)
+        ticket = json.loads(
+            (self.state / f"{ticket_id}.ticket.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(fence, ticket["fencing_token"])
+        return ticket
+
+    def set_expired_terminal_evidence(
+        self,
+        *,
+        task_id: str,
+        worker_status: str,
+        signal: str,
+    ) -> None:
+        with closing(
+            sqlite3.connect(self.state / "orchestrator.sqlite3")
+        ) as connection, connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO lifecycle_watchdog(
+                   task_id,lifecycle_state,worker_status,completion_signals_json,
+                   evidence_refs_json,remaining_work_json,progress_ref,
+                   progress_observed_at,handback_deadline_checks,
+                   handback_deadline_limit,required_action,interrupt_receipt_id,
+                   updated_at
+                ) VALUES(?,'INTERRUPT_REQUIRED',?,?,?,NULL,?,?,2,2,
+                         'TERMINALIZE',NULL,?)""",
+                (
+                    task_id,
+                    worker_status,
+                    json.dumps([signal]),
+                    json.dumps([f"evidence:{task_id}"]),
+                    f"progress:{task_id}",
+                    iso(minutes=20),
+                    iso(minutes=20),
+                ),
+            )
+            connection.execute(
+                "UPDATE owner_claims SET expires_at=? WHERE task_id=?",
+                (iso(minutes=30), task_id),
+            )
 
     def record_owner_adoption(self, request: dict) -> dict:
         request_path = self.state / ".owner-dispatcher-adoption.json"
@@ -486,6 +602,257 @@ class McpServerTest(unittest.TestCase):
             "credential_url",
         ):
             self.assertNotIn(forbidden, serialized)
+
+    def test_screen_sanitizer_fence_41_local_artifact_uses_control_validation(self) -> None:
+        self.adopt_current_plugin("screen-sanitizer-fence-41-adoption")
+        (self.target / "docs").mkdir()
+        relative_path = "docs/screen-sanitizer-report.json"
+        artifact_path = self.target / relative_path
+        artifact_path.write_text("synthetic sanitized artifact\n", encoding="utf-8")
+        after = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+        ticket = self.prepare_receipted_task(
+            ticket_id="screen-sanitizer-ticket-41",
+            task_id="screen-sanitizer-fence-41",
+            fence=41,
+            path="/docs",
+        )
+        self.set_expired_terminal_evidence(
+            task_id="screen-sanitizer-fence-41",
+            worker_status="completed",
+            signal="worker-final",
+        )
+        body = {
+            "algorithm": "sha256",
+            "entries": [
+                {
+                    "relative_path": relative_path,
+                    "transition": "created",
+                    "before_sha256": None,
+                    "after_sha256": after,
+                }
+            ],
+        }
+        manifest = {
+            **body,
+            "manifest_sha256": hashlib.sha256(
+                (
+                    json.dumps(body, sort_keys=True, separators=(",", ":"))
+                    + "\n"
+                ).encode()
+            ).hexdigest(),
+            "rollback": {
+                "strategy": "restore_base",
+                "evidence_ref": "rollback-screen-sanitizer-fence-41",
+            },
+        }
+        handback = handback_request(
+            task_id="screen-sanitizer-fence-41",
+            handback_id="screen-sanitizer-fence-41",
+            now=iso(minutes=32),
+        )
+        for key in ("policy_snapshot_revision", "lease_epoch", "fencing_token"):
+            handback[key] = ticket[key]
+        handback.update(
+            {
+                "disposition": "completed_local_artifact",
+                "exact_refs": {
+                    "base_sha": "a" * 40,
+                    "candidate_sha": None,
+                    "pr_url": None,
+                    "merge_sha": None,
+                    "default_sha": None,
+                },
+                "external_delivery": "not_performed",
+                "artifacts": [relative_path],
+                "local_artifact": manifest,
+                "resources": [
+                    {
+                        "id": ticket["owner_claim_id"],
+                        "disposition": "removed",
+                        "reason": "synthetic owner claim released",
+                        "bytes": 0,
+                    },
+                    {
+                        "id": relative_path,
+                        "disposition": "retain",
+                        "reason": "bounded synthetic local artifact",
+                        "bytes": artifact_path.stat().st_size,
+                    },
+                ],
+            }
+        )
+        refill = refill_request(
+            request_id="screen-sanitizer-fence-41",
+            capacity=4,
+            now=iso(minutes=32),
+        )
+        invalid = json.loads(json.dumps(handback))
+        invalid["local_artifact"]["entries"][0]["after_sha256"] = "f" * 64
+        invalid_body = {
+            "algorithm": invalid["local_artifact"]["algorithm"],
+            "entries": invalid["local_artifact"]["entries"],
+        }
+        invalid["local_artifact"]["manifest_sha256"] = hashlib.sha256(
+            (
+                json.dumps(invalid_body, sort_keys=True, separators=(",", ":"))
+                + "\n"
+            ).encode()
+        ).hexdigest()
+        rejected = self.call(
+            "pm_proxy_close_and_refill",
+            {
+                **self.common(),
+                "predecessor_ticket_id": "screen-sanitizer-ticket-41",
+                "handback_request": invalid,
+                "refill_request": refill,
+            },
+        )["result"]
+        self.assertTrue(rejected["isError"])
+        self.assertEqual(
+            "artifact-content-mismatch",
+            rejected["structuredContent"]["error"]["code"],
+        )
+        self.assertFalse((self.state / "pm-proxy-refill-ledger.json").exists())
+
+        closed = self.call(
+            "pm_proxy_close_and_refill",
+            {
+                **self.common(),
+                "predecessor_ticket_id": "screen-sanitizer-ticket-41",
+                "handback_request": handback,
+                "refill_request": refill,
+            },
+        )["result"]
+        self.assertIsNot(closed.get("isError"), True, closed)
+        result = closed["structuredContent"]["result"]
+        self.assertEqual("EMPTY", result["outcome"])
+        with closing(
+            sqlite3.connect(self.state / "orchestrator.sqlite3")
+        ) as connection:
+            stored = json.loads(
+                connection.execute(
+                    "SELECT result_json FROM handbacks WHERE handback_id=?",
+                    ("screen-sanitizer-fence-41",),
+                ).fetchone()[0]
+            )
+        self.assertEqual(
+            manifest["manifest_sha256"],
+            stored["local_artifact_manifest_sha256"],
+        )
+
+    def test_screenbench_fence_42_mcp_replays_stale_terminal_evidence_atomically(self) -> None:
+        self.adopt_current_plugin("screenbench-fence-42-adoption")
+        ticket = self.prepare_receipted_task(
+            ticket_id="screenbench-ticket-42",
+            task_id="screenbench-fence-42",
+            fence=42,
+        )
+        database = self.state / "orchestrator.sqlite3"
+        self.set_expired_terminal_evidence(
+            task_id="screenbench-fence-42",
+            worker_status="waiting",
+            signal="accepted-schema-defect-replay",
+        )
+        terminal_status = self.call(
+            "pm_proxy_status",
+            {**self.common(), "now": iso(minutes=32)},
+        )["result"]["structuredContent"]["result"]
+        terminal_task = next(
+            item
+            for item in terminal_status["tasks"]
+            if item["task_id"] == "screenbench-fence-42"
+        )
+        self.assertEqual(
+            "INTERRUPT_REQUIRED",
+            terminal_task["lifecycle"]["lifecycle_state"],
+        )
+        self.assertEqual("waiting", terminal_task["lifecycle"]["worker_status"])
+        self.assertEqual("TERMINALIZE", terminal_task["lifecycle"]["required_action"])
+        self.assertIsNone(terminal_task["control_schema_hold"])
+        self.assertEqual(
+            ticket["owner_claim_id"],
+            terminal_task["receipt_fence"]["owner_claim_id"],
+        )
+
+        handback = handback_request(
+            task_id="screenbench-fence-42",
+            handback_id="screenbench-fence-42",
+            now=iso(minutes=32),
+        )
+        for key in ("policy_snapshot_revision", "lease_epoch", "fencing_token"):
+            handback[key] = ticket[key]
+        handback.update(
+            {
+                "disposition": "completed_local_only",
+                "exact_refs": {
+                    "base_sha": "a" * 40,
+                    "candidate_sha": "b" * 40,
+                    "pr_url": None,
+                    "merge_sha": None,
+                    "default_sha": None,
+                },
+                "external_delivery": "not_performed",
+                "dependencies": ["accepted-schema-defect-replay"],
+                "resources": [
+                    {
+                        "id": ticket["owner_claim_id"],
+                        "disposition": "removed",
+                        "reason": "exact synthetic owner claim released",
+                        "bytes": 0,
+                    }
+                ],
+            }
+        )
+        closed = self.call(
+            "pm_proxy_close_and_refill",
+            {
+                **self.common(),
+                "predecessor_ticket_id": "screenbench-ticket-42",
+                "handback_request": handback,
+                "refill_request": refill_request(
+                    request_id="screenbench-fence-42",
+                    capacity=4,
+                    now=iso(minutes=32),
+                ),
+            },
+        )["result"]
+        self.assertIsNot(closed.get("isError"), True, closed)
+        result = closed["structuredContent"]["result"]
+        self.assertEqual("EMPTY", result["outcome"])
+        self.assertTrue(result["capacity_released"])
+        self.assertEqual([], result["launches"])
+        with closing(sqlite3.connect(database)) as connection:
+            connection.row_factory = sqlite3.Row
+            task = connection.execute(
+                "SELECT state FROM tasks WHERE task_id=?",
+                ("screenbench-fence-42",),
+            ).fetchone()
+            claim = connection.execute(
+                "SELECT status FROM owner_claims WHERE task_id=?",
+                ("screenbench-fence-42",),
+            ).fetchone()
+            hold_count = connection.execute(
+                "SELECT COUNT(*) FROM control_schema_holds WHERE task_id=?",
+                ("screenbench-fence-42",),
+            ).fetchone()[0]
+            handback_count = connection.execute(
+                "SELECT COUNT(*) FROM handbacks WHERE handback_id=?",
+                ("screenbench-fence-42",),
+            ).fetchone()[0]
+            archive = connection.execute(
+                "SELECT state FROM outbox WHERE task_id=? AND kind='ARCHIVE_THREAD'",
+                ("screenbench-fence-42",),
+            ).fetchone()
+            capacity = connection.execute(
+                "SELECT outcome FROM capacity_sagas WHERE saga_id=?",
+                ("screenbench-fence-42",),
+            ).fetchone()
+        self.assertEqual("ARCHIVE_PENDING", task["state"])
+        self.assertEqual("released", claim["status"])
+        self.assertEqual(0, hold_count)
+        self.assertEqual(1, handback_count)
+        self.assertEqual("pending", archive["state"])
+        self.assertEqual("EMPTY", capacity["outcome"])
 
     def test_runtime_pin_rejects_mismatch_and_bundle_drift(self) -> None:
         mismatched = self.call(
