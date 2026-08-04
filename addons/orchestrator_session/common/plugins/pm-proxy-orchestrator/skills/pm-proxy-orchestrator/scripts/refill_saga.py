@@ -20,6 +20,14 @@ LOCK_NAME = ".pm-proxy-refill.lock"
 TERMINAL_OBSERVATIONS = {"completed", "archived", "interrupted/notLoaded"}
 SATISFIED_OUTCOMES = {"REFILL_SATISFIED", "EMPTY", "OWNER_GATED", "CAPACITY_FULL"}
 ACTIVE_OR_RESERVED = {"RUNNING", "LAUNCH_PENDING"}
+TERMINAL_DISPOSITIONS = {
+    "completed",
+    "completed_local_only",
+    "completed_local_artifact",
+    "failed",
+    "superseded",
+    "duplicate",
+}
 
 
 class SagaLedger:
@@ -147,6 +155,82 @@ def slot_truth(
         "deficit": deficit,
         "failure_state": "CAPACITY_DEFICIT" if failure else None,
     }
+
+
+def exact_terminal_evidence_replay(
+    status: dict[str, Any],
+    ticket: dict[str, Any],
+    handback: dict[str, Any],
+) -> bool:
+    """Authorize an expired local completion only from exact terminal evidence."""
+
+    receipt = bridge.require_committed_receipt(ticket)
+    disposition = handback.get("disposition")
+    if disposition not in {"completed_local_only", "completed_local_artifact"}:
+        return False
+    matching = [
+        task
+        for task in status.get("tasks", [])
+        if isinstance(task, dict) and task.get("task_id") == ticket["task_id"]
+    ]
+    if len(matching) != 1:
+        return False
+    task = matching[0]
+    lifecycle = task.get("lifecycle")
+    hold = task.get("control_schema_hold")
+    expected_receipt_fence = {
+        "task_id": ticket["task_id"],
+        "receipt_external_thread_id": receipt["external_thread_id"],
+        "policy_snapshot_revision": ticket["policy_snapshot_revision"],
+        "lease_epoch": ticket["lease_epoch"],
+        "lease_expires_at": ticket["lease_expires_at"],
+        "fencing_token": ticket["fencing_token"],
+        "owner_claim_id": ticket["owner_claim_id"],
+        "owner_claim_status": "active",
+        "claim_lease_epoch": ticket["lease_epoch"],
+        "claim_fencing_token": ticket["fencing_token"],
+    }
+    expected_hold = {
+        "hold_state": "CONTROL_SCHEMA_HOLD",
+        "ticket_id": ticket["source_event_key"],
+        "task_id": ticket["task_id"],
+        "external_thread_id": receipt["external_thread_id"],
+        "policy_snapshot_revision": ticket["policy_snapshot_revision"],
+        "lease_epoch": ticket["lease_epoch"],
+        "fencing_token": ticket["fencing_token"],
+        "replay_target": disposition,
+    }
+    exact_identity = (
+        task.get("state") == "RUNNING"
+        and task.get("canonical_external_thread_id")
+        == receipt["external_thread_id"]
+        and isinstance(task.get("receipt_fence"), dict)
+        and set(task["receipt_fence"]) == set(expected_receipt_fence)
+        and task["receipt_fence"] == expected_receipt_fence
+        and isinstance(lifecycle, dict)
+        and lifecycle.get("task_id") == ticket["task_id"]
+    )
+    if not exact_identity:
+        return False
+    if lifecycle.get("lifecycle_state") == "CONTROL_SCHEMA_HOLD":
+        return (
+            isinstance(hold, dict)
+            and set(hold) == set(expected_hold)
+            and hold == expected_hold
+        )
+    expected_action = {
+        "COMPLETION_CANDIDATE": "REQUEST_HANDBACK",
+        "INTERRUPT_REQUIRED": "TERMINALIZE",
+    }.get(lifecycle.get("lifecycle_state"))
+    completion_signals = lifecycle.get("completion_signals")
+    return (
+        expected_action is not None
+        and lifecycle.get("required_action") == expected_action
+        and isinstance(completion_signals, list)
+        and bool(completion_signals)
+        and all(isinstance(item, str) and item for item in completion_signals)
+        and hold is None
+    )
 
 
 def create_ticket(
@@ -358,12 +442,10 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 handback = bridge.load_json_file(args.handback_request, "handback request")
                 bridge.validate_handback_request(handback)
                 predecessor_path, predecessor = bridge.load_ticket(args.predecessor_ticket)
-                bridge.require_active_receipt(predecessor, handback["now"])
+                receipt = bridge.require_committed_receipt(predecessor)
                 bridge.inject_ticket_fields(handback, predecessor)
                 if bridge.schema_at_least(health["schema_version"], (1, 1)):
-                    handback["external_thread_id"] = predecessor["receipt"][
-                        "external_thread_id"
-                    ]
+                    handback["external_thread_id"] = receipt["external_thread_id"]
                 if handback.get("successor_request") is not None:
                     raise bridge.BridgeError(
                         "SCHEMA_INVALID",
@@ -371,26 +453,23 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                         exit_status=2,
                     )
                 terminal_results = {item["result"] for item in handback.get("checks", [])}
-                if handback.get("disposition") not in {"completed", "failed", "superseded", "duplicate"}:
+                if handback.get("disposition") not in TERMINAL_DISPOSITIONS:
                     raise bridge.BridgeError("TERMINAL_EVIDENCE_INVALID", "handback is not terminal", exit_status=2)
                 if terminal_results & {"fail", "pending", "blocked"}:
                     raise bridge.BridgeError("TERMINAL_EVIDENCE_INVALID", "handback checks are not clean", exit_status=2)
-                pre_recycle = bridge.run_cli(
-                    cli,
-                    state_dir,
-                    "recycle-queue",
-                    request=refill["recycle_request"],
-                )
-                saga["events"].append(
-                    event(
-                        "QUEUE_RECYCLED",
-                        handback["now"],
-                        refill["terminal_observation"]["evidence_refs"],
-                        phase="pre-closure",
-                        selected_task_id=pre_recycle.get("selected_task_id"),
-                    )
-                )
-                firestarter_status = bridge.run_cli(cli, state_dir, "status")
+                try:
+                    bridge.require_active_receipt(predecessor, handback["now"])
+                    firestarter_status = bridge.run_cli(cli, state_dir, "status")
+                except bridge.BridgeError as error:
+                    if error.code != "RECEIPT_STALE":
+                        raise
+                    firestarter_status = bridge.run_cli(cli, state_dir, "status")
+                    if not exact_terminal_evidence_replay(
+                        firestarter_status,
+                        predecessor,
+                        handback,
+                    ):
+                        raise error
                 before = slot_truth(firestarter_status, refill)
                 projected_active = max(0, before["active_or_reserved_count"] - 1)
                 candidates = sorted(

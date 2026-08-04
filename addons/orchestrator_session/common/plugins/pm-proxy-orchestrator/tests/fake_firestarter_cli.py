@@ -148,8 +148,31 @@ def status_result(state: dict[str, Any]) -> dict[str, Any]:
             "priority": task["priority"],
             "repo_alias": task["target"]["remote"].split("/", 1)[-1],
             "path": task["target"]["path"],
+            "canonical_external_thread_id": task.get("external_thread_id"),
             "updated_at": task["updated_at"],
             "block": task.get("block"),
+            "lifecycle": task.get("lifecycle"),
+            "control_schema_hold": task.get("control_schema_hold"),
+            "receipt_fence": (
+                None
+                if task.get("receipt_external_thread_id") is None
+                else {
+                    "task_id": task["task_id"],
+                    "receipt_external_thread_id": task[
+                        "receipt_external_thread_id"
+                    ],
+                    "policy_snapshot_revision": task[
+                        "policy_snapshot_revision"
+                    ],
+                    "lease_epoch": task["lease_epoch"],
+                    "lease_expires_at": task["lease_expires_at"],
+                    "fencing_token": task["fencing_token"],
+                    "owner_claim_id": task["owner_claim_id"],
+                    "owner_claim_status": task["owner_claim_status"],
+                    "claim_lease_epoch": task["claim_lease_epoch"],
+                    "claim_fencing_token": task["claim_fencing_token"],
+                }
+            ),
         }
         for task in state["tasks"].values()
     ]
@@ -270,6 +293,11 @@ def main() -> int:
                     "lease_expires_at": request["lease_expires_at"],
                     "updated_at": request["now"],
                     "external_thread_id": None,
+                    "receipt_external_thread_id": None,
+                    "owner_claim_id": "claim-" + task["task_id"],
+                    "owner_claim_status": "active",
+                    "claim_lease_epoch": 1,
+                    "claim_fencing_token": fence,
                     "block": None,
                 }
             )
@@ -334,6 +362,7 @@ def main() -> int:
             if sorted(request.get("applicable_rule_ids", [])) != sorted(task["applicable_rule_ids"]):
                 return deny("RECEIPT_MISMATCH", "rule receipt mismatch", 2)
             task["external_thread_id"] = request.get("external_thread_id")
+            task["receipt_external_thread_id"] = request.get("external_thread_id")
             task["state"] = "RUNNING"
             task["updated_at"] = request["now"]
             for outbox in state["outbox"].values():
@@ -465,12 +494,28 @@ def main() -> int:
             return emit(command, {"rule_id": rule["id"], "policy_revision": state["policy_revision"]})
 
         if command == "record-handback":
+            if mode == "fail-before-handback-commit":
+                return deny(
+                    "SYNTHETIC_HANDBACK_NOT_COMMITTED",
+                    "synthetic failure before authoritative handback commit",
+                    2,
+                )
             handback_id = request["handback_id"]
             if handback_id in state["handbacks"]:
                 return emit(command, state["handbacks"][handback_id])
             task = state["tasks"].get(request.get("task_id"))
             if not task or task["state"] != "RUNNING" or not receipt_matches(task, request):
                 return deny("FENCE_STALE", "current exact receipt is required", 2)
+            hold = task.get("control_schema_hold")
+            if hold is not None and (
+                hold.get("hold_state") != "CONTROL_SCHEMA_HOLD"
+                or hold.get("replay_target") != request.get("disposition")
+            ):
+                return deny(
+                    "CONTROL_SCHEMA_HOLD_REPLAY_MISMATCH",
+                    "control-schema hold requires its exact typed replay",
+                    3,
+                )
             archive_id = "archive-" + task["task_id"]
             state["outbox"][archive_id] = {
                 "outbox_id": archive_id,
@@ -500,6 +545,11 @@ def main() -> int:
                     "lease_expires_at": successor["lease_expires_at"],
                     "updated_at": request["now"],
                     "external_thread_id": None,
+                    "receipt_external_thread_id": None,
+                    "owner_claim_id": "claim-" + successor_id,
+                    "owner_claim_status": "active",
+                    "claim_lease_epoch": 1,
+                    "claim_fencing_token": task["fencing_token"] + 1,
                     "block": None,
                 }
                 state["outbox"][create_id] = {
@@ -562,7 +612,11 @@ def main() -> int:
                     "outbox": {"outbox_id": create_id, "kind": "CREATE_THREAD"},
                 }
             task["state"] = "ARCHIVE_PENDING"
+            task["owner_claim_status"] = "released"
             task["updated_at"] = request["now"]
+            task["control_schema_hold"] = None
+            if isinstance(task.get("lifecycle"), dict):
+                task["lifecycle"]["lifecycle_state"] = "COMPLETED"
             result = {
                 "task_id": task["task_id"],
                 "state": "ARCHIVE_PENDING",
@@ -570,6 +624,7 @@ def main() -> int:
                 "successor": successor_result,
                 "evidence_count": len(request["checks"]),
                 "resource_count": len(request["resources"]),
+                "control_schema_hold_released": hold is not None,
                 "reclaimed_bytes": sum(
                     resource.get("bytes", 0)
                     for resource in request["resources"]
