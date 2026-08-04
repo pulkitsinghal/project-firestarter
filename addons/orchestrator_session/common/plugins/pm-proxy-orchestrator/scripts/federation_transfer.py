@@ -143,12 +143,22 @@ def disarmed_host(value: str) -> dict[str, Any]:
     if not isinstance(session, dict) or session.get("armed") is not False:
         raise TransferError("source-host-still-armed")
     for field in ("desktop_pid", "proxy_pid", "app_server_pid"):
-        if session.get(field) is not None:
-            raise TransferError("source-host-process-not-cleared")
+        pid = session.get(field)
+        if pid is None:
+            continue
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1:
+            raise TransferError("source-host-session-invalid")
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        except (PermissionError, OSError) as exc:
+            raise TransferError("source-host-process-unverifiable") from exc
+        raise TransferError("source-host-process-still-running")
     instance_id = session.get("instance_id")
     if not isinstance(instance_id, str) or OPAQUE.fullmatch(instance_id) is None:
         raise TransferError("source-host-session-invalid")
-    return {"instance_id": instance_id, "armed": False, "processes_cleared": True}
+    return {"instance_id": instance_id, "armed": False, "processes_absent": True}
 
 
 def current_authority(current: dict[str, Any]) -> dict[str, Any]:
