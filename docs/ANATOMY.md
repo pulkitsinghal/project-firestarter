@@ -230,6 +230,14 @@ that is revoked before dispatch; it preserves task/receipt/claim/fence/lane and
 accepts only its exact terminal replay. The Desktop proxy also stops and joins
 stdio forwarding threads before interpreter finalization.
 
+Control bundle `1.4.3` keeps state schema `1.4`, plugin `0.4.3`, and interface
+`1.0` unchanged while repairing early schema-1.4 databases whose
+`control_schema_holds` table predates the nullable `released_at` and
+`release_handback_id` columns. Every connection checks the exact current schema
+before hold reads, adds only missing release columns in one immediate
+transaction, and leaves accepted holds, tasks, claims, fences, and capacity
+unchanged. Current-schema connections remain read-only at the schema level.
+
 The orchestrator Desktop host binds a process-local prompt-free grant to only
 sixteen named typed control tools after exact runtime-pin, current-version
 covered adoption, private-proof, and receipt-fence verification. The exact root
