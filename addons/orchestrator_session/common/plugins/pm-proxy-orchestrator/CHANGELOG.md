@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.4 - 2026-08-05
+
+- Publish the control `1.4.3` legacy hold-table migration and its updated
+  operator documentation under a version-distinct plugin identity, so source,
+  cache, runtime pin, and dispatcher-adoption evidence cannot confuse the
+  migrated package with the earlier `0.4.3` artifact.
+
 ## 0.4.3 - 2026-08-04
 
 - Fix stale receipt-fenced local-completion replay by accepting only matching

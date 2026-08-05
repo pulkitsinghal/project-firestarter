@@ -238,6 +238,12 @@ before hold reads, adds only missing release columns in one immediate
 transaction, and leaves accepted holds, tasks, claims, fences, and capacity
 unchanged. Current-schema connections remain read-only at the schema level.
 
+Plugin `0.4.4` publishes that already-merged control `1.4.3` migration and its
+operator documentation under a new package identity. The control bundle,
+schema, and interface do not change; distinct manifest/server versions keep
+source/cache parity, runtime pins, and adoption receipts from treating changed
+plugin content as the earlier `0.4.3` artifact.
+
 The orchestrator Desktop host binds a process-local prompt-free grant to only
 sixteen named typed control tools after exact runtime-pin, current-version
 covered adoption, private-proof, and receipt-fence verification. The exact root
