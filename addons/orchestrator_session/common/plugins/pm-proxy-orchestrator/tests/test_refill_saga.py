@@ -393,6 +393,124 @@ class RefillSagaTestCase(unittest.TestCase):
         events = [item["event"] for item in saga["events"]]
         self.assertEqual("CAPACITY_RELEASED", events[0])
         self.assertIn("EMPTY", events)
+        archive = (
+            "record-archive-receipt",
+            "--ticket",
+            str(predecessor),
+            "--request-id",
+            "stream-recorder-fence-38-archive",
+            "--now",
+            iso(minutes=32),
+        )
+        archived = self.run_script(BRIDGE, *archive)
+        self.assertEqual(0, archived.returncode, archived.stderr)
+        receipt_at = json.loads(predecessor.read_text(encoding="utf-8"))[
+            "handback"
+        ]["archive_receipt_at"]
+        replayed = self.run_script(BRIDGE, *archive)
+        self.assertEqual(0, replayed.returncode, replayed.stderr)
+        self.assertEqual(
+            receipt_at,
+            json.loads(predecessor.read_text(encoding="utf-8"))["handback"][
+                "archive_receipt_at"
+            ],
+        )
+
+    def test_predecessor_006_archive_uses_authoritative_replacement_008_receipt(self):
+        predecessor = self.start_predecessor("-006")
+        predecessor_ticket = json.loads(predecessor.read_text(encoding="utf-8"))
+        self.set_terminal_evidence(
+            predecessor,
+            fence=predecessor_ticket["fencing_token"],
+            worker_status="completed",
+        )
+        successor_007 = launch_request(
+            task_id="task-successor-007",
+            source_event_key="successor-007-source",
+            outcome_key="successor-007-outcome",
+            idempotency_key="successor-007-idem",
+            now=iso(minutes=2),
+            lease_expires_at=iso(minutes=32),
+        )
+        handback = write_json(
+            self.root / "predecessor-006-handback.json",
+            handback_request(
+                task_id="task-predecessor-006",
+                handback_id="predecessor-006",
+                now=iso(minutes=2),
+            ),
+        )
+        refill = write_json(
+            self.root / "predecessor-006-refill.json",
+            refill_request(
+                candidates=[successor_007],
+                request_id="predecessor-006",
+                now=iso(minutes=2),
+                capacity=1,
+            ),
+        )
+        closed = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        self.assertEqual(
+            "SUCCESSOR_RESERVED",
+            json.loads(closed.stdout)["result"]["outcome"],
+        )
+
+        state_path = self.state / "fake-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        failed = state["tasks"]["task-successor-007"]
+        failed["state"] = "FAILED"
+        failed["owner_claim_status"] = "released"
+        replacement = json.loads(json.dumps(failed))
+        replacement.update(
+            {
+                "task_id": "task-successor-008",
+                "source_event_key": "successor-008-source",
+                "outcome_key": "successor-008-outcome",
+                "idempotency_key": "successor-008-idem",
+                "state": "RUNNING",
+                "fencing_token": 8,
+                "external_thread_id": "thread-successor-008",
+                "receipt_external_thread_id": "thread-successor-008",
+                "owner_claim_id": "claim-task-successor-008",
+                "owner_claim_status": "active",
+                "claim_fencing_token": 8,
+            }
+        )
+        state["tasks"]["task-successor-008"] = replacement
+        state["capacity"] = [
+            {
+                "saga_id": "predecessor-006",
+                "task_id": "task-predecessor-006",
+                "outcome": "SUCCESSOR_RECEIPTED",
+                "successor_task_id": "task-successor-008",
+                "successor_receipted": True,
+                "clean_handback": True,
+                "failure_state": None,
+            }
+        ]
+        state_path.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
+
+        archived = self.run_script(
+            BRIDGE,
+            "record-archive-receipt",
+            "--ticket",
+            str(predecessor),
+            "--request-id",
+            "predecessor-006-archive-after-replacement-008",
+            "--now",
+            iso(minutes=4),
+        )
+        self.assertEqual(0, archived.returncode, archived.stderr)
 
     def test_screen_sanitizer_fence_41_expired_terminal_evidence_replays_artifact(self):
         predecessor = self.start_predecessor("-screen-sanitizer")
@@ -432,6 +550,17 @@ class RefillSagaTestCase(unittest.TestCase):
             "ARCHIVE_PENDING",
             state["tasks"]["task-predecessor-screen-sanitizer"]["state"],
         )
+        archived = self.run_script(
+            BRIDGE,
+            "record-archive-receipt",
+            "--ticket",
+            str(predecessor),
+            "--request-id",
+            "screen-sanitizer-fence-41-archive",
+            "--now",
+            iso(minutes=32),
+        )
+        self.assertEqual(0, archived.returncode, archived.stderr)
 
     def test_screenbench_fence_42_expired_waiting_terminal_evidence_closes_empty(self):
         predecessor = self.start_predecessor("-screenbench")
@@ -468,6 +597,148 @@ class RefillSagaTestCase(unittest.TestCase):
         self.assertEqual("EMPTY", result["outcome"])
         self.assertTrue(result["capacity_released"])
         self.assertEqual([], result["launches"])
+
+    def test_expired_archive_admission_mismatches_and_incomplete_sagas_fail_closed(self):
+        predecessor = self.start_predecessor("-archive-negative")
+        ordinary_archive = self.run_script(
+            BRIDGE,
+            "record-archive-receipt",
+            "--ticket",
+            str(predecessor),
+            "--request-id",
+            "ordinary-expired-archive",
+            "--now",
+            iso(minutes=31),
+        )
+        self.assertEqual(2, ordinary_archive.returncode)
+        self.assertEqual(
+            "RECEIPT_STALE",
+            json.loads(ordinary_archive.stderr)["error"]["code"],
+        )
+
+        ticket = json.loads(predecessor.read_text(encoding="utf-8"))
+        self.set_terminal_evidence(
+            predecessor,
+            fence=ticket["fencing_token"],
+            worker_status="waiting",
+        )
+        handback = self.local_only_handback(
+            predecessor,
+            handback_id="archive-negative",
+            now=iso(minutes=31),
+        )
+        refill = write_json(
+            self.root / "archive-negative-refill.json",
+            refill_request(request_id="archive-negative", now=iso(minutes=31)),
+        )
+        closed = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        state_path = self.state / "fake-state.json"
+        ledger_path = self.state / "pm-proxy-refill-ledger.json"
+        canonical_state = json.loads(state_path.read_text(encoding="utf-8"))
+        canonical_ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        task_id = ticket["task_id"]
+
+        state_mutations = {
+            "ticket": lambda task, state: task.__setitem__(
+                "source_event_key", "different-ticket"
+            ),
+            "external": lambda task, state: task.__setitem__(
+                "external_thread_id", "different-thread"
+            ),
+            "policy": lambda task, state: task.__setitem__(
+                "policy_snapshot_revision", task["policy_snapshot_revision"] + 1
+            ),
+            "lease": lambda task, state: task.__setitem__(
+                "lease_epoch", task["lease_epoch"] + 1
+            ),
+            "fence": lambda task, state: task.__setitem__(
+                "fencing_token", task["fencing_token"] + 1
+            ),
+            "claim": lambda task, state: task.__setitem__(
+                "owner_claim_status", "active"
+            ),
+            "lifecycle": lambda task, state: task["lifecycle"].__setitem__(
+                "required_action", "TERMINALIZE"
+            ),
+            "disposition": lambda task, state: task.__setitem__(
+                "terminal_disposition", "completed"
+            ),
+            "outbox": lambda task, state: next(
+                item
+                for item in state["outbox"].values()
+                if item["task_id"] == task_id and item["kind"] == "ARCHIVE_THREAD"
+            ).__setitem__("state", "completed"),
+        }
+        for label, mutate in state_mutations.items():
+            with self.subTest(mismatch=label):
+                changed = json.loads(json.dumps(canonical_state))
+                mutate(changed["tasks"][task_id], changed)
+                state_path.write_text(
+                    json.dumps(changed, sort_keys=True) + "\n", encoding="utf-8"
+                )
+                rejected = self.run_script(
+                    BRIDGE,
+                    "record-archive-receipt",
+                    "--ticket",
+                    str(predecessor),
+                    "--request-id",
+                    f"archive-negative-{label}",
+                    "--now",
+                    iso(minutes=32),
+                )
+                self.assertEqual(2, rejected.returncode, rejected.stderr)
+                self.assertEqual(
+                    "RECEIPT_STALE",
+                    json.loads(rejected.stderr)["error"]["code"],
+                )
+
+        state_path.write_text(
+            json.dumps(canonical_state, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        for label, outcome in (
+            ("missing", None),
+            ("nonterminal", "STARTED"),
+            ("pending-successor", "SUCCESSOR_RESERVED"),
+        ):
+            with self.subTest(saga=label):
+                changed = json.loads(json.dumps(canonical_ledger))
+                if outcome is None:
+                    changed["sagas"] = {}
+                    expected = "CAPACITY_SAGA_MISSING"
+                else:
+                    changed["sagas"]["archive-negative"]["outcome"] = outcome
+                    expected = "CAPACITY_REFILL_PENDING"
+                ledger_path.write_text(
+                    json.dumps(changed, sort_keys=True) + "\n", encoding="utf-8"
+                )
+                rejected = self.run_script(
+                    BRIDGE,
+                    "record-archive-receipt",
+                    "--ticket",
+                    str(predecessor),
+                    "--request-id",
+                    f"archive-negative-saga-{label}",
+                    "--now",
+                    iso(minutes=32),
+                )
+                self.assertEqual(2, rejected.returncode, rejected.stderr)
+                self.assertEqual(
+                    expected,
+                    json.loads(rejected.stderr)["error"]["code"],
+                )
+        ledger_path.write_text(
+            json.dumps(canonical_ledger, sort_keys=True) + "\n", encoding="utf-8"
+        )
 
     def test_expired_completion_candidate_request_handback_replays_local_only(self):
         predecessor = self.start_predecessor("-completion-candidate")
