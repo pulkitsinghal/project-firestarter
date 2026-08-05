@@ -1,10 +1,15 @@
 # PM Proxy Orchestrator
 
-Version `0.4.3` is a source-only agent-CLI plugin for Firestarter control-plane
+Version `0.4.4` is a source-only agent-CLI plugin for Firestarter control-plane
 interface `1.0` and control bundle `1.4.3`. It makes typed configured-capacity
 compare-and-set, task reservation, policy receipts, approval routing, fenced
 handback, successor creation, and queue recycling operational without installing
 anything globally.
+
+Version `0.4.4` gives the control `1.4.3` legacy hold-table migration and its
+operator documentation a distinct package identity. This keeps source/cache
+parity, runtime pins, and dispatcher-adoption receipts unambiguous without
+overwriting the earlier `0.4.3` artifact.
 
 The plugin does not bundle or replace Firestarter's SQLite authority. Configure
 an absolute path to the compatible `orchestrator_control.py` and an initialized
@@ -21,7 +26,7 @@ lifecycle action. Hosted paths, opt-outs, reauthorization gaps, and universal
 non-spoofable caller identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
 
-Version `0.4.3` also includes an opt-in Desktop app-server proxy. An
+Version `0.4.4` also includes an opt-in Desktop app-server proxy. An
 owner-selected exact task ID is attested as root through a private local socket;
 other task IDs remain workers, so visible workers do not inherit a process-wide
 root role. The adapter requires current pin/doctor state and a fresh native-hook

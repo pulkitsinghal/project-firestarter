@@ -1063,6 +1063,26 @@ class ControlPlaneTests(unittest.TestCase):
             },
             "now": NOW,
         }
+        accepted_versions = [
+            *(f"0.3.{patch}" for patch in range(7)),
+            *(f"0.4.{patch}" for patch in range(5)),
+        ]
+        adoption_pattern = adoption_schema["properties"]["plugin_version"][
+            "pattern"
+        ]
+        for accepted_version in accepted_versions:
+            self.assertIsNotNone(
+                re.fullmatch(adoption_pattern, accepted_version),
+                accepted_version,
+            )
+            compatibility_request = json.loads(json.dumps(request))
+            compatibility_request["plugin_version"] = accepted_version
+            self.assertEqual(
+                accepted_version,
+                control.validate_dispatcher_adoption(compatibility_request)[
+                    "plugin_version"
+                ],
+            )
         adopted = self.run_cli("record-dispatcher-adoption", request)["result"]
         self.assertTrue(adopted["covered_path_dispatcher_enforcement"])
         self.assertFalse(adopted["universal_dispatcher_enforcement"])
