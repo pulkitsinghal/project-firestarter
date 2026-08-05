@@ -39,6 +39,22 @@ RUNTIME_POLICY_REQUIRED = {
     "parent_attestation_required": True,
 }
 OWNER_DECISION_SINK_THREAD_ID = "019fcb3b-f5dc-7df3-9fe1-efe5b2e09a69"
+ARCHIVE_LOCAL_OUTCOMES = {
+    "REFILL_SATISFIED",
+    "EMPTY",
+    "OWNER_GATED",
+    "CAPACITY_FULL",
+}
+ARCHIVE_CONTROL_OUTCOMES = {
+    "SUCCESSOR_RECEIPTED",
+    "EMPTY",
+    "OWNER_GATED",
+    "CAPACITY_FULL",
+}
+EXPIRED_ARCHIVE_DISPOSITIONS = {
+    "completed_local_only",
+    "completed_local_artifact",
+}
 
 REQUIRED_SCHEMAS = {
     "shared.schema.json": "shared-1.0.schema.json",
@@ -1066,7 +1082,40 @@ def require_external_identity(ticket: dict[str, Any], external_thread_id: str) -
         )
 
 
-def require_refill_saga_before_archive(state_dir: Path, task_id: str) -> None:
+def authoritative_archive_saga(
+    status: dict[str, Any], task_id: str
+) -> dict[str, Any] | None:
+    capacity = status.get("capacity")
+    if not isinstance(capacity, list):
+        return None
+    matching = [
+        saga
+        for saga in capacity
+        if isinstance(saga, dict) and saga.get("task_id") == task_id
+    ]
+    if len(matching) != 1:
+        return None
+    saga = matching[0]
+    if (
+        saga.get("outcome") not in ARCHIVE_CONTROL_OUTCOMES
+        or saga.get("clean_handback") is not True
+        or saga.get("failure_state") is not None
+    ):
+        return None
+    if saga["outcome"] == "SUCCESSOR_RECEIPTED" and (
+        not isinstance(saga.get("successor_task_id"), str)
+        or saga.get("successor_receipted") is not True
+    ):
+        return None
+    return saga
+
+
+def require_refill_saga_before_archive(
+    state_dir: Path,
+    task_id: str,
+    *,
+    status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     ledger_path = state_dir / "pm-proxy-refill-ledger.json"
     if not ledger_path.is_file() or ledger_path.is_symlink():
         raise BridgeError(
@@ -1078,9 +1127,15 @@ def require_refill_saga_before_archive(state_dir: Path, task_id: str) -> None:
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise BridgeError("REFILL_LEDGER_CORRUPT", "refill ledger is invalid") from exc
+    if (
+        not isinstance(ledger, dict)
+        or ledger.get("schema_version") != "1.0"
+        or not isinstance(ledger.get("sagas"), dict)
+    ):
+        raise BridgeError("REFILL_LEDGER_CORRUPT", "refill ledger is incompatible")
     matching = [
         saga
-        for saga in ledger.get("sagas", {}).values()
+        for saga in ledger["sagas"].values()
         if isinstance(saga, dict) and saga.get("predecessor_task_id") == task_id
     ]
     if len(matching) != 1:
@@ -1089,17 +1144,131 @@ def require_refill_saga_before_archive(state_dir: Path, task_id: str) -> None:
             "exact predecessor refill saga is required",
             exit_status=2,
         )
-    if matching[0].get("outcome") not in {
-        "REFILL_SATISFIED",
-        "EMPTY",
-        "OWNER_GATED",
-        "CAPACITY_FULL",
-    }:
+    saga = matching[0]
+    if not isinstance(saga.get("archive_outbox_id"), str):
+        raise BridgeError(
+            "CAPACITY_SAGA_MISSING",
+            "exact predecessor archive outbox is required",
+            exit_status=2,
+        )
+    if saga.get("outcome") not in ARCHIVE_LOCAL_OUTCOMES:
+        authoritative = (
+            None if status is None else authoritative_archive_saga(status, task_id)
+        )
+        if authoritative is not None:
+            return saga
         raise BridgeError(
             "CAPACITY_REFILL_PENDING",
             "successor receipt or durable empty/owner-gated/full evidence is required",
             exit_status=2,
-            details={"outcome": matching[0].get("outcome")},
+            details={"outcome": saga.get("outcome")},
+        )
+    return saga
+
+
+def require_terminal_archive_admission(
+    status: dict[str, Any],
+    ticket: dict[str, Any],
+    saga: dict[str, Any],
+    *,
+    expired: bool,
+) -> None:
+    """Admit only an exact durable terminal predecessor after receipt expiry."""
+
+    receipt = require_committed_receipt(ticket)
+    handback = ticket.get("handback")
+    if not isinstance(handback, dict) or handback.get("state") != "ARCHIVE_PENDING":
+        raise BridgeError(
+            "RECEIPT_STALE",
+            "expired receipt has no exact terminal archive admission",
+            exit_status=2,
+        )
+    permitted_handback_fields = {"recorded_at", "state", "archive_receipt_at"}
+    if (
+        not isinstance(handback.get("recorded_at"), str)
+        or not set(handback).issubset(permitted_handback_fields)
+    ):
+        raise BridgeError(
+            "RECEIPT_STALE",
+            "expired receipt has no exact terminal archive admission",
+            exit_status=2,
+        )
+    matching = [
+        task
+        for task in status.get("tasks", [])
+        if isinstance(task, dict) and task.get("task_id") == ticket["task_id"]
+    ]
+    if len(matching) != 1:
+        raise BridgeError(
+            "RECEIPT_STALE",
+            "expired receipt task identity is no longer authoritative",
+            exit_status=2,
+        )
+    task = matching[0]
+    replay = task.get("state") == "ARCHIVED"
+    expected_state = "ARCHIVED" if replay else "ARCHIVE_PENDING"
+    lifecycle = task.get("lifecycle")
+    expected_fence = {
+        "task_id": ticket["task_id"],
+        "receipt_external_thread_id": receipt["external_thread_id"],
+        "policy_snapshot_revision": ticket["policy_snapshot_revision"],
+        "lease_epoch": ticket["lease_epoch"],
+        "lease_expires_at": ticket["lease_expires_at"],
+        "fencing_token": ticket["fencing_token"],
+        "owner_claim_id": ticket["owner_claim_id"],
+        "owner_claim_status": "released",
+        "claim_lease_epoch": ticket["lease_epoch"],
+        "claim_fencing_token": ticket["fencing_token"],
+    }
+    exact_task = (
+        task.get("state") == expected_state
+        and task.get("source_event_key") == ticket["source_event_key"]
+        and task.get("canonical_external_thread_id")
+        == receipt["external_thread_id"]
+        and isinstance(task.get("receipt_fence"), dict)
+        and set(task["receipt_fence"]) == set(expected_fence)
+        and task["receipt_fence"] == expected_fence
+        and isinstance(lifecycle, dict)
+        and lifecycle.get("task_id") == ticket["task_id"]
+        and lifecycle.get("lifecycle_state") == "COMPLETED"
+        and lifecycle.get("worker_status") == "completed"
+        and lifecycle.get("required_action") == "ARCHIVE"
+    )
+    if expired:
+        exact_task = (
+            exact_task
+            and task.get("terminal_disposition") in EXPIRED_ARCHIVE_DISPOSITIONS
+        )
+    if not exact_task:
+        raise BridgeError(
+            "RECEIPT_STALE",
+            "expired receipt terminal identity does not match authority",
+            exit_status=2,
+        )
+    if replay != isinstance(handback.get("archive_receipt_at"), str):
+        raise BridgeError(
+            "RECEIPT_STALE",
+            "archive replay state does not match the exact ticket",
+            exit_status=2,
+        )
+    archive_outbox = [
+        item
+        for item in status.get("outbox", [])
+        if isinstance(item, dict)
+        and item.get("task_id") == ticket["task_id"]
+        and item.get("kind") == "ARCHIVE_THREAD"
+    ]
+    expected_outbox_state = "completed" if replay else "pending"
+    if (
+        len(archive_outbox) != 1
+        or archive_outbox[0].get("outbox_id") != saga["archive_outbox_id"]
+        or str(archive_outbox[0].get("state", "")).lower()
+        != expected_outbox_state
+    ):
+        raise BridgeError(
+            "RECEIPT_STALE",
+            "archive outbox does not match the exact terminal ticket",
+            exit_status=2,
         )
 
 
@@ -2008,11 +2177,56 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     if operation == "record-archive-receipt":
         parse_time(args.now)
         path, ticket = load_ticket(args.ticket)
-        require_active_receipt(ticket, args.now)
-        if not isinstance(ticket.get("handback"), dict):
-            raise BridgeError("HANDBACK_MISSING", "handback is required before archive receipt", exit_status=2)
-        if ticket["handback"].get("source") != "lifecycle-watchdog":
-            require_refill_saga_before_archive(state_dir, ticket["task_id"])
+        require_committed_receipt(ticket)
+        expired = parse_time(args.now) >= parse_time(ticket["lease_expires_at"])
+        handback = ticket.get("handback")
+        if not isinstance(handback, dict):
+            if expired:
+                raise BridgeError(
+                    "RECEIPT_STALE",
+                    "expired receipt has no exact terminal archive admission",
+                    exit_status=2,
+                )
+            raise BridgeError(
+                "HANDBACK_MISSING",
+                "handback is required before archive receipt",
+                exit_status=2,
+            )
+        status = None
+        saga = None
+        if expired:
+            status = run_cli(cli, state_dir, "status", now=args.now)
+            saga = require_refill_saga_before_archive(
+                state_dir,
+                ticket["task_id"],
+                status=status,
+            )
+            require_terminal_archive_admission(
+                status,
+                ticket,
+                saga,
+                expired=True,
+            )
+        elif handback.get("source") != "lifecycle-watchdog":
+            try:
+                saga = require_refill_saga_before_archive(
+                    state_dir, ticket["task_id"]
+                )
+            except BridgeError as error:
+                if error.code != "CAPACITY_REFILL_PENDING":
+                    raise
+                status = run_cli(cli, state_dir, "status", now=args.now)
+                saga = require_refill_saga_before_archive(
+                    state_dir,
+                    ticket["task_id"],
+                    status=status,
+                )
+                require_terminal_archive_admission(
+                    status,
+                    ticket,
+                    saga,
+                    expired=False,
+                )
         request = {
             "interface_version": INTERFACE_VERSION,
             "request_id": args.request_id,
@@ -2023,8 +2237,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "now": args.now,
         }
         result = run_cli(cli, state_dir, "record-archive-receipt", request=request)
-        ticket["handback"]["archive_receipt_at"] = args.now
-        replace_ticket(path, ticket)
+        if handback.get("archive_receipt_at") is None:
+            handback["archive_receipt_at"] = args.now
+            replace_ticket(path, ticket)
         return success("record-archive-receipt", result)
 
     raise BridgeError("COMMAND_DENIED", "unsupported bridge operation", exit_status=2)

@@ -5421,17 +5421,111 @@ class Plane:
                     exit_status=EXIT_CONFLICT,
                     details={"saga_id": saga["saga_id"], "outcome": saga["outcome"]},
                 )
+            successor_receipt_valid = True
+            if saga["outcome"] == "SUCCESSOR_RECEIPTED":
+                successor = connection.execute(
+                    """SELECT task.state FROM tasks AS task
+                       JOIN owner_claims AS claim ON claim.task_id=task.task_id
+                       WHERE task.task_id=? AND claim.status='active'""",
+                    (saga["successor_task_id"],),
+                ).fetchone()
+                successor_receipt_valid = (
+                    bool(saga["successor_receipted"])
+                    and successor is not None
+                    and successor["state"] == "RUNNING"
+                )
+            if not bool(saga["clean_handback"]) or not successor_receipt_valid:
+                fail(
+                    "CAPACITY_REFILL_PENDING",
+                    "archive requires an exact clean terminal refill outcome",
+                    exit_status=EXIT_CONFLICT,
+                    details={"saga_id": saga["saga_id"], "outcome": saga["outcome"]},
+                )
+            closure = (
+                None
+                if task["closure_json"] is None
+                else json.loads(task["closure_json"])
+            )
+            claim = connection.execute(
+                """SELECT claim_id,status,lease_epoch,fencing_token
+                   FROM owner_claims WHERE task_id=?""",
+                (request["task_id"],),
+            ).fetchall()
+            launch = connection.execute(
+                "SELECT receipt_json FROM launches WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            archive_outbox = connection.execute(
+                """SELECT outbox_id,payload_json,state FROM outbox
+                   WHERE task_id=? AND kind='ARCHIVE_THREAD'""",
+                (request["task_id"],),
+            ).fetchall()
+            launch_receipt = (
+                None
+                if launch is None or launch["receipt_json"] is None
+                else json.loads(launch["receipt_json"])
+            )
+            outbox_payload = (
+                None
+                if len(archive_outbox) != 1
+                else json.loads(archive_outbox[0]["payload_json"])
+            )
+            exact_terminal_fence = (
+                isinstance(closure, dict)
+                and isinstance(closure.get("disposition"), str)
+                and len(claim) == 1
+                and claim[0]["status"] == "released"
+                and claim[0]["lease_epoch"] == request["lease_epoch"]
+                and claim[0]["fencing_token"] == request["fencing_token"]
+                and isinstance(launch_receipt, dict)
+                and launch_receipt.get("external_thread_id")
+                == task["external_thread_id"]
+                and len(archive_outbox) == 1
+                and archive_outbox[0]["state"] == "pending"
+                and outbox_payload
+                == {
+                    "task_id": request["task_id"],
+                    "external_thread_id": task["external_thread_id"],
+                }
+            )
+            if closure and closure.get("disposition") == "interrupted/notLoaded":
+                lifecycle = connection.execute(
+                    """SELECT lifecycle_state,required_action,interrupt_receipt_id
+                       FROM lifecycle_watchdog WHERE task_id=?""",
+                    (request["task_id"],),
+                ).fetchone()
+                durable_terminal = (
+                    lifecycle is not None
+                    and lifecycle["lifecycle_state"] == "INTERRUPTED"
+                    and lifecycle["required_action"] == "ARCHIVE"
+                    and isinstance(lifecycle["interrupt_receipt_id"], str)
+                )
+            else:
+                handbacks = connection.execute(
+                    "SELECT result_json FROM handbacks WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchall()
+                terminal_handbacks = [
+                    json.loads(row["result_json"])
+                    for row in handbacks
+                    if json.loads(row["result_json"]).get("state")
+                    == "ARCHIVE_PENDING"
+                ]
+                durable_terminal = (
+                    len(terminal_handbacks) == 1
+                )
+            if not exact_terminal_fence or not durable_terminal:
+                fail(
+                    "ARCHIVE_PROOF_INVALID",
+                    "archive requires an exact durable terminal handback, released claim, and pending outbox",
+                    exit_status=EXIT_CONFLICT,
+                )
             connection.execute(
                 "UPDATE tasks SET state='ARCHIVED',updated_at=? WHERE task_id=?",
                 (request["now"], request["task_id"]),
             )
             connection.execute(
                 "UPDATE outbox SET state='completed',updated_at=? WHERE task_id=? AND kind='ARCHIVE_THREAD'",
-                (request["now"], request["task_id"]),
-            )
-            connection.execute(
-                """UPDATE owner_claims SET status='released',heartbeat_at=?
-                   WHERE task_id=? AND status='active'""",
                 (request["now"], request["task_id"]),
             )
             self.event(
@@ -6527,6 +6621,11 @@ class Plane:
                         if key in raw_block
                     }
                 )
+                closure = (
+                    None
+                    if row["closure_json"] is None
+                    else json.loads(row["closure_json"])
+                )
                 timing = connection.execute(
                     "SELECT * FROM task_timing WHERE task_id=?",
                     (row["task_id"],),
@@ -6571,6 +6670,7 @@ class Plane:
                 tasks.append(
                     {
                         "task_id": row["task_id"],
+                        "source_event_key": row["source_event_key"],
                         "state": row["state"],
                         "priority": row["priority"],
                         "repo_alias": target["remote"].split("/", 1)[1],
@@ -6582,6 +6682,11 @@ class Plane:
                         in {"LAUNCH_PENDING", "RUNNING"},
                         "updated_at": row["updated_at"],
                         "block": block,
+                        "terminal_disposition": (
+                            None
+                            if closure is None
+                            else closure.get("disposition")
+                        ),
                         "duration": (
                             None if timing is None else self.duration_result(timing)
                         ),
@@ -7282,7 +7387,7 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
     )
     if (
         re.fullmatch(
-            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4))(?:\+codex\.\d{14})?",
+            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5))(?:\+codex\.\d{14})?",
             plugin_version,
         )
         is None

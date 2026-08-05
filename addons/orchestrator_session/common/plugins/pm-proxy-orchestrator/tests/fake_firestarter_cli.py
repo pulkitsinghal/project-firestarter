@@ -86,6 +86,7 @@ def default_state() -> dict[str, Any]:
         "tasks": {},
         "outbox": {},
         "handbacks": {},
+        "capacity": [],
         "lease_expirations": {},
         "recycle_revision": 0,
     }
@@ -144,6 +145,7 @@ def status_result(state: dict[str, Any]) -> dict[str, Any]:
     tasks = [
         {
             "task_id": task["task_id"],
+            "source_event_key": task["source_event_key"],
             "state": task["state"],
             "priority": task["priority"],
             "repo_alias": task["target"]["remote"].split("/", 1)[-1],
@@ -151,6 +153,7 @@ def status_result(state: dict[str, Any]) -> dict[str, Any]:
             "canonical_external_thread_id": task.get("external_thread_id"),
             "updated_at": task["updated_at"],
             "block": task.get("block"),
+            "terminal_disposition": task.get("terminal_disposition"),
             "lifecycle": task.get("lifecycle"),
             "control_schema_hold": task.get("control_schema_hold"),
             "receipt_fence": (
@@ -194,6 +197,7 @@ def status_result(state: dict[str, Any]) -> dict[str, Any]:
         "policy_revision": state["policy_revision"],
         "rules": state["rules"],
         "tasks": sorted(tasks, key=lambda row: row["task_id"]),
+        "capacity": state.get("capacity", []),
         "outbox": sorted(outbox, key=lambda row: row["outbox_id"]),
     }
 
@@ -367,7 +371,7 @@ def main() -> int:
             task["updated_at"] = request["now"]
             for outbox in state["outbox"].values():
                 if outbox["task_id"] == task["task_id"] and outbox["kind"] == "CREATE_THREAD":
-                    outbox["state"] = "COMPLETE"
+                    outbox["state"] = "completed"
                     outbox["updated_at"] = request["now"]
             state["revision"] += 1
             authority.commit()
@@ -613,10 +617,17 @@ def main() -> int:
                 }
             task["state"] = "ARCHIVE_PENDING"
             task["owner_claim_status"] = "released"
+            task["terminal_disposition"] = request["disposition"]
             task["updated_at"] = request["now"]
             task["control_schema_hold"] = None
             if isinstance(task.get("lifecycle"), dict):
-                task["lifecycle"]["lifecycle_state"] = "COMPLETED"
+                task["lifecycle"].update(
+                    {
+                        "lifecycle_state": "COMPLETED",
+                        "worker_status": "completed",
+                        "required_action": "ARCHIVE",
+                    }
+                )
             result = {
                 "task_id": task["task_id"],
                 "state": "ARCHIVE_PENDING",
@@ -640,13 +651,15 @@ def main() -> int:
 
         if command == "record-archive-receipt":
             task = state["tasks"].get(request.get("task_id"))
+            if task and task["state"] == "ARCHIVED" and receipt_matches(task, request):
+                return emit(command, {"task_id": task["task_id"], "state": "ARCHIVED"})
             if not task or task["state"] != "ARCHIVE_PENDING" or not receipt_matches(task, request):
                 return deny("FENCE_STALE", "archive receipt is stale", 2)
             task["state"] = "ARCHIVED"
             task["updated_at"] = request["now"]
             for outbox in state["outbox"].values():
                 if outbox["task_id"] == task["task_id"] and outbox["kind"] == "ARCHIVE_THREAD":
-                    outbox["state"] = "COMPLETE"
+                    outbox["state"] = "completed"
                     outbox["updated_at"] = request["now"]
             authority.commit()
             return emit(command, {"task_id": task["task_id"], "state": "ARCHIVED"})

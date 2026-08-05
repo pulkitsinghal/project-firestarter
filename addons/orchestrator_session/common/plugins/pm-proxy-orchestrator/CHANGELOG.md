@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.4.5 - 2026-08-05
+
+- Admit an expired predecessor archive only when its exact ticket, canonical
+  thread, policy/fence/lease identity, durable local completion, released claim,
+  terminal refill outcome, and pending archive outbox still match authority.
+- Prefer a matching authoritative `SUCCESSOR_RECEIPTED` saga when an atomically
+  setup-failed successor was replaced and the local wrapper ledger still names
+  the earlier reservation. Ordinary stale or incomplete workers remain denied.
+- Make exact archive replay idempotent without renewing a lease or changing the
+  task, claim, capacity, successor, or original archive-receipt timestamp.
+
 ## 0.4.4 - 2026-08-05
 
 - Publish the control `1.4.3` legacy hold-table migration and its updated

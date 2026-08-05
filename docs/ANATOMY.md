@@ -244,6 +244,15 @@ schema, and interface do not change; distinct manifest/server versions keep
 source/cache parity, runtime pins, and adoption receipts from treating changed
 plugin content as the earlier `0.4.3` artifact.
 
+Control bundle `1.4.4` and plugin `0.4.5` repair terminal archive admission
+without changing state schema `1.4` or interface `1.0`. An expired local-only or
+local-artifact predecessor must still match its exact ticket, canonical thread,
+policy/lease/fence identity, durable handback, released claim, terminal refill
+outcome, and pending archive outbox. A setup-failed reserved successor can be
+superseded only by the authoritative saga's exact receipted replacement. Exact
+replay is idempotent; the repair never renews a lease or creates, relabels, or
+releases tasks, claims, capacity, or successors.
+
 The orchestrator Desktop host binds a process-local prompt-free grant to only
 sixteen named typed control tools after exact runtime-pin, current-version
 covered adoption, private-proof, and receipt-fence verification. The exact root

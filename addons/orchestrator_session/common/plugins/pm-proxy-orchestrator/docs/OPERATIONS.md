@@ -60,11 +60,13 @@ python skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py \
 ```
 
 After updating an existing schema-1.0 through schema-1.3 state to control bundle
-`1.4.3`, run the same idempotent `init` command once before recreating the
+`1.4.4`, run the same idempotent `init` command once before recreating the
 runtime pin. It adds authority-transfer state and does not change stored
-capacity. Control `1.4.3` also repairs an early schema-1.4 hold table before
-status or doctor reads without changing any accepted hold. Install the complete
-version-distinct plugin `0.4.4` before recreating the runtime pin; do not
+capacity. The bundle also repairs an early schema-1.4 hold table before status
+or doctor reads without changing any accepted hold. Control `1.4.4`
+adds exact terminal archive proof checks without changing state schema or
+capacity. Install the complete version-distinct plugin `0.4.5` before recreating
+the runtime pin; do not
 overwrite an older cache under the same version identity. Then read
 `status` and capture its exact `revision` and
 `worker_capacity.configured_capacity`. A capacity change is a separate typed

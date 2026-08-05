@@ -65,7 +65,7 @@ returns both its original commit and the current capacity/revision without a
 second write. It never launches, refills, retires, or archives a task.
 
 An upgraded existing schema-1.0 through schema-1.3 database must first run the
-idempotent `init` command from control bundle `1.4.3` so the additive authority
+idempotent `init` command from control bundle `1.4.4` so the additive authority
 and transfer tables exist. The
 MCP operation additionally requires the exact reviewed runtime pin, a matching
 current-version covered-path adoption receipt, and the exact adapter-attested
@@ -299,6 +299,14 @@ output.
     **successor receipt → predecessor archive**. Only then may
     `record-archive-receipt` complete predecessor archival. Repeated events and
     receipts are idempotent; stale or fabricated fences fail closed.
+    If an exact local-only or local-artifact completion outlives its lease, the
+    wrapper may admit archive only after matching the original ticket and
+    canonical thread to the durable terminal disposition, released exact claim,
+    archive-permitting refill outcome, and pending archive outbox. An atomically
+    setup-failed successor may be replaced only by the authoritative saga's
+    exact receipted successor. Admission never renews a lease or mutates a task,
+    claim, capacity, or successor; the archive transaction rechecks its durable
+    proofs before completing the outbox.
 12. Drive refill from the durable capacity-release event. On process startup,
     heartbeat, or a periodic timer, invoke `capacity-watchdog` for any
     unsatisfied saga. It may reserve only the exact supplied successor and may

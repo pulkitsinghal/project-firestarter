@@ -1065,7 +1065,7 @@ class ControlPlaneTests(unittest.TestCase):
         }
         accepted_versions = [
             *(f"0.3.{patch}" for patch in range(7)),
-            *(f"0.4.{patch}" for patch in range(5)),
+            *(f"0.4.{patch}" for patch in range(6)),
         ]
         adoption_pattern = adoption_schema["properties"]["plugin_version"][
             "pattern"
@@ -1883,6 +1883,68 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual("ARCHIVED", states["task-predecessor"])
         self.assertEqual("RUNNING", states["task-successor"])
 
+    def test_archive_receipt_requires_committed_terminal_release_and_pending_outbox(
+        self,
+    ) -> None:
+        prepared = self.run_cli("prepare-launch", self.prepare("archive-proof"))
+        self.run_cli(
+            "record-launch-receipt", self.receipt(prepared, "archive-proof")
+        )
+        closed = self.run_cli(
+            "record-handback", self.handback(prepared, "archive-proof")
+        )["result"]
+        self.assertEqual("ARCHIVE_PENDING", closed["state"])
+        required = prepared["result"]["envelope"]["receipt_required"]
+        archive = {
+            "interface_version": "1.0",
+            "request_id": "archive-proof-receipt",
+            "task_id": required["task_id"],
+            "policy_snapshot_revision": required["policy_snapshot_revision"],
+            "lease_epoch": required["lease_epoch"],
+            "fencing_token": required["fencing_token"],
+            "now": "2026-07-28T21:00:00Z",
+        }
+        database = self.state / "orchestrator.sqlite3"
+        mutations = {
+            "handback": (
+                "DELETE FROM handbacks WHERE task_id=?",
+                "INSERT INTO handbacks SELECT * FROM handbacks_backup",
+            ),
+            "claim": (
+                "UPDATE owner_claims SET status='active' WHERE task_id=?",
+                "UPDATE owner_claims SET status='released' WHERE task_id=?",
+            ),
+            "outbox": (
+                "UPDATE outbox SET state='completed' WHERE task_id=? AND kind='ARCHIVE_THREAD'",
+                "UPDATE outbox SET state='pending' WHERE task_id=? AND kind='ARCHIVE_THREAD'",
+            ),
+        }
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "CREATE TEMP TABLE handbacks_backup AS SELECT * FROM handbacks"
+            )
+            for label, (mutate, restore) in mutations.items():
+                with self.subTest(proof=label):
+                    connection.execute(mutate, ("task-archive-proof",))
+                    connection.commit()
+                    rejected = self.run_cli(
+                        "record-archive-receipt", archive, expected=3
+                    )
+                    self.assertEqual(
+                        "ARCHIVE_PROOF_INVALID", rejected["error"]["code"]
+                    )
+                    if label == "handback":
+                        connection.execute(restore)
+                    else:
+                        connection.execute(restore, ("task-archive-proof",))
+                    connection.commit()
+        archived = self.run_cli("record-archive-receipt", archive)["result"]
+        self.assertEqual("ARCHIVED", archived["state"])
+        self.assertEqual(
+            archived,
+            self.run_cli("record-archive-receipt", archive)["result"],
+        )
+
     def test_under_capacity_exact_replacement_preserves_occupancy_and_archive_fence(
         self,
     ) -> None:
@@ -1983,17 +2045,40 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(2, saga["active_or_reserved_count"])
 
         required = predecessor["result"]["envelope"]["receipt_required"]
+        archive_request = {
+            "interface_version": "1.0",
+            "request_id": "archive-under-cap-predecessor",
+            "task_id": required["task_id"],
+            "policy_snapshot_revision": required["policy_snapshot_revision"],
+            "lease_epoch": required["lease_epoch"],
+            "fencing_token": required["fencing_token"],
+            "now": "2026-07-28T20:02:00Z",
+        }
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            connection.execute(
+                """UPDATE owner_claims SET status='released'
+                   WHERE task_id='task-under-cap-successor'"""
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        pending = self.run_cli(
+            "record-archive-receipt", archive_request, expected=3
+        )
+        self.assertEqual("CAPACITY_REFILL_PENDING", pending["error"]["code"])
+        connection = sqlite3.connect(self.state / "orchestrator.sqlite3")
+        try:
+            connection.execute(
+                """UPDATE owner_claims SET status='active'
+                   WHERE task_id='task-under-cap-successor'"""
+            )
+            connection.commit()
+        finally:
+            connection.close()
         archived = self.run_cli(
             "record-archive-receipt",
-            {
-                "interface_version": "1.0",
-                "request_id": "archive-under-cap-predecessor",
-                "task_id": required["task_id"],
-                "policy_snapshot_revision": required["policy_snapshot_revision"],
-                "lease_epoch": required["lease_epoch"],
-                "fencing_token": required["fencing_token"],
-                "now": "2026-07-28T20:02:00Z",
-            },
+            archive_request,
         )
         self.assertEqual("ARCHIVED", archived["result"]["state"])
 
