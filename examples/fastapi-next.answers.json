@@ -1,7 +1,7 @@
 {
   "project_name": "Acme (FastAPI)",
   "project_slug": "acmefn",
-  "project_tagline": "Deterministic clinical simulation operating system.",
+  "project_tagline": "Deterministic workflow simulation operating system.",
   "github_owner": "pulkitsinghal",
   "github_repo": "example-fastapi-next",
   "stack": "fastapi-next",
