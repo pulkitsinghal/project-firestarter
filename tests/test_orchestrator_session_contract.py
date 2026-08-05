@@ -315,7 +315,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         canonical_bytes = CANONICAL_BILL.read_bytes()
         canonical_text = canonical_bytes.decode("utf-8")
         self.assertEqual(
-            "1.4.2",
+            "1.4.3",
             (ADDON / "orchestrator-control" / "VERSION")
             .read_text(encoding="utf-8")
             .strip(),

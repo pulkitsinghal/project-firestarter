@@ -1,7 +1,7 @@
 # PM Proxy Orchestrator
 
 Version `0.4.3` is a source-only agent-CLI plugin for Firestarter control-plane
-interface `1.0` and control bundle `1.4.2`. It makes typed configured-capacity
+interface `1.0` and control bundle `1.4.3`. It makes typed configured-capacity
 compare-and-set, task reservation, policy receipts, approval routing, fenced
 handback, successor creation, and queue recycling operational without installing
 anything globally.

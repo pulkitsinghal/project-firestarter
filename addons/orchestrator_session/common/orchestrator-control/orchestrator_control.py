@@ -1230,6 +1230,50 @@ CREATE TABLE IF NOT EXISTS legacy_blobs (
 """
 
 
+def migrate_legacy_control_schema_holds(connection: sqlite3.Connection) -> None:
+    tables = {
+        row["name"]
+        for row in connection.execute(
+            """SELECT name FROM sqlite_master
+               WHERE type='table' AND name IN ('metadata','control_schema_holds')"""
+        )
+    }
+    if tables != {"metadata", "control_schema_holds"}:
+        return
+    installed = connection.execute(
+        "SELECT value FROM metadata WHERE key='schema_version'"
+    ).fetchone()
+    if installed is None or installed["value"] != SCHEMA_VERSION:
+        return
+    release_columns = {
+        "released_at": "ALTER TABLE control_schema_holds ADD COLUMN released_at TEXT",
+        "release_handback_id": (
+            "ALTER TABLE control_schema_holds ADD COLUMN release_handback_id TEXT"
+        ),
+    }
+    columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(control_schema_holds)")
+    }
+    if release_columns.keys() <= columns:
+        return
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(control_schema_holds)"
+            )
+        }
+        for column, statement in release_columns.items():
+            if column not in columns:
+                connection.execute(statement)
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
 class Plane:
     def __init__(self, state_dir: Path, ledger_path: Path) -> None:
         self.state_dir = state_dir
@@ -1272,6 +1316,7 @@ class Plane:
                             exit_status=EXIT_STATE,
                         )
                     os.chmod(state_file, 0o600)
+                migrate_legacy_control_schema_holds(connection)
             except BaseException:
                 connection.close()
                 raise

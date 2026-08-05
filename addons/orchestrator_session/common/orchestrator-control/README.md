@@ -20,10 +20,12 @@ service and not a replacement policy source.
 - The caller selects a local state directory. The CLI enforces directory mode
   `0700`, database mode `0600`, current-user ownership, and no symlink path
   components.
-- Control bundle `1.4.2` retains state schema `1.4` and migrates an existing
+- Control bundle `1.4.3` retains state schema `1.4` and migrates an existing
   schema `1.0` through `1.3` database in place. This patch adds truthful local
-  closure, receipt-fenced schema holds, and exact setup-failure repair. Re-running
-  `init` adds stable
+  closure, receipt-fenced schema holds, and exact setup-failure repair. It also
+  repairs an early schema-1.4 control-schema-hold table by adding its two
+  nullable release columns before any status or doctor read, preserving every
+  existing row and authority record. Re-running `init` adds stable
   authority identity, transfer receipts, and federation membership without
   changing configured capacity. The stable JSON interface remains `1.0`;
 copying an older database over a migrated database is not a supported

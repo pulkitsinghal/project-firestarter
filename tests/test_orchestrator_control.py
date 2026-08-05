@@ -24,6 +24,18 @@ CONTROL_ROOT = (
 )
 CLI = CONTROL_ROOT / "orchestrator_control.py"
 LEDGER = CONTROL_ROOT / "policy-ledger.json"
+BRIDGE = (
+    ROOT
+    / "addons"
+    / "orchestrator_session"
+    / "common"
+    / "plugins"
+    / "pm-proxy-orchestrator"
+    / "skills"
+    / "pm-proxy-orchestrator"
+    / "scripts"
+    / "pm_proxy_bridge.py"
+)
 NOW = "2026-07-28T18:00:00Z"
 LATER = "2026-07-28T19:00:00Z"
 BASE_SHA = "a" * 40
@@ -747,6 +759,262 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertTrue(included)
         self.assertTrue(all(rule["why"]["reason_code"] == "MATCHED" for rule in included))
         self.assertTrue(traced["result"]["excluded"])
+
+    def test_legacy_control_schema_hold_migrates_before_status_and_doctor(self) -> None:
+        prepared = self.run_cli(
+            "prepare-launch", self.prepare("legacy-control-schema-hold")
+        )
+        required = prepared["result"]["envelope"]["receipt_required"]
+        task_id = required["task_id"]
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(prepared, "legacy-control-schema-hold"),
+        )
+        database = self.state / "orchestrator.sqlite3"
+        legacy_columns = (
+            "request_id",
+            "request_hash",
+            "authorization_request_id",
+            "decision_request_id",
+            "decision_id",
+            "root_thread_id",
+            "ticket_id",
+            "task_id",
+            "external_thread_id",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "replay_target",
+            "result_json",
+            "recorded_at",
+        )
+
+        def truth_snapshot(connection: sqlite3.Connection) -> dict[str, object]:
+            return {
+                "metadata": [
+                    dict(row)
+                    for row in connection.execute(
+                        "SELECT * FROM metadata ORDER BY key"
+                    )
+                ],
+                "task": dict(
+                    connection.execute(
+                        "SELECT * FROM tasks WHERE task_id=?", (task_id,)
+                    ).fetchone()
+                ),
+                "claims": [
+                    dict(row)
+                    for row in connection.execute(
+                        """SELECT * FROM owner_claims WHERE task_id=?
+                           ORDER BY claim_id""",
+                        (task_id,),
+                    )
+                ],
+                "lifecycle": dict(
+                    connection.execute(
+                        "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+                        (task_id,),
+                    ).fetchone()
+                ),
+                "hold": dict(
+                    connection.execute(
+                        f"SELECT {','.join(legacy_columns)} "
+                        "FROM control_schema_holds WHERE task_id=?",
+                        (task_id,),
+                    ).fetchone()
+                ),
+                "capacity_sagas": [
+                    dict(row)
+                    for row in connection.execute(
+                        "SELECT * FROM capacity_sagas ORDER BY saga_id"
+                    )
+                ],
+            }
+
+        with sqlite3.connect(database) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute(
+                """INSERT OR REPLACE INTO lifecycle_watchdog(
+                  task_id,lifecycle_state,worker_status,completion_signals_json,
+                  evidence_refs_json,remaining_work_json,progress_ref,
+                  progress_observed_at,handback_deadline_checks,
+                  handback_deadline_limit,required_action,interrupt_receipt_id,
+                  updated_at
+                ) VALUES(?,'CONTROL_SCHEMA_HOLD','completed',?,?,NULL,?,?,2,2,
+                         'AWAIT_CONTROL_REPAIR',NULL,?)""",
+                (
+                    task_id,
+                    json.dumps(["objective-complete", "tests-passed"]),
+                    json.dumps(["legacy-hold-preserved-evidence"]),
+                    "legacy-hold-progress",
+                    "2026-07-28T19:30:00Z",
+                    "2026-07-28T19:30:00Z",
+                ),
+            )
+            connection.execute("DROP TABLE control_schema_holds")
+            connection.execute(
+                """CREATE TABLE control_schema_holds (
+                  request_id TEXT PRIMARY KEY,
+                  request_hash TEXT NOT NULL,
+                  authorization_request_id TEXT NOT NULL,
+                  decision_request_id TEXT NOT NULL,
+                  decision_id TEXT NOT NULL,
+                  root_thread_id TEXT NOT NULL,
+                  ticket_id TEXT NOT NULL,
+                  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+                  external_thread_id TEXT NOT NULL,
+                  policy_snapshot_revision INTEGER NOT NULL,
+                  lease_epoch INTEGER NOT NULL,
+                  fencing_token INTEGER NOT NULL,
+                  replay_target TEXT NOT NULL,
+                  result_json TEXT NOT NULL,
+                  recorded_at TEXT NOT NULL
+                )"""
+            )
+            hold_values = (
+                "legacy-hold-request",
+                "1" * 64,
+                "legacy-owner-authorization",
+                "legacy-decision-request",
+                "legacy-decision",
+                "legacy-root-thread",
+                "legacy-hold-ticket",
+                task_id,
+                "thread-legacy-control-schema-hold",
+                required["policy_snapshot_revision"],
+                required["lease_epoch"],
+                required["fencing_token"],
+                "completed_local_only",
+                json.dumps(
+                    {
+                        "hold_state": "CONTROL_SCHEMA_HOLD",
+                        "preservation": {
+                            "capacity_released": False,
+                            "occupied_lane": True,
+                        },
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                "2026-07-28T19:30:00Z",
+            )
+            connection.execute(
+                f"INSERT INTO control_schema_holds({','.join(legacy_columns)}) "
+                f"VALUES({','.join('?' for _ in legacy_columns)})",
+                hold_values,
+            )
+            before = truth_snapshot(connection)
+            self.assertNotIn(
+                "released_at",
+                {
+                    row["name"]
+                    for row in connection.execute(
+                        "PRAGMA table_info(control_schema_holds)"
+                    )
+                },
+            )
+
+        status = self.run_cli("status", now="2026-07-28T19:31:00Z")["result"]
+        held_task = next(item for item in status["tasks"] if item["task_id"] == task_id)
+        self.assertEqual("CONTROL_SCHEMA_HOLD", held_task["control_schema_hold"]["hold_state"])
+        self.assertEqual(
+            "completed_local_only",
+            held_task["control_schema_hold"]["replay_target"],
+        )
+
+        with sqlite3.connect(database) as connection:
+            connection.row_factory = sqlite3.Row
+            columns_after_status = [
+                dict(row)
+                for row in connection.execute(
+                    "PRAGMA table_info(control_schema_holds)"
+                )
+            ]
+            column_names = {row["name"] for row in columns_after_status}
+            self.assertTrue(
+                {"released_at", "release_handback_id"}.issubset(column_names)
+            )
+            self.assertEqual(before, truth_snapshot(connection))
+            release = connection.execute(
+                """SELECT released_at,release_handback_id
+                   FROM control_schema_holds WHERE task_id=?""",
+                (task_id,),
+            ).fetchone()
+            self.assertIsNone(release["released_at"])
+            self.assertIsNone(release["release_handback_id"])
+
+        initialized = self.run_cli(
+            "init", now="2026-07-28T19:32:00Z", state=self.state
+        )["result"]
+        self.assertFalse(initialized["created"])
+        self.assertEqual("1.4", initialized["schema_version"])
+        self.run_cli("status", now="2026-07-28T19:33:00Z")
+        doctor = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(BRIDGE),
+                "--cli",
+                str(CLI),
+                "--state-dir",
+                str(self.state.resolve()),
+                "doctor",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, doctor.returncode, doctor.stderr)
+        self.assertEqual("1.4", json.loads(doctor.stdout)["result"]["schema_version"])
+        with sqlite3.connect(database) as connection:
+            connection.row_factory = sqlite3.Row
+            self.assertEqual(columns_after_status, [
+                dict(row)
+                for row in connection.execute(
+                    "PRAGMA table_info(control_schema_holds)"
+                )
+            ])
+            self.assertEqual(before, truth_snapshot(connection))
+
+    def test_current_control_schema_hold_schema_connect_is_noop(self) -> None:
+        database = self.state / "orchestrator.sqlite3"
+
+        def schema_snapshot() -> dict[str, object]:
+            with sqlite3.connect(database) as connection:
+                connection.row_factory = sqlite3.Row
+                return {
+                    "schema_version": connection.execute(
+                        "PRAGMA schema_version"
+                    ).fetchone()[0],
+                    "table_sql": connection.execute(
+                        """SELECT sql FROM sqlite_master
+                           WHERE type='table' AND name='control_schema_holds'"""
+                    ).fetchone()[0],
+                    "columns": [
+                        dict(row)
+                        for row in connection.execute(
+                            "PRAGMA table_info(control_schema_holds)"
+                        )
+                    ],
+                    "rows": [
+                        dict(row)
+                        for row in connection.execute(
+                            "SELECT * FROM control_schema_holds ORDER BY request_id"
+                        )
+                    ],
+                    "metadata": [
+                        dict(row)
+                        for row in connection.execute(
+                            "SELECT * FROM metadata ORDER BY key"
+                        )
+                    ],
+                }
+
+        before = schema_snapshot()
+        self.run_cli("status", now="2026-07-28T19:31:00Z")
+        self.run_cli("status", now="2026-07-28T19:32:00Z")
+        self.assertEqual(before, schema_snapshot())
 
     def test_dispatcher_adoption_is_bounded_idempotent_and_never_universal(self) -> None:
         initial = self.run_cli("status")["result"]["lifecycle_watchdog"]
