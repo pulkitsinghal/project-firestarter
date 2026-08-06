@@ -9,3 +9,8 @@
 /tmp/
 *.local.json
 answers.json
+
+# Local working notes. This repo's origin is PUBLIC — scratchpad/ accumulates
+# untracked working files (ops notes naming live infra, personal working sets)
+# that must never be swept in by a stray `git add -A`.
+scratchpad/
