@@ -1,18 +1,21 @@
 # PM Proxy Orchestrator
 
-Version `0.4.5` is a source-only agent-CLI plugin for Firestarter control-plane
-interface `1.0` and control bundle `1.4.4`. It makes typed configured-capacity
+Version `0.4.6` is a source-only agent-CLI plugin for Firestarter control-plane
+interface `1.0` and control bundle `1.4.5`. It makes typed configured-capacity
 compare-and-set, task reservation, policy receipts, approval routing, fenced
 handback, successor creation, and queue recycling operational without installing
 anything globally.
 
-Version `0.4.5` repairs archive admission after an exact local-only or
+Version `0.4.6` completes the archive-admission repair after an exact local-only or
 local-artifact completion outlives its worker lease. The bridge requires the
 matching canonical thread, ticket, policy/lease/fence identity, durable terminal
 handback, released claim, archive-permitting refill outcome, and pending archive
-outbox. It also accepts the authoritative receipted replacement when a reserved
-successor setup-failed atomically. No lease, task label, claim, capacity, or
-successor is created or changed by admission.
+outbox. When a reserved successor setup-failed atomically, it accepts only the
+same authoritative saga's exact receipted replacement, including a replacement
+that has since closed with a released claim and terminal archive receipt. A
+separate current capacity deficit does not erase that historical receipt. No
+lease, task label, claim, capacity, or successor is created or changed by
+admission.
 
 Version `0.4.4` gives the control `1.4.3` legacy hold-table migration and its
 operator documentation a distinct package identity. This keeps source/cache
@@ -34,7 +37,7 @@ lifecycle action. Hosted paths, opt-outs, reauthorization gaps, and universal
 non-spoofable caller identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
 
-Version `0.4.5` also includes an opt-in Desktop app-server proxy. An
+Version `0.4.6` also includes an opt-in Desktop app-server proxy. An
 owner-selected exact task ID is attested as root through a private local socket;
 other task IDs remain workers, so visible workers do not inherit a process-wide
 root role. The adapter requires current pin/doctor state and a fresh native-hook
