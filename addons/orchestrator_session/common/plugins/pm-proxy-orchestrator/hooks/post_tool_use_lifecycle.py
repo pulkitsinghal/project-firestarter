@@ -9,6 +9,7 @@ import stat
 import sys
 import tempfile
 import time
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -35,16 +36,150 @@ LOCK_TIMEOUT_SECONDS = 0.25
 LOCK_RETRY_SECONDS = 0.01
 MAX_LIFECYCLE_SESSIONS = 512
 MAX_WORKERS_PER_SESSION = 64
+MAX_IDENTITY_TICKETS = 4096
+OWNER_DECISION_SINK_THREAD_ID = "019fcb3b-f5dc-7df3-9fe1-efe5b2e09a69"
+
+
+class IdentityKind(str, Enum):
+    """Closed identity classes used by the lifecycle fence."""
+
+    OWNER_DECISION_SINK = "OWNER_DECISION_SINK"
+    RECEIPTED_TASK = "RECEIPTED_TASK"
+    UNKNOWN = "UNKNOWN"
+    MISMATCH = "MISMATCH"
+    VERIFICATION_FAILED = "VERIFICATION_FAILED"
 
 
 def state_root() -> Path | None:
     root = Path.home() / ".codex" / "orchestrator-state"
     try:
-        if root.is_symlink() or (root.stat().st_mode & 0o777) != 0o700:
+        metadata = root.stat()
+        if (
+            root.is_symlink()
+            or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or (metadata.st_mode & 0o777) != 0o700
+        ):
             return None
     except OSError:
         return None
     return root
+
+
+def strict_object(raw: str) -> dict[str, Any] | None:
+    def no_duplicate(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate key")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(raw, object_pairs_hook=no_duplicate)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def private_identity_state_dirs() -> list[Path] | None:
+    root = state_root()
+    if root is None:
+        return None
+    try:
+        candidates = list(root.iterdir())
+    except OSError:
+        return None
+    result: list[Path] = []
+    for candidate in candidates:
+        try:
+            if candidate.is_symlink():
+                return None
+            if not candidate.is_dir():
+                continue
+            metadata = candidate.stat()
+            if metadata.st_uid != os.getuid() or (metadata.st_mode & 0o777) != 0o700:
+                return None
+            result.append(candidate)
+        except OSError:
+            return None
+    return result
+
+
+def private_ticket(path: Path) -> dict[str, Any] | None:
+    try:
+        metadata = path.stat()
+        if (
+            path.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or (metadata.st_mode & 0o777) != 0o600
+            or metadata.st_size > 2_000_000
+        ):
+            return None
+        return strict_object(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def classify_identities(
+    external_thread_ids: list[str],
+) -> dict[str, IdentityKind] | None:
+    """Classify identities from one bounded read-only receipt snapshot."""
+
+    if not external_thread_ids or not all(
+        isinstance(item, str) and item for item in external_thread_ids
+    ):
+        return None
+    matching_receipts = {item: 0 for item in external_thread_ids}
+    failed = {
+        item: IdentityKind.VERIFICATION_FAILED for item in external_thread_ids
+    }
+    states = private_identity_state_dirs()
+    if states is None:
+        return failed
+    observed_tickets = 0
+    for state in states:
+        try:
+            tickets = list(state.glob("*.ticket.json"))
+        except OSError:
+            return failed
+        observed_tickets += len(tickets)
+        if observed_tickets > MAX_IDENTITY_TICKETS:
+            return failed
+        for path in tickets:
+            ticket = private_ticket(path)
+            if ticket is None:
+                return failed
+            if "receipt" not in ticket:
+                return failed
+            receipt = ticket.get("receipt")
+            if receipt is None:
+                continue
+            receipt_id = (
+                receipt.get("external_thread_id")
+                if isinstance(receipt, dict)
+                else None
+            )
+            if not isinstance(receipt_id, str) or not receipt_id:
+                return failed
+            if receipt_id in matching_receipts:
+                matching_receipts[receipt_id] += 1
+    classified: dict[str, IdentityKind] = {}
+    for external_thread_id, receipt_count in matching_receipts.items():
+        if external_thread_id == OWNER_DECISION_SINK_THREAD_ID:
+            classified[external_thread_id] = (
+                IdentityKind.OWNER_DECISION_SINK
+                if receipt_count == 0
+                else IdentityKind.MISMATCH
+            )
+        elif receipt_count == 1:
+            classified[external_thread_id] = IdentityKind.RECEIPTED_TASK
+        elif receipt_count > 1:
+            classified[external_thread_id] = IdentityKind.MISMATCH
+        else:
+            classified[external_thread_id] = IdentityKind.UNKNOWN
+    return classified
 
 
 def worker_ids(tool_name: str, tool_input: Any) -> list[str]:
@@ -67,6 +202,26 @@ def worker_ids(tool_name: str, tool_input: Any) -> list[str]:
             values.append(value)
         return sorted(set(values))
     return []
+
+
+def lifecycle_worker_ids(tool_name: str, tool_input: Any) -> list[str] | None:
+    """Return debt-bearing identities, excluding only a proven decision sink."""
+
+    observed = worker_ids(tool_name, tool_input)
+    if not observed:
+        return None
+    classified = classify_identities(observed)
+    if classified is None:
+        return None
+    workers: list[str] = []
+    for external_thread_id in observed:
+        identity = classified[external_thread_id]
+        if identity == IdentityKind.OWNER_DECISION_SINK:
+            continue
+        if identity in {IdentityKind.MISMATCH, IdentityKind.VERIFICATION_FAILED}:
+            return None
+        workers.append(external_thread_id)
+    return workers
 
 
 def response_ok(value: Any) -> bool:
@@ -127,6 +282,60 @@ def open_private_lock(path: Path) -> int:
     return descriptor
 
 
+def read_lifecycle_ledger(path: Path) -> dict[str, Any] | None:
+    try:
+        metadata = path.stat()
+        if (
+            path.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or (metadata.st_mode & 0o777) != 0o600
+            or metadata.st_size > 2_000_000
+        ):
+            return None
+        ledger = strict_object(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return None
+    if ledger is None or len(ledger) > MAX_LIFECYCLE_SESSIONS:
+        return None
+    for session_id, pending in ledger.items():
+        if (
+            not isinstance(session_id, str)
+            or not session_id
+            or not isinstance(pending, list)
+            or len(pending) > MAX_WORKERS_PER_SESSION
+            or not all(isinstance(item, str) and item for item in pending)
+            or len(set(pending)) != len(pending)
+        ):
+            return None
+    return ledger
+
+
+def write_lifecycle_ledger(
+    root: Path, ledger_path: Path, ledger: dict[str, Any]
+) -> bool:
+    temporary_descriptor, temporary = tempfile.mkstemp(
+        prefix=".dispatcher-lifecycle.", dir=root
+    )
+    temporary_path = Path(temporary)
+    try:
+        os.fchmod(temporary_descriptor, 0o600)
+        with os.fdopen(temporary_descriptor, "w", encoding="utf-8") as handle:
+            temporary_descriptor = -1
+            json.dump(ledger, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, ledger_path)
+        return True
+    except OSError:
+        return False
+    finally:
+        if temporary_descriptor >= 0:
+            os.close(temporary_descriptor)
+        temporary_path.unlink(missing_ok=True)
+
+
 def update(session_id: str, add: list[str], remove: str | None) -> bool:
     root = state_root()
     if root is None or fcntl is None:
@@ -139,10 +348,8 @@ def update(session_id: str, add: list[str], remove: str | None) -> bool:
             if not acquire_lock(lock):
                 return False
             if ledger_path.exists():
-                if ledger_path.is_symlink() or (ledger_path.stat().st_mode & 0o777) != 0o600:
-                    return False
-                ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
-                if not isinstance(ledger, dict):
+                ledger = read_lifecycle_ledger(ledger_path)
+                if ledger is None:
                     return False
             else:
                 ledger = {}
@@ -163,28 +370,71 @@ def update(session_id: str, add: list[str], remove: str | None) -> bool:
                 ledger[session_id] = sorted(pending)
             else:
                 ledger.pop(session_id, None)
-            temporary_descriptor, temporary = tempfile.mkstemp(
-                prefix=".dispatcher-lifecycle.", dir=root
-            )
-            temporary_path = Path(temporary)
-            try:
-                os.fchmod(temporary_descriptor, 0o600)
-                with os.fdopen(
-                    temporary_descriptor, "w", encoding="utf-8"
-                ) as handle:
-                    temporary_descriptor = -1
-                    json.dump(ledger, handle, sort_keys=True, separators=(",", ":"))
-                    handle.write("\n")
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temporary_path, ledger_path)
-            finally:
-                if temporary_descriptor >= 0:
-                    os.close(temporary_descriptor)
-                temporary_path.unlink(missing_ok=True)
-            return True
+            return write_lifecycle_ledger(root, ledger_path, ledger)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False
+
+
+def migrate_legacy_lifecycle_debt(session_id: Any) -> list[str] | None:
+    """Remove only a legacy pending identity proven to be the non-task sink."""
+
+    if not isinstance(session_id, str) or not session_id:
+        return None
+    candidate_root = Path.home() / ".codex" / "orchestrator-state"
+    try:
+        os.lstat(candidate_root)
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return None
+    root = state_root()
+    if root is None or fcntl is None:
+        return None
+    lock_path = root / ".dispatcher-lifecycle.lock"
+    ledger_path = root / ".dispatcher-lifecycle.json"
+    try:
+        ledger_metadata = os.lstat(ledger_path)
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return None
+    if stat.S_ISLNK(ledger_metadata.st_mode):
+        return None
+    try:
+        descriptor = open_private_lock(lock_path)
+        with os.fdopen(descriptor, "r+", encoding="utf-8") as lock:
+            if not acquire_lock(lock):
+                return None
+            ledger = read_lifecycle_ledger(ledger_path)
+            if ledger is None:
+                return None
+            current = ledger.get(session_id, [])
+            if not current:
+                return []
+            classified = classify_identities(current)
+            if classified is None or any(
+                identity == IdentityKind.VERIFICATION_FAILED
+                for identity in classified.values()
+            ):
+                return None
+            retained: list[str] = []
+            changed = False
+            for external_thread_id in current:
+                identity = classified[external_thread_id]
+                if identity == IdentityKind.OWNER_DECISION_SINK:
+                    changed = True
+                    continue
+                retained.append(external_thread_id)
+            if changed:
+                if retained:
+                    ledger[session_id] = retained
+                else:
+                    ledger.pop(session_id, None)
+                if not write_lifecycle_ledger(root, ledger_path, ledger):
+                    return None
+            return retained
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
 
 
 def main() -> int:
@@ -211,8 +461,10 @@ def main() -> int:
     if not isinstance(session_id, str) or not session_id or not isinstance(tool_name, str):
         return 1
     if tool_name in OBSERVATION_TOOLS:
-        ids = worker_ids(tool_name, event.get("tool_input"))
-        return 0 if ids and update(session_id, ids, None) else 1
+        ids = lifecycle_worker_ids(tool_name, event.get("tool_input"))
+        if ids is None:
+            return 1
+        return 0 if not ids or update(session_id, ids, None) else 1
     if tool_name == LIFECYCLE_TOOL:
         tool_input = event.get("tool_input")
         if not isinstance(tool_input, dict):

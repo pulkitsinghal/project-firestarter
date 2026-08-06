@@ -22,6 +22,14 @@ observation is denied. The guard then denies another read/wait, create, archive,
 status, or watchdog-refill until the typed lifecycle-watchdog call succeeds for
 each exact observed worker and the PostToolUse hook clears the debt.
 
+Identity classification precedes that write. The pinned owner-decision sink is
+not worker debt only after a bounded read-only scan of every private ticket
+proves no receipt uses the same external identity. The same typed proof removes
+an exact legacy sink entry idempotently. Receipt-backed tasks, incomplete or
+unknown identities, duplicate or sink-colliding receipts, malformed tickets,
+and failed verification remain blocked; the hook does not edit Firestarter's
+SQLite authority.
+
 Both hook ledgers use owner-only regular lock files and bounded nonblocking lock
 acquisition well inside the five-second hook deadline. Lock contention denies
 quickly with a typed reason instead of hanging the dispatcher. Admission

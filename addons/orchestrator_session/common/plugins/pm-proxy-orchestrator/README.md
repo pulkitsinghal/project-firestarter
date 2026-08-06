@@ -1,10 +1,18 @@
 # PM Proxy Orchestrator
 
-Version `0.4.7` is a source-only agent-CLI plugin for Firestarter control-plane
-interface `1.0` and control bundle `1.4.6`. It makes typed configured-capacity
+Version `0.4.8` is a source-only agent-CLI plugin for Firestarter control-plane
+interface `1.0` and control bundle `1.4.7`. It makes typed configured-capacity
 compare-and-set, task reservation, policy receipts, approval routing, fenced
 handback, successor creation, and queue recycling operational without installing
 anything globally.
+
+Version `0.4.8` gives lifecycle observations a closed identity classifier. A
+thread is typed as the pinned owner-decision sink, one exact receipt-backed task,
+unknown, mismatched, or unverifiable before the hook records worker debt. The
+sink is excluded only when a bounded read-only scan proves no task receipt uses
+that identity. The same proof removes an exact legacy sink entry idempotently;
+real, incomplete, unknown, duplicate, mismatched, and unverifiable identities
+remain blocked.
 
 Version `0.4.7` completes the archive-admission repair after an exact local-only or
 local-artifact completion outlives its worker lease. The bridge requires the
@@ -41,7 +49,7 @@ lifecycle action. Hosted paths, opt-outs, reauthorization gaps, and universal
 non-spoofable caller identity remain unresolved. See
 `docs/DISPATCHER_ENFORCEMENT.md`.
 
-Version `0.4.7` also includes an opt-in Desktop app-server proxy. An
+Version `0.4.8` also includes an opt-in Desktop app-server proxy. An
 owner-selected exact task ID is attested as root through a private local socket;
 other task IDs remain workers, so visible workers do not inherit a process-wide
 root role. The adapter requires current pin/doctor state and a fresh native-hook

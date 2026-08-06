@@ -65,7 +65,7 @@ returns both its original commit and the current capacity/revision without a
 second write. It never launches, refills, retires, or archives a task.
 
 An upgraded existing schema-1.0 through schema-1.3 database must first run the
-idempotent `init` command from control bundle `1.4.6` so the additive authority
+idempotent `init` command from control bundle `1.4.7` so the additive authority
 and transfer tables exist. The
 MCP operation additionally requires the exact reviewed runtime pin, a matching
 current-version covered-path adoption receipt, and the exact adapter-attested

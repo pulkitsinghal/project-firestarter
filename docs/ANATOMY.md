@@ -264,6 +264,15 @@ mismatched, unreceipted, nonterminal, and unknown-failure chains remain denied.
 A terminal `superseded` disposition is accepted only when this same exact
 authoritative replacement proof succeeds; the disposition alone stays denied.
 
+Control bundle `1.4.7` and plugin `0.4.8` repair owner-decision sink lifecycle
+debt without changing state schema `1.4` or interface `1.0`. Covered read/wait
+hooks classify each observed identity from the pinned sink role and a bounded
+read-only scan of private receipt tickets before recording worker debt. The
+owner-decision sink is excluded only when no receipt-backed task matches. An
+idempotent legacy migration removes that same exact typed sink identity; real,
+incomplete, unknown, duplicate, mismatched, or unverifiable identities remain
+blocked.
+
 The orchestrator Desktop host binds a process-local prompt-free grant to only
 sixteen named typed control tools after exact runtime-pin, current-version
 covered adoption, private-proof, and receipt-fence verification. The exact root
