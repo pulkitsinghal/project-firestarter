@@ -1,6 +1,6 @@
 # Codex Desktop host adapter
 
-Version `0.4.6` includes an opt-in desktop host adapter for one exact root task.
+Version `0.4.7` includes an opt-in desktop host adapter for one exact root task.
 It does not export `ROOT_ORCHESTRATOR_ROLE` to the normal desktop process and it
 does not infer root identity from a prompt, working directory, project, or
 model-visible field.
@@ -89,7 +89,7 @@ non-secret instance ID.
 ## Operator workflow
 
 Run these commands from an owner-controlled terminal, outside an enforced root
-task. First install the complete `0.4.6` plugin, recreate the runtime pin for the
+task. First install the complete `0.4.7` plugin, recreate the runtime pin for the
 reviewed clean Firestarter runtime, and run doctor. Keep any global
 `ROOT_ORCHESTRATOR_ROLE` export unset.
 

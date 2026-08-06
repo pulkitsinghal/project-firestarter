@@ -1344,6 +1344,13 @@ def require_terminal_archive_admission(
     replay = task.get("state") == "ARCHIVED"
     expected_state = "ARCHIVED" if replay else "ARCHIVE_PENDING"
     lifecycle = task.get("lifecycle")
+    exact_disposition = (
+        task.get("terminal_disposition") in EXPIRED_ARCHIVE_DISPOSITIONS
+    )
+    if task.get("terminal_disposition") == "superseded":
+        exact_disposition = (
+            authoritative_archive_saga(status, ticket["task_id"], saga) is not None
+        )
     expected_fence = {
         "task_id": ticket["task_id"],
         "receipt_external_thread_id": receipt["external_thread_id"],
@@ -1371,10 +1378,7 @@ def require_terminal_archive_admission(
         and lifecycle.get("required_action") == "ARCHIVE"
     )
     if expired:
-        exact_task = (
-            exact_task
-            and task.get("terminal_disposition") in EXPIRED_ARCHIVE_DISPOSITIONS
-        )
+        exact_task = exact_task and exact_disposition
     if not exact_task:
         raise BridgeError(
             "RECEIPT_STALE",

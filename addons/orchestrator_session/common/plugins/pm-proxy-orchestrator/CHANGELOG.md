@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.7 - 2026-08-06
+
+- Admit an expired `superseded` predecessor only when the same authoritative
+  setup-failure replacement chain is exact and receipted.
+- Keep ordinary superseded, incomplete, mismatched, or unreceipted archive
+  attempts fail-closed.
+
 ## 0.4.6 - 2026-08-06
 
 - Match an authoritative setup-failure replacement by the exact durable saga
