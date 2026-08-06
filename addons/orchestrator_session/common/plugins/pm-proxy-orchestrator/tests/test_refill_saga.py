@@ -470,6 +470,13 @@ class RefillSagaTestCase(unittest.TestCase):
         failed = state["tasks"]["task-successor-007"]
         failed["state"] = "FAILED"
         failed["owner_claim_status"] = "released"
+        failed_outbox = next(
+            item
+            for item in state["outbox"].values()
+            if item["task_id"] == "task-successor-007"
+            and item["kind"] == "CREATE_THREAD"
+        )
+        failed_outbox["state"] = "poisoned"
         replacement = json.loads(json.dumps(failed))
         replacement.update(
             {
@@ -477,28 +484,107 @@ class RefillSagaTestCase(unittest.TestCase):
                 "source_event_key": "successor-008-source",
                 "outcome_key": "successor-008-outcome",
                 "idempotency_key": "successor-008-idem",
-                "state": "RUNNING",
+                "state": "ARCHIVED",
                 "fencing_token": 8,
                 "external_thread_id": "thread-successor-008",
                 "receipt_external_thread_id": "thread-successor-008",
                 "owner_claim_id": "claim-task-successor-008",
-                "owner_claim_status": "active",
+                "owner_claim_status": "released",
                 "claim_fencing_token": 8,
+                "terminal_disposition": "completed",
+                "lifecycle": {
+                    "task_id": "task-successor-008",
+                    "lifecycle_state": "COMPLETED",
+                    "worker_status": "completed",
+                    "required_action": "ARCHIVE",
+                },
             }
         )
         state["tasks"]["task-successor-008"] = replacement
+        state["outbox"]["create-task-successor-008"] = {
+            "outbox_id": "create-task-successor-008",
+            "kind": "CREATE_THREAD",
+            "task_id": "task-successor-008",
+            "state": "completed",
+            "created_at": iso(minutes=3),
+            "updated_at": iso(minutes=3),
+        }
+        state["outbox"]["archive-task-successor-008"] = {
+            "outbox_id": "archive-task-successor-008",
+            "kind": "ARCHIVE_THREAD",
+            "task_id": "task-successor-008",
+            "state": "completed",
+            "created_at": iso(minutes=3),
+            "updated_at": iso(minutes=3),
+        }
         state["capacity"] = [
             {
                 "saga_id": "predecessor-006",
-                "task_id": "task-predecessor-006",
                 "outcome": "SUCCESSOR_RECEIPTED",
                 "successor_task_id": "task-successor-008",
                 "successor_receipted": True,
                 "clean_handback": True,
-                "failure_state": None,
+                "failure_state": "CAPACITY_INVARIANT_FAILED",
             }
         ]
         state_path.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
+
+        canonical = json.loads(json.dumps(state))
+        state_mutations = {
+            "saga-identity": lambda changed: changed["capacity"][0].__setitem__(
+                "saga_id", "different-saga"
+            ),
+            "reserved-successor-not-failed": lambda changed: changed["tasks"][
+                "task-successor-007"
+            ].__setitem__("state", "LAUNCH_PENDING"),
+            "reserved-outbox-not-poisoned": lambda changed: next(
+                item
+                for item in changed["outbox"].values()
+                if item["task_id"] == "task-successor-007"
+                and item["kind"] == "CREATE_THREAD"
+            ).__setitem__("state", "pending"),
+            "replacement-unreceipted": lambda changed: changed["tasks"][
+                "task-successor-008"
+            ].__setitem__("receipt_external_thread_id", None),
+            "replacement-claim-active": lambda changed: changed["tasks"][
+                "task-successor-008"
+            ].__setitem__("owner_claim_status", "active"),
+            "replacement-terminal-evidence-missing": lambda changed: changed[
+                "tasks"
+            ]["task-successor-008"].__setitem__("lifecycle", None),
+            "replacement-create-pending": lambda changed: changed["outbox"][
+                "create-task-successor-008"
+            ].__setitem__("state", "pending"),
+            "unknown-capacity-failure": lambda changed: changed["capacity"][
+                0
+            ].__setitem__("failure_state", "UNKNOWN_FAILURE"),
+        }
+        for label, mutate in state_mutations.items():
+            with self.subTest(mismatch=label):
+                changed = json.loads(json.dumps(canonical))
+                mutate(changed)
+                state_path.write_text(
+                    json.dumps(changed, sort_keys=True) + "\n", encoding="utf-8"
+                )
+                rejected = self.run_script(
+                    BRIDGE,
+                    "record-archive-receipt",
+                    "--ticket",
+                    str(predecessor),
+                    "--request-id",
+                    f"predecessor-006-reject-{label}",
+                    "--now",
+                    iso(minutes=4),
+                )
+                self.assertEqual(2, rejected.returncode, rejected.stderr)
+                self.assertEqual(
+                    "CAPACITY_REFILL_PENDING",
+                    json.loads(rejected.stderr)["error"]["code"],
+                )
+
+        state_path.write_text(
+            json.dumps(canonical, sort_keys=True) + "\n", encoding="utf-8"
+        )
 
         archived = self.run_script(
             BRIDGE,

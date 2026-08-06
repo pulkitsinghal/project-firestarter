@@ -253,6 +253,15 @@ superseded only by the authoritative saga's exact receipted replacement. Exact
 replay is idempotent; the repair never renews a lease or creates, relabels, or
 releases tasks, claims, capacity, or successors.
 
+Control bundle `1.4.5` and plugin `0.4.6` close the remaining real-ledger
+replacement-chain gap without changing state schema `1.4` or interface `1.0`.
+The bridge now joins the local and authoritative views by exact saga identity,
+requires the superseded reservation to be failed with a poisoned create outbox,
+and verifies the replacement's create receipt, claim fence, terminal lifecycle,
+and archive outbox. A replacement that has already closed remains valid history;
+an unrelated current capacity deficit does not erase its exact receipt. Missing,
+mismatched, unreceipted, nonterminal, and unknown-failure chains remain denied.
+
 The orchestrator Desktop host binds a process-local prompt-free grant to only
 sixteen named typed control tools after exact runtime-pin, current-version
 covered adoption, private-proof, and receipt-fence verification. The exact root

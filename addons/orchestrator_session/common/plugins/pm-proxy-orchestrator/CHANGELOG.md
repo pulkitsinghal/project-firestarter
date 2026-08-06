@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.4.6 - 2026-08-06
+
+- Match an authoritative setup-failure replacement by the exact durable saga
+  identity that both ledgers expose, rather than a nonexistent status field.
+- Admit a receipted replacement that has since closed only when its original
+  reservation is failed and poisoned, its create receipt and terminal claim
+  fence are exact, and both terminal lifecycles and archive outboxes agree.
+- Keep missing, mismatched, unreceipted, nonterminal, or unknown-failure chains
+  fail-closed while treating an unrelated current capacity deficit separately
+  from the historical exact replacement receipt.
+
 ## 0.4.5 - 2026-08-05
 
 - Admit an expired predecessor archive only when its exact ticket, canonical

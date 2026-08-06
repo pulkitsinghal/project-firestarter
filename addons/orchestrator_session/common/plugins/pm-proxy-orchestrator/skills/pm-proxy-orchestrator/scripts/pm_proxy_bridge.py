@@ -1083,15 +1083,43 @@ def require_external_identity(ticket: dict[str, Any], external_thread_id: str) -
 
 
 def authoritative_archive_saga(
-    status: dict[str, Any], task_id: str
+    status: dict[str, Any], task_id: str, local_saga: dict[str, Any]
 ) -> dict[str, Any] | None:
+    """Resolve one setup-failed reservation to its exact receipted replacement."""
+
+    saga_id = local_saga.get("saga_id")
+    reserved_task_ids = local_saga.get("reserved_task_ids")
+    events = local_saga.get("events")
+    if (
+        not isinstance(saga_id, str)
+        or local_saga.get("predecessor_task_id") != task_id
+        or local_saga.get("outcome") != "SUCCESSOR_RESERVED"
+        or not isinstance(reserved_task_ids, list)
+        or len(reserved_task_ids) != 1
+        or not isinstance(reserved_task_ids[0], str)
+        or local_saga.get("receipted_task_ids") != []
+        or not isinstance(events, list)
+    ):
+        return None
+    failed_task_id = reserved_task_ids[0]
+    reservations = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("event") == "SUCCESSOR_RESERVED"
+        and isinstance(event.get("metadata"), dict)
+        and event["metadata"].get("task_id") == failed_task_id
+    ]
+    if len(reservations) != 1:
+        return None
+
     capacity = status.get("capacity")
     if not isinstance(capacity, list):
         return None
     matching = [
         saga
         for saga in capacity
-        if isinstance(saga, dict) and saga.get("task_id") == task_id
+        if isinstance(saga, dict) and saga.get("saga_id") == saga_id
     ]
     if len(matching) != 1:
         return None
@@ -1099,14 +1127,120 @@ def authoritative_archive_saga(
     if (
         saga.get("outcome") not in ARCHIVE_CONTROL_OUTCOMES
         or saga.get("clean_handback") is not True
-        or saga.get("failure_state") is not None
+        or saga.get("failure_state")
+        not in {None, "CAPACITY_INVARIANT_FAILED"}
     ):
         return None
-    if saga["outcome"] == "SUCCESSOR_RECEIPTED" and (
-        not isinstance(saga.get("successor_task_id"), str)
+    if saga["outcome"] != "SUCCESSOR_RECEIPTED":
+        return None
+
+    replacement_task_id = saga.get("successor_task_id")
+    if (
+        not isinstance(replacement_task_id, str)
+        or replacement_task_id == failed_task_id
         or saga.get("successor_receipted") is not True
     ):
         return None
+
+    tasks = status.get("tasks")
+    outbox = status.get("outbox")
+    if not isinstance(tasks, list) or not isinstance(outbox, list):
+        return None
+    failed = [
+        item
+        for item in tasks
+        if isinstance(item, dict) and item.get("task_id") == failed_task_id
+    ]
+    replacement = [
+        item
+        for item in tasks
+        if isinstance(item, dict) and item.get("task_id") == replacement_task_id
+    ]
+    failed_create = [
+        item
+        for item in outbox
+        if isinstance(item, dict)
+        and item.get("task_id") == failed_task_id
+        and item.get("kind") == "CREATE_THREAD"
+    ]
+    replacement_create = [
+        item
+        for item in outbox
+        if isinstance(item, dict)
+        and item.get("task_id") == replacement_task_id
+        and item.get("kind") == "CREATE_THREAD"
+    ]
+    if (
+        len(failed) != 1
+        or failed[0].get("state") != "FAILED"
+        or failed[0].get("canonical_external_thread_id") is not None
+        or failed[0].get("receipt_fence") is not None
+        or len(failed_create) != 1
+        or str(failed_create[0].get("state", "")).lower() != "poisoned"
+        or len(replacement) != 1
+        or len(replacement_create) != 1
+        or str(replacement_create[0].get("state", "")).lower() != "completed"
+    ):
+        return None
+
+    successor = replacement[0]
+    successor_state = successor.get("state")
+    external_thread_id = successor.get("canonical_external_thread_id")
+    receipt_fence = successor.get("receipt_fence")
+    fence_fields = {
+        "task_id",
+        "receipt_external_thread_id",
+        "policy_snapshot_revision",
+        "lease_epoch",
+        "lease_expires_at",
+        "fencing_token",
+        "owner_claim_id",
+        "owner_claim_status",
+        "claim_lease_epoch",
+        "claim_fencing_token",
+    }
+    if (
+        successor_state not in {"RUNNING", "ARCHIVE_PENDING", "ARCHIVED"}
+        or not isinstance(external_thread_id, str)
+        or not isinstance(receipt_fence, dict)
+        or not fence_fields.issubset(receipt_fence)
+        or receipt_fence.get("task_id") != replacement_task_id
+        or receipt_fence.get("receipt_external_thread_id") != external_thread_id
+        or receipt_fence.get("claim_lease_epoch") != receipt_fence.get("lease_epoch")
+        or receipt_fence.get("claim_fencing_token")
+        != receipt_fence.get("fencing_token")
+    ):
+        return None
+
+    terminal_successor = successor_state in {"ARCHIVE_PENDING", "ARCHIVED"}
+    expected_claim_status = "released" if terminal_successor else "active"
+    if receipt_fence.get("owner_claim_status") != expected_claim_status:
+        return None
+    if saga.get("failure_state") is not None and not terminal_successor:
+        return None
+    if terminal_successor:
+        lifecycle = successor.get("lifecycle")
+        archive = [
+            item
+            for item in outbox
+            if isinstance(item, dict)
+            and item.get("task_id") == replacement_task_id
+            and item.get("kind") == "ARCHIVE_THREAD"
+        ]
+        expected_archive_state = (
+            "completed" if successor_state == "ARCHIVED" else "pending"
+        )
+        if (
+            not isinstance(lifecycle, dict)
+            or lifecycle.get("task_id") != replacement_task_id
+            or lifecycle.get("lifecycle_state") != "COMPLETED"
+            or lifecycle.get("worker_status") != "completed"
+            or lifecycle.get("required_action") != "ARCHIVE"
+            or len(archive) != 1
+            or str(archive[0].get("state", "")).lower()
+            != expected_archive_state
+        ):
+            return None
     return saga
 
 
@@ -1153,7 +1287,9 @@ def require_refill_saga_before_archive(
         )
     if saga.get("outcome") not in ARCHIVE_LOCAL_OUTCOMES:
         authoritative = (
-            None if status is None else authoritative_archive_saga(status, task_id)
+            None
+            if status is None
+            else authoritative_archive_saga(status, task_id, saga)
         )
         if authoritative is not None:
             return saga
