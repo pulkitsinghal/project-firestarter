@@ -24,10 +24,13 @@ except ImportError:  # pragma: no cover - supported orchestrator hosts are POSIX
 try:
     from post_tool_use_lifecycle import (
         OBSERVATION_TOOLS,
+        OWNER_DECISION_SINK_THREAD_ID,
+        lifecycle_worker_ids,
+        migrate_legacy_lifecycle_debt,
         update as update_lifecycle,
-        worker_ids,
     )
 except ImportError:  # keep doctor/status reachable on an incomplete hook install
+    OWNER_DECISION_SINK_THREAD_ID = ""
     OBSERVATION_TOOLS = {
         "codex_app__read_thread",
         "codex_app__wait_threads",
@@ -35,9 +38,11 @@ except ImportError:  # keep doctor/status reachable on an incomplete hook instal
         "codex_appwait_threads",
     }
 
-    def worker_ids(tool_name: str, tool_input: Any) -> list[str]:
+    def lifecycle_worker_ids(tool_name: str, tool_input: Any) -> list[str] | None:
         del tool_name, tool_input
-        return []
+        return None
+
+    migrate_legacy_lifecycle_debt = None
 
     def update_lifecycle(session_id: str, add: list[str], remove: str | None) -> bool:
         del session_id, add, remove
@@ -130,7 +135,6 @@ ARCHIVE_READY_OUTCOMES = {
 LOCK_TIMEOUT_SECONDS = 0.25
 LOCK_RETRY_SECONDS = 0.01
 MAX_ADMISSIONS = 512
-OWNER_DECISION_SINK_THREAD_ID = "019fcb3b-f5dc-7df3-9fe1-efe5b2e09a69"
 OWNER_DECISION_BEGIN = "<pm_proxy_owner_decision_envelope>"
 OWNER_DECISION_END = "</pm_proxy_owner_decision_envelope>"
 
@@ -205,6 +209,8 @@ def read_private_json(path: Path) -> dict[str, Any] | None:
 
 
 def lifecycle_debt(session_id: Any) -> list[str] | None:
+    if migrate_legacy_lifecycle_debt is not None:
+        return migrate_legacy_lifecycle_debt(session_id)
     if not isinstance(session_id, str) or not session_id:
         return None
     root = Path.home() / ".codex" / "orchestrator-state"
@@ -599,8 +605,11 @@ def main() -> int:
         print(json.dumps(deny("ROOT_LIFECYCLE_RECONCILIATION_REQUIRED")))
         return 0
     if tool_name in OBSERVATION_TOOLS:
-        ids = worker_ids(tool_name, event.get("tool_input"))
-        if not ids or not update_lifecycle(event["session_id"], ids, None):
+        ids = lifecycle_worker_ids(tool_name, event.get("tool_input"))
+        if ids is None:
+            print(json.dumps(deny("ROOT_LIFECYCLE_IDENTITY_INVALID")))
+            return 0
+        if ids and not update_lifecycle(event["session_id"], ids, None):
             print(json.dumps(deny("ROOT_LIFECYCLE_STATE_BUSY")))
             return 0
     if tool_name in ROOT_CONTROL_PLANE_ALLOW:

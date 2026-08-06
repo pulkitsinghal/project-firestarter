@@ -20,7 +20,7 @@ service and not a replacement policy source.
 - The caller selects a local state directory. The CLI enforces directory mode
   `0700`, database mode `0600`, current-user ownership, and no symlink path
   components.
-- Control bundle `1.4.6` retains state schema `1.4` and migrates an existing
+- Control bundle `1.4.7` retains state schema `1.4` and migrates an existing
   schema `1.0` through `1.3` database in place. This patch adds truthful local
   closure, receipt-fenced schema holds, and exact setup-failure repair. It also
   repairs an early schema-1.4 control-schema-hold table by adding its two
@@ -30,13 +30,15 @@ service and not a replacement policy source.
   changing configured capacity. The stable JSON interface remains `1.0`;
 copying an older database over a migrated database is not a supported
 rollback.
-- Control `1.4.6` keeps the `1.4.4` transactional archive checks unchanged and
-  extends covered-dispatcher adoption to plugin `0.4.7`. That plugin binds a
-  stale wrapper ledger to the exact authoritative saga, failed reservation,
-  poisoned create outbox, receipted replacement, terminal claim fence, and
-  replacement archive state before an expired predecessor may reach the
-  existing archive transaction. A `superseded` predecessor is eligible only
-  when that authoritative replacement proof succeeds.
+- Control `1.4.7` keeps the `1.4.4` transactional archive checks unchanged and
+  extends covered-dispatcher adoption to plugin `0.4.8`. That plugin classifies
+  lifecycle observations before recording worker debt and migrates only an
+  exact non-task owner-decision sink after authoritative receipt proof. It also
+  binds a stale wrapper ledger to the exact authoritative saga, failed
+  reservation, poisoned create outbox, receipted replacement, terminal claim
+  fence, and replacement archive state before an expired predecessor may reach
+  the existing archive transaction. A `superseded` predecessor is eligible
+  only when that authoritative replacement proof succeeds.
 - Archive receipt now rechecks the committed terminal handback, released exact
   claim, archive-permitting capacity saga, canonical launch receipt, and one
   pending exact-thread `ARCHIVE_THREAD` outbox inside its transaction. Exact

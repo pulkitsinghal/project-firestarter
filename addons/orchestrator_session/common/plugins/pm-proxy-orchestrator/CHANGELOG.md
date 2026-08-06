@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.8 - 2026-08-06
+
+- Classify observed thread identities before recording worker lifecycle debt, so
+  the pinned owner-decision sink never becomes a synthetic worker obligation.
+- Migrate only an exact legacy sink identity after a bounded authoritative
+  receipt scan proves it is not a task. Receipt-backed, incomplete, unknown,
+  duplicate, mismatched, and unverifiable identities remain fail-closed.
+
 ## 0.4.7 - 2026-08-06
 
 - Admit an expired `superseded` predecessor only when the same authoritative
