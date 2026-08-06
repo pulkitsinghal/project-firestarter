@@ -467,6 +467,9 @@ class RefillSagaTestCase(unittest.TestCase):
 
         state_path = self.state / "fake-state.json"
         state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["tasks"]["task-predecessor-006"][
+            "terminal_disposition"
+        ] = "superseded"
         failed = state["tasks"]["task-successor-007"]
         failed["state"] = "FAILED"
         failed["owner_claim_status"] = "released"
@@ -758,6 +761,9 @@ class RefillSagaTestCase(unittest.TestCase):
             ),
             "disposition": lambda task, state: task.__setitem__(
                 "terminal_disposition", "completed"
+            ),
+            "superseded-without-replacement": lambda task, state: task.__setitem__(
+                "terminal_disposition", "superseded"
             ),
             "outbox": lambda task, state: next(
                 item
