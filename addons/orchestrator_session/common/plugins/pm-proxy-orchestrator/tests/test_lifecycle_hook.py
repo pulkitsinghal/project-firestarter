@@ -103,6 +103,54 @@ class LifecycleHookTest(unittest.TestCase):
             self.assertEqual(0, post.returncode, post.stderr)
             self.assertFalse((state_root / ".dispatcher-lifecycle.json").exists())
 
+    def test_absent_lifecycle_root_preserves_non_observation_guard_decisions(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-no-lifecycle-root-") as temp:
+            home = Path(temp)
+            allowed = invoke("codex_app__list_threads", home=home)
+            self.assertEqual("", allowed.stdout)
+            denied = invoke("Bash", home=home)
+            self.assertIn("ROOT_ORCHESTRATOR_TASK_DOMAIN_DENIED:Bash", denied.stdout)
+            observation = invoke(
+                "codex_appread_thread",
+                tool_input={"threadId": "unknown-worker"},
+                home=home,
+            )
+            self.assertIn("ROOT_LIFECYCLE_IDENTITY_INVALID", observation.stdout)
+
+    def test_existing_unsafe_or_symlinked_lifecycle_root_remains_invalid(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-unsafe-root-") as temp:
+            home = Path(temp)
+            state_root = home / ".codex" / "orchestrator-state"
+            state_root.mkdir(parents=True, mode=0o700)
+            os.chmod(state_root, 0o755)
+            unsafe = invoke("codex_app__list_threads", home=home)
+            self.assertIn("ROOT_LIFECYCLE_STATE_INVALID", unsafe.stdout)
+
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-symlink-root-") as temp:
+            home = Path(temp)
+            target = home / "target"
+            target.mkdir(mode=0o700)
+            codex = home / ".codex"
+            codex.mkdir(mode=0o700)
+            os.symlink(target, codex / "orchestrator-state")
+            symlinked = invoke("codex_app__list_threads", home=home)
+            self.assertIn("ROOT_LIFECYCLE_STATE_INVALID", symlinked.stdout)
+
+    def test_symlinked_lifecycle_ledger_remains_invalid(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-symlink-ledger-") as temp:
+            home = Path(temp)
+            state_root = self.state_root(home)
+            target = state_root / "ledger-target.json"
+            target.write_text("{}\n", encoding="utf-8")
+            os.chmod(target, 0o600)
+            os.symlink(target, state_root / ".dispatcher-lifecycle.json")
+            symlinked = invoke("codex_app__list_threads", home=home)
+            self.assertIn("ROOT_LIFECYCLE_STATE_INVALID", symlinked.stdout)
+
     def test_mixed_observation_records_only_receipted_worker(self) -> None:
         with tempfile.TemporaryDirectory(prefix="pm-proxy-owner-mixed-") as temp:
             home = Path(temp)

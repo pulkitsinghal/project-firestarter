@@ -380,13 +380,26 @@ def migrate_legacy_lifecycle_debt(session_id: Any) -> list[str] | None:
 
     if not isinstance(session_id, str) or not session_id:
         return None
+    candidate_root = Path.home() / ".codex" / "orchestrator-state"
+    try:
+        os.lstat(candidate_root)
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return None
     root = state_root()
     if root is None or fcntl is None:
         return None
     lock_path = root / ".dispatcher-lifecycle.lock"
     ledger_path = root / ".dispatcher-lifecycle.json"
-    if not ledger_path.exists():
+    try:
+        ledger_metadata = os.lstat(ledger_path)
+    except FileNotFoundError:
         return []
+    except OSError:
+        return None
+    if stat.S_ISLNK(ledger_metadata.st_mode):
+        return None
     try:
         descriptor = open_private_lock(lock_path)
         with os.fdopen(descriptor, "r+", encoding="utf-8") as lock:
