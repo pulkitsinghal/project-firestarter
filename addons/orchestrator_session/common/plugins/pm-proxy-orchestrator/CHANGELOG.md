@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.4.11 - 2026-08-07
+
+- Add a closed stale-present archive reconciliation for one exact terminal task
+  whose unique legacy ticket still exists after its receipt or refill chain has
+  become authoritative and terminal.
+- Admit only failed-plus-EMPTY receipt debt, superseded-plus-EMPTY capacity
+  debt, or a superseded predecessor whose exact receipted successor is fully
+  completed and archived. Reject active, partial, duplicate, symlinked, unsafe,
+  mismatched, drifting, or unrelated chains without mutation.
+- Recheck ticket inode and content at the control transaction, commit the exact
+  archive/outbox transition first, then unlink only that ticket through the
+  bridge. Exact replay remains safe after post-commit cleanup.
+
 ## 0.4.10 - 2026-08-07
 
 - Add one generic typed reconciliation for an exact completed task with a

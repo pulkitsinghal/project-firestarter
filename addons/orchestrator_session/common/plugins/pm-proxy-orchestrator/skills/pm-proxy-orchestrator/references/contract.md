@@ -22,6 +22,7 @@ The wrapper permits these commands: `init`, `status`, `record-policy-rule`,
 `effective-rules`, `prepare-launch`, `record-launch-receipt`,
 `classify-decision`, `record-heartbeat`, `takeover-lease`,
 `record-handback`, `record-archive-receipt`, `reconcile-legacy-archive`,
+`reconcile-stale-present-archive`,
 `recycle-queue`, capacity
 reconciliation, schema 1.2 duration commands, `record-setup-failure`, and
 schema 1.3 `lifecycle-watchdog`. Schema 1.4 authority-transfer commands are
@@ -85,6 +86,11 @@ Response validation intentionally fails on:
 - a legacy archive reconciliation without an exact released claim, current
   revision/fence, pending archive outbox, independent canonical external archive
   proof, or the bridge's bounded proof that the old transport ticket is missing.
+- a stale-present archive reconciliation without one exact safe stale ticket,
+  canonical content/inode proof, released claim, terminal lifecycle, current
+  revision/fence, pending outbox, independent external archive proof, and an
+  authoritative failed/superseded `EMPTY` or exact archived-successor refill
+  chain; cleanup cannot precede the authoritative commit.
 
 ## Closure/refill extension
 

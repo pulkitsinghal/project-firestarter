@@ -510,6 +510,7 @@ for line in sys.stdin:
             "pm_proxy_prepare_launch",
             "pm_proxy_record_archive_receipt",
             "pm_proxy_reconcile_legacy_archive",
+            "pm_proxy_reconcile_stale_present_archive",
             "pm_proxy_record_launch_receipt",
             "pm_proxy_record_refill_receipt",
             "pm_proxy_record_setup_failure",

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -109,6 +110,8 @@ LIFECYCLE_SCHEMAS = {
 LEGACY_ARCHIVE_SCHEMAS = {
     "reconcile-legacy-archive.request.schema.json": "reconcile-legacy-archive-request-1.0.schema.json",
     "reconcile-legacy-archive.response.schema.json": "reconcile-legacy-archive-response-1.0.schema.json",
+    "reconcile-stale-present-archive.request.schema.json": "reconcile-stale-present-archive-request-1.0.schema.json",
+    "reconcile-stale-present-archive.response.schema.json": "reconcile-stale-present-archive-response-1.0.schema.json",
 }
 FEDERATION_SCHEMAS = {
     "authority-transfer-receipt.schema.json": "authority-transfer-receipt-1.0.schema.json",
@@ -543,6 +546,7 @@ def run_cli(
         "record-handback",
         "record-archive-receipt",
         "reconcile-legacy-archive",
+        "reconcile-stale-present-archive",
         "capacity-watchdog",
         "configure-capacity",
         "lifecycle-watchdog",
@@ -1120,6 +1124,236 @@ def require_missing_legacy_transport_ticket(
     }
 
 
+def classify_stale_present_transport_ticket(
+    state_dir: Path,
+    task_id: str,
+    external_thread_id: str,
+    *,
+    now: str,
+) -> dict[str, Any]:
+    """Bind one exact private ticket, or report missing for replay only."""
+
+    if ID_RE.fullmatch(task_id) is None or ID_RE.fullmatch(external_thread_id) is None:
+        raise BridgeError(
+            "LEGACY_ARCHIVE_IDENTITY_INVALID",
+            "stale-present archive identity must use stable identifiers",
+            exit_status=2,
+        )
+    try:
+        ticket_paths = list(state_dir.glob("*.ticket.json"))
+    except OSError as exc:
+        raise BridgeError(
+            "LEGACY_TICKET_AUTHORITY_UNSAFE",
+            "legacy transport ticket authority is unreadable",
+            exit_status=4,
+        ) from exc
+    if len(ticket_paths) > MAX_LEGACY_TICKETS:
+        raise BridgeError(
+            "LEGACY_TICKET_AUTHORITY_UNSAFE",
+            "legacy transport ticket scan exceeds its bounded authority",
+            exit_status=4,
+        )
+
+    exact: list[dict[str, Any]] = []
+    for path in ticket_paths:
+        descriptor = -1
+        try:
+            descriptor = os.open(
+                path,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            )
+            metadata = os.fstat(descriptor)
+            path_metadata = path.lstat()
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or not stat.S_ISREG(path_metadata.st_mode)
+                or metadata.st_dev != path_metadata.st_dev
+                or metadata.st_ino != path_metadata.st_ino
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+                or metadata.st_size < 1
+                or metadata.st_size > MAX_REQUEST_BYTES
+                or (hasattr(os, "getuid") and metadata.st_uid != os.getuid())
+            ):
+                raise ValueError("unsafe ticket metadata")
+            chunks: list[bytes] = []
+            remaining = metadata.st_size + 1
+            while remaining:
+                chunk = os.read(descriptor, min(65_536, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            raw = b"".join(chunks)
+            if len(raw) != metadata.st_size:
+                raise ValueError("ticket size changed during read")
+
+            def no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+                decoded: dict[str, Any] = {}
+                for key, child in pairs:
+                    if key in decoded:
+                        raise ValueError("duplicate ticket key")
+                    decoded[key] = child
+                return decoded
+
+            ticket = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+            if not isinstance(ticket, dict):
+                raise ValueError("ticket is not an object")
+            ticket_task_id = ticket.get("task_id")
+            if (
+                not isinstance(ticket_task_id, str)
+                or ID_RE.fullmatch(ticket_task_id) is None
+                or "receipt" not in ticket
+            ):
+                raise ValueError("ticket identity is malformed")
+            receipt = ticket["receipt"]
+            ticket_external_id = None
+            if receipt is not None:
+                if not isinstance(receipt, dict):
+                    raise ValueError("ticket receipt is malformed")
+                ticket_external_id = receipt.get("external_thread_id")
+                if (
+                    not isinstance(ticket_external_id, str)
+                    or ID_RE.fullmatch(ticket_external_id) is None
+                ):
+                    raise ValueError("ticket receipt identity is malformed")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise BridgeError(
+                "LEGACY_TICKET_AUTHORITY_UNSAFE",
+                "legacy transport ticket authority is malformed or unsafe",
+                exit_status=4,
+            ) from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+        task_matches = ticket_task_id == task_id
+        external_matches = ticket_external_id == external_thread_id
+        if task_matches != external_matches:
+            raise BridgeError(
+                "LEGACY_TICKET_IDENTITY_MISMATCH",
+                "transport ticket matches only part of the canonical identity",
+                exit_status=3,
+            )
+        if task_matches and external_matches:
+            exact.append(
+                {
+                    "ticket_filename": path.name,
+                    "ticket_sha256": hashlib.sha256(raw).hexdigest(),
+                    "ticket_size": metadata.st_size,
+                    "ticket_device": metadata.st_dev,
+                    "ticket_inode": metadata.st_ino,
+                }
+            )
+
+    if len(exact) > 1:
+        raise BridgeError(
+            "LEGACY_TICKET_DUPLICATE",
+            "multiple transport tickets match the canonical task identity",
+            exit_status=3,
+        )
+    common = {
+        "task_id": task_id,
+        "external_thread_id": external_thread_id,
+        "verified_at": now,
+        "scanned_ticket_count": len(ticket_paths),
+    }
+    if not exact:
+        return {
+            **common,
+            "state": "missing",
+            "matching_ticket_count": 0,
+        }
+    return {
+        **common,
+        "state": "stale-present",
+        "matching_ticket_count": 1,
+        **exact[0],
+    }
+
+
+def remove_committed_stale_ticket(
+    state_dir: Path,
+    proof: dict[str, Any],
+    result: dict[str, Any],
+) -> None:
+    """Remove only the exact committed ticket; leave drift untouched."""
+
+    if proof.get("state") == "missing":
+        return
+    filename = proof.get("ticket_filename")
+    if not isinstance(filename, str) or Path(filename).name != filename:
+        raise BridgeError(
+            "LEGACY_TICKET_PATH_INVALID",
+            "committed cleanup ticket path is invalid",
+            exit_status=4,
+        )
+    path = state_dir / filename
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        metadata = os.fstat(descriptor)
+        path_metadata = path.lstat()
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or not stat.S_ISREG(path_metadata.st_mode)
+            or metadata.st_dev != path_metadata.st_dev
+            or metadata.st_ino != path_metadata.st_ino
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_dev != proof.get("ticket_device")
+            or metadata.st_ino != proof.get("ticket_inode")
+            or metadata.st_size != proof.get("ticket_size")
+            or (hasattr(os, "getuid") and metadata.st_uid != os.getuid())
+        ):
+            raise ValueError("ticket metadata drifted")
+        chunks: list[bytes] = []
+        remaining = metadata.st_size + 1
+        while remaining:
+            chunk = os.read(descriptor, min(65_536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if (
+            len(raw) != metadata.st_size
+            or hashlib.sha256(raw).hexdigest() != proof.get("ticket_sha256")
+            or result.get("transport_ticket_filename") != filename
+            or result.get("transport_ticket_sha256")
+            != proof.get("ticket_sha256")
+        ):
+            raise ValueError("ticket content drifted")
+        final_metadata = path.lstat()
+        if (
+            not stat.S_ISREG(final_metadata.st_mode)
+            or final_metadata.st_dev != metadata.st_dev
+            or final_metadata.st_ino != metadata.st_ino
+            or final_metadata.st_size != metadata.st_size
+            or stat.S_IMODE(final_metadata.st_mode) != 0o600
+        ):
+            raise ValueError("ticket path drifted before unlink")
+        path.unlink()
+        directory_descriptor = os.open(
+            state_dir,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    except (OSError, ValueError) as exc:
+        raise BridgeError(
+            "LEGACY_TICKET_POSTCOMMIT_CLEANUP_FAILED",
+            "authoritative archive committed but exact ticket cleanup failed; replay safely",
+            exit_status=4,
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def replace_ticket(path: Path, ticket: dict[str, Any]) -> None:
     descriptor, temporary_name = tempfile.mkstemp(prefix=".ticket-", dir=path.parent)
     temporary = Path(temporary_name)
@@ -1645,6 +1879,9 @@ def build_parser() -> argparse.ArgumentParser:
     legacy_archive = sub.add_parser("reconcile-legacy-archive")
     legacy_archive.add_argument("--request", required=True)
 
+    stale_present_archive = sub.add_parser("reconcile-stale-present-archive")
+    stale_present_archive.add_argument("--request", required=True)
+
     status = sub.add_parser("status")
     status.add_argument("--now")
     return parser
@@ -1771,6 +2008,127 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "MACHINE_RESPONSE_INVALID",
                 "legacy archive reconciliation result is incompatible",
             )
+        return success(operation, result)
+
+    if operation == "reconcile-stale-present-archive":
+        if not schema_at_least(health["schema_version"], (1, 4)):
+            raise BridgeError(
+                "STALE_PRESENT_ARCHIVE_RECONCILIATION_UNAVAILABLE",
+                "stale-present archive reconciliation requires Firestarter schema 1.4",
+                exit_status=2,
+            )
+        request = load_json_file(
+            args.request, "stale-present archive reconciliation request"
+        )
+        required = {
+            "interface_version",
+            "request_id",
+            "task_id",
+            "expected_source_event_key",
+            "external_thread_id",
+            "expected_state_revision",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "owner_claim_id",
+            "expected_archive_outbox_id",
+            "external_archive_proof",
+            "now",
+        }
+        if set(request) != required:
+            raise BridgeError(
+                "SCHEMA_INVALID",
+                "stale-present archive reconciliation request fields are invalid",
+                exit_status=2,
+            )
+        validate_request(request, durable=True)
+        parse_time(request.get("now"))
+        task_id = request.get("task_id")
+        external_thread_id = request.get("external_thread_id")
+        if not isinstance(task_id, str) or not isinstance(external_thread_id, str):
+            raise BridgeError(
+                "LEGACY_ARCHIVE_IDENTITY_INVALID",
+                "stale-present reconciliation requires exact task identities",
+                exit_status=2,
+            )
+        ticket_proof = classify_stale_present_transport_ticket(
+            state_dir,
+            task_id,
+            external_thread_id,
+            now=request.get("now"),
+        )
+        request["transport_ticket_proof"] = ticket_proof
+        result = run_cli(
+            cli,
+            state_dir,
+            "reconcile-stale-present-archive",
+            request=request,
+        )
+        expected_fields = {
+            "request_id",
+            "task_id",
+            "external_thread_id",
+            "state",
+            "archive_outbox_id",
+            "owner_claim_state",
+            "external_archive_state",
+            "transport_ticket_state",
+            "transport_ticket_filename",
+            "transport_ticket_sha256",
+            "transport_ticket_cleanup_state",
+            "reconciliation_class",
+            "previous_state_revision",
+            "committed_state_revision",
+            "current_state_revision",
+            "replayed",
+        }
+        if (
+            set(result) != expected_fields
+            or result.get("request_id") != request["request_id"]
+            or result.get("task_id") != task_id
+            or result.get("external_thread_id") != external_thread_id
+            or result.get("state") != "ARCHIVED"
+            or result.get("archive_outbox_id")
+            != request["expected_archive_outbox_id"]
+            or result.get("owner_claim_state") != "released"
+            or result.get("external_archive_state")
+            != request["external_archive_proof"].get("state")
+            or result.get("transport_ticket_state") != "stale-present"
+            or not isinstance(result.get("transport_ticket_filename"), str)
+            or not isinstance(result.get("transport_ticket_sha256"), str)
+            or result.get("transport_ticket_cleanup_state")
+            != "pending-post-commit"
+            or result.get("reconciliation_class")
+            not in {
+                "RECEIPT_STALE_TERMINAL",
+                "CAPACITY_EMPTY_TERMINAL",
+                "CAPACITY_ARCHIVED_SUCCESSOR_TERMINAL",
+            }
+            or result.get("previous_state_revision")
+            != request["expected_state_revision"]
+            or not isinstance(result.get("committed_state_revision"), int)
+            or result["committed_state_revision"]
+            != result["previous_state_revision"] + 1
+            or not isinstance(result.get("current_state_revision"), int)
+            or result["current_state_revision"]
+            < result["committed_state_revision"]
+            or not isinstance(result.get("replayed"), bool)
+            or (
+                ticket_proof["state"] == "stale-present"
+                and (
+                    result["transport_ticket_filename"]
+                    != ticket_proof["ticket_filename"]
+                    or result["transport_ticket_sha256"]
+                    != ticket_proof["ticket_sha256"]
+                )
+            )
+        ):
+            raise BridgeError(
+                "MACHINE_RESPONSE_INVALID",
+                "stale-present archive reconciliation result is incompatible",
+            )
+        remove_committed_stale_ticket(state_dir, ticket_proof, result)
+        result["transport_ticket_cleanup_state"] = "completed"
         return success(operation, result)
 
     if operation == "route-owner-decision":

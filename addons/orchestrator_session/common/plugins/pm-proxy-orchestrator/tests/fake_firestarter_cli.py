@@ -89,6 +89,7 @@ def default_state() -> dict[str, Any]:
         "capacity": [],
         "lease_expirations": {},
         "legacy_archive_reconciliations": {},
+        "stale_present_archive_reconciliations": {},
         "recycle_revision": 0,
     }
 
@@ -725,6 +726,88 @@ def main() -> int:
                 "replayed": False,
             }
             state["legacy_archive_reconciliations"][request["request_id"]] = {
+                "request_hash": request_hash,
+                "result": result,
+            }
+            authority.commit()
+            return emit(command, result)
+
+        if command == "reconcile-stale-present-archive":
+            semantic = {
+                key: value
+                for key, value in request.items()
+                if key not in {"now", "transport_ticket_proof"}
+            }
+            request_hash = hashlib.sha256(canonical(semantic).encode()).hexdigest()
+            existing = state["stale_present_archive_reconciliations"].get(
+                request.get("request_id")
+            )
+            if existing is not None:
+                if existing["request_hash"] != request_hash:
+                    return deny("IDEMPOTENCY_CONFLICT", "stale-present request changed", 3)
+                replay = dict(existing["result"])
+                replay["replayed"] = True
+                replay["current_state_revision"] = state["revision"]
+                return emit(command, replay)
+            proof = request.get("transport_ticket_proof", {})
+            if proof.get("state") != "stale-present":
+                return deny("LEGACY_TICKET_MISSING", "exact stale ticket required", 3)
+            task = state["tasks"].get(request.get("task_id"))
+            if (
+                task is None
+                or task["state"] != "ARCHIVE_PENDING"
+                or not receipt_matches(task, request)
+                or task.get("external_thread_id") != request.get("external_thread_id")
+                or task.get("owner_claim_status") != "released"
+            ):
+                return deny("LEGACY_ARCHIVE_IDENTITY_MISMATCH", "stale task mismatch", 3)
+            archive = [
+                item
+                for item in state["outbox"].values()
+                if item["task_id"] == task["task_id"]
+                and item["kind"] == "ARCHIVE_THREAD"
+            ]
+            if (
+                len(archive) != 1
+                or archive[0]["outbox_id"]
+                != request.get("expected_archive_outbox_id")
+                or archive[0]["state"] != "PENDING"
+            ):
+                return deny("LEGACY_ARCHIVE_OUTBOX_INVALID", "stale outbox mismatch", 3)
+            previous_revision = state["revision"]
+            if previous_revision != request.get("expected_state_revision"):
+                return deny("STATE_REVISION_CONFLICT", "stale revision changed", 3)
+            disposition = task.get("terminal_disposition")
+            if disposition == "failed":
+                reconciliation_class = "RECEIPT_STALE_TERMINAL"
+            elif disposition == "superseded":
+                reconciliation_class = "CAPACITY_EMPTY_TERMINAL"
+            else:
+                return deny("LEGACY_ARCHIVE_CLASS_UNSUPPORTED", "normal route owns task", 3)
+            task["state"] = "ARCHIVED"
+            task["updated_at"] = request["now"]
+            archive[0]["state"] = "completed"
+            archive[0]["updated_at"] = request["now"]
+            state["revision"] += 1
+            result = {
+                "request_id": request["request_id"],
+                "task_id": task["task_id"],
+                "external_thread_id": request["external_thread_id"],
+                "state": "ARCHIVED",
+                "archive_outbox_id": archive[0]["outbox_id"],
+                "owner_claim_state": "released",
+                "external_archive_state": request["external_archive_proof"]["state"],
+                "transport_ticket_state": "stale-present",
+                "transport_ticket_filename": proof["ticket_filename"],
+                "transport_ticket_sha256": proof["ticket_sha256"],
+                "transport_ticket_cleanup_state": "pending-post-commit",
+                "reconciliation_class": reconciliation_class,
+                "previous_state_revision": previous_revision,
+                "committed_state_revision": state["revision"],
+                "current_state_revision": state["revision"],
+                "replayed": False,
+            }
+            state["stale_present_archive_reconciliations"][request["request_id"]] = {
                 "request_hash": request_hash,
                 "result": result,
             }

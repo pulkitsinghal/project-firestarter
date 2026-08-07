@@ -422,6 +422,7 @@ class McpServerTest(unittest.TestCase):
             {
                 "pm_proxy_acknowledge_control_schema_hold",
                 "pm_proxy_reconcile_legacy_archive",
+                "pm_proxy_reconcile_stale_present_archive",
                 "pm_proxy_record_setup_failure",
                 "pm_proxy_route_owner_decision",
             }.issubset(names)
@@ -721,6 +722,128 @@ class McpServerTest(unittest.TestCase):
             "pm_proxy_reconcile_legacy_archive", arguments
         )["result"]["structuredContent"]["result"]
         self.assertTrue(replayed["replayed"])
+
+    def test_stale_present_archive_mcp_commits_then_removes_and_replays(self) -> None:
+        self.adopt_current_plugin("stale-present-archive-adoption")
+        ticket_id = "stale-present-archive-ticket"
+        task_id = "stale-present-archive-task"
+        ticket = self.prepare_receipted_task(
+            ticket_id=ticket_id,
+            task_id=task_id,
+            fence=58,
+        )
+        self.set_expired_terminal_evidence(
+            task_id=task_id,
+            worker_status="completed",
+            signal="objective-complete",
+        )
+        handback = handback_request(
+            task_id=task_id,
+            handback_id="stale-present-archive-handback",
+            now=iso(minutes=2),
+        )
+        handback["disposition"] = "failed"
+        for key in ("policy_snapshot_revision", "lease_epoch", "fencing_token"):
+            handback[key] = ticket[key]
+        handback["resources"] = [
+            {
+                "id": ticket["owner_claim_id"],
+                "disposition": "removed",
+                "reason": "synthetic stale-present owner claim released",
+                "bytes": 0,
+            }
+        ]
+        closed = self.call(
+            "pm_proxy_close_and_refill",
+            {
+                **self.common(),
+                "predecessor_ticket_id": ticket_id,
+                "handback_request": handback,
+                "refill_request": refill_request(
+                    request_id="stale-present-archive-refill",
+                    capacity=4,
+                    now=iso(minutes=2),
+                ),
+            },
+        )["result"]
+        self.assertIsNot(closed.get("isError"), True, closed)
+        database = self.state / "orchestrator.sqlite3"
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO lifecycle_watchdog(
+                     task_id,lifecycle_state,worker_status,completion_signals_json,
+                     evidence_refs_json,remaining_work_json,progress_ref,
+                     progress_observed_at,handback_deadline_checks,
+                     handback_deadline_limit,required_action,
+                     interrupt_receipt_id,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    task_id,
+                    "COMPLETED",
+                    "completed",
+                    '["objective-complete"]',
+                    '["synthetic-stale-present-handback"]',
+                    None,
+                    None,
+                    None,
+                    0,
+                    2,
+                    "ARCHIVE",
+                    None,
+                    iso(minutes=33),
+                ),
+            )
+        status = self.call(
+            "pm_proxy_status", {**self.common(), "now": iso(minutes=34)}
+        )["result"]["structuredContent"]["result"]
+        task = next(item for item in status["tasks"] if item["task_id"] == task_id)
+        archive = next(
+            item
+            for item in status["outbox"]
+            if item["task_id"] == task_id and item["kind"] == "ARCHIVE_THREAD"
+        )
+        ticket_path = self.state / f"{ticket_id}.ticket.json"
+        self.assertTrue(ticket_path.exists())
+        arguments = {
+            **self.common(),
+            "request_id": "stale-present-archive-reconciliation",
+            "task_id": task_id,
+            "expected_source_event_key": ticket_id,
+            "external_thread_id": f"thread-{task_id}",
+            "expected_state_revision": status["revision"],
+            "policy_snapshot_revision": task["receipt_fence"][
+                "policy_snapshot_revision"
+            ],
+            "lease_epoch": task["receipt_fence"]["lease_epoch"],
+            "fencing_token": task["receipt_fence"]["fencing_token"],
+            "owner_claim_id": task["receipt_fence"]["owner_claim_id"],
+            "expected_archive_outbox_id": archive["outbox_id"],
+            "external_archive_proof": {
+                "external_thread_id": f"thread-{task_id}",
+                "state": "archived",
+                "observation_source": "external-task-api",
+                "observed_at": iso(minutes=34),
+                "evidence_refs": ["external-task-read-archived"],
+            },
+            "now": iso(minutes=35),
+        }
+        reconciled = self.call(
+            "pm_proxy_reconcile_stale_present_archive", arguments
+        )["result"]
+        self.assertIsNot(reconciled.get("isError"), True, reconciled)
+        result = reconciled["structuredContent"]["result"]
+        self.assertEqual("ARCHIVED", result["state"])
+        self.assertEqual("RECEIPT_STALE_TERMINAL", result["reconciliation_class"])
+        self.assertEqual("completed", result["transport_ticket_cleanup_state"])
+        self.assertFalse(result["replayed"])
+        self.assertFalse(ticket_path.exists())
+
+        replayed = self.call(
+            "pm_proxy_reconcile_stale_present_archive", arguments
+        )["result"]["structuredContent"]["result"]
+        self.assertTrue(replayed["replayed"])
+        self.assertEqual("completed", replayed["transport_ticket_cleanup_state"])
+        self.assertFalse(ticket_path.exists())
 
     def test_screen_sanitizer_fence_41_local_artifact_uses_control_validation(self) -> None:
         self.adopt_current_plugin("screen-sanitizer-fence-41-adoption")

@@ -65,6 +65,7 @@ REQUIRED_TOOLS = {
     "pm_proxy_prepare_launch",
     "pm_proxy_record_archive_receipt",
     "pm_proxy_reconcile_legacy_archive",
+    "pm_proxy_reconcile_stale_present_archive",
     "pm_proxy_record_launch_receipt",
     "pm_proxy_record_refill_receipt",
     "pm_proxy_record_setup_failure",
@@ -85,6 +86,7 @@ PROMPT_FREE_CONTROL_TOOLS = (
     "pm_proxy_prepare_launch",
     "pm_proxy_record_archive_receipt",
     "pm_proxy_reconcile_legacy_archive",
+    "pm_proxy_reconcile_stale_present_archive",
     "pm_proxy_record_launch_receipt",
     "pm_proxy_record_refill_receipt",
     "pm_proxy_record_setup_failure",
@@ -1087,6 +1089,27 @@ def process_command(pid: Any) -> str | None:
     return value if completed.returncode == 0 and value else None
 
 
+def proc_process_arguments(pid: Any) -> tuple[str, ...] | None:
+    """Read exact Linux argv tokens when the minimal image has no ps binary."""
+
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1:
+        return None
+    path = Path("/proc") / str(pid) / "cmdline"
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    if not raw or len(raw) > 1_048_576:
+        return None
+    try:
+        arguments = tuple(
+            item.decode("utf-8") for item in raw.split(b"\0") if item
+        )
+    except UnicodeDecodeError:
+        return None
+    return arguments or None
+
+
 def command_has_argument(command: str, argument: str) -> bool:
     """Match one exact ps-rendered argument without accepting prefix collisions."""
 
@@ -1104,7 +1127,13 @@ def process_matches(pid: Any, *arguments: Any) -> bool:
     if not arguments or any(not isinstance(item, str) or not item for item in arguments):
         return False
     command = process_command(pid)
-    return bool(command and all(command_has_argument(command, item) for item in arguments))
+    if command and all(command_has_argument(command, item) for item in arguments):
+        return True
+    exact_arguments = proc_process_arguments(pid)
+    return bool(
+        exact_arguments is not None
+        and all(item in exact_arguments for item in arguments)
+    )
 
 
 def desktop_process_matches(session: Mapping[str, Any]) -> bool:

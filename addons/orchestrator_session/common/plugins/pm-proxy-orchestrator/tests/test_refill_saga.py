@@ -865,6 +865,44 @@ class RefillSagaTestCase(unittest.TestCase):
         self.assertEqual(0, replayed.returncode, replayed.stderr)
         self.assertTrue(json.loads(replayed.stdout)["result"]["replayed"])
 
+    def test_stale_present_archive_reconciliation_commits_then_unlinks_and_replays(self):
+        predecessor = self.start_predecessor("-stale-present-route")
+        request = self.close_for_legacy_archive(predecessor, "stale-present-route")
+        state_path = self.state / "fake-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["tasks"]["task-predecessor-stale-present-route"][
+            "terminal_disposition"
+        ] = "failed"
+        state_path.write_text(
+            json.dumps(state, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+        reconciled = self.run_script(
+            BRIDGE,
+            "reconcile-stale-present-archive",
+            "--request",
+            str(request),
+        )
+        self.assertEqual(0, reconciled.returncode, reconciled.stderr)
+        result = json.loads(reconciled.stdout)["result"]
+        self.assertEqual("ARCHIVED", result["state"])
+        self.assertEqual("RECEIPT_STALE_TERMINAL", result["reconciliation_class"])
+        self.assertEqual("completed", result["transport_ticket_cleanup_state"])
+        self.assertFalse(result["replayed"])
+        self.assertFalse(predecessor.exists())
+
+        replayed = self.run_script(
+            BRIDGE,
+            "reconcile-stale-present-archive",
+            "--request",
+            str(request),
+        )
+        self.assertEqual(0, replayed.returncode, replayed.stderr)
+        replay_result = json.loads(replayed.stdout)["result"]
+        self.assertTrue(replay_result["replayed"])
+        self.assertEqual("completed", replay_result["transport_ticket_cleanup_state"])
+        self.assertFalse(predecessor.exists())
+
     def test_legacy_archive_reconciliation_rejects_mismatched_and_unsafe_tickets(self):
         predecessor = self.start_predecessor("-legacy-mismatch")
         request = self.close_for_legacy_archive(predecessor, "mismatch")

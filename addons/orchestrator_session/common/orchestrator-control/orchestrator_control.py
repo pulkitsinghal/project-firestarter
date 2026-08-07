@@ -1142,6 +1142,18 @@ CREATE TABLE IF NOT EXISTS legacy_archive_reconciliations (
   result_json TEXT NOT NULL,
   recorded_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS stale_present_archive_reconciliations (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+  external_thread_id TEXT NOT NULL,
+  expected_state_revision INTEGER NOT NULL,
+  ticket_filename TEXT NOT NULL,
+  ticket_sha256 TEXT NOT NULL,
+  reconciliation_class TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS dispatcher_adoptions (
   request_id TEXT PRIMARY KEY,
   request_hash TEXT NOT NULL,
@@ -5620,6 +5632,772 @@ class Plane:
         finally:
             connection.close()
 
+    def _scan_stale_archive_ticket(
+        self, request: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Recheck the bounded private ticket authority without following links."""
+
+        proof = request["transport_ticket_proof"]
+        try:
+            ticket_paths = list(self.state_dir.glob("*.ticket.json"))
+        except OSError as exc:
+            fail(
+                "LEGACY_TICKET_AUTHORITY_UNSAFE",
+                "legacy transport ticket authority is unreadable",
+                exit_status=EXIT_STATE,
+            )
+            raise AssertionError("unreachable") from exc
+        if len(ticket_paths) > 4_096:
+            fail(
+                "LEGACY_TICKET_AUTHORITY_UNSAFE",
+                "legacy transport ticket scan exceeds its bounded authority",
+                exit_status=EXIT_STATE,
+            )
+        if len(ticket_paths) != proof["scanned_ticket_count"]:
+            fail(
+                "LEGACY_TICKET_CONTENT_DRIFT",
+                "transport ticket authority changed after its bounded proof",
+                exit_status=EXIT_CONFLICT,
+            )
+
+        exact: list[dict[str, Any]] = []
+        for path in ticket_paths:
+            descriptor = -1
+            try:
+                descriptor = os.open(
+                    path,
+                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                )
+                metadata = os.fstat(descriptor)
+                path_metadata = path.lstat()
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or not stat.S_ISREG(path_metadata.st_mode)
+                    or metadata.st_dev != path_metadata.st_dev
+                    or metadata.st_ino != path_metadata.st_ino
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_size < 1
+                    or metadata.st_size > MAX_JSON_BYTES
+                    or (
+                        hasattr(os, "getuid")
+                        and metadata.st_uid != os.getuid()
+                    )
+                ):
+                    raise ValueError("unsafe ticket metadata")
+                chunks: list[bytes] = []
+                remaining = metadata.st_size + 1
+                while remaining:
+                    chunk = os.read(descriptor, min(65_536, remaining))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                raw = b"".join(chunks)
+                if len(raw) != metadata.st_size:
+                    raise ValueError("ticket size changed during read")
+
+                def no_duplicate_keys(
+                    pairs: list[tuple[str, Any]],
+                ) -> dict[str, Any]:
+                    decoded: dict[str, Any] = {}
+                    for key, child in pairs:
+                        if key in decoded:
+                            raise ValueError("duplicate ticket key")
+                        decoded[key] = child
+                    return decoded
+
+                ticket = json.loads(
+                    raw,
+                    object_pairs_hook=no_duplicate_keys,
+                )
+                if not isinstance(ticket, dict):
+                    raise ValueError("ticket is not an object")
+                ticket_task_id = ticket.get("task_id")
+                if (
+                    not isinstance(ticket_task_id, str)
+                    or ID_RE.fullmatch(ticket_task_id) is None
+                    or "receipt" not in ticket
+                ):
+                    raise ValueError("ticket identity is malformed")
+                receipt = ticket["receipt"]
+                ticket_external_id = None
+                if receipt is not None:
+                    if not isinstance(receipt, dict):
+                        raise ValueError("ticket receipt is malformed")
+                    ticket_external_id = receipt.get("external_thread_id")
+                    if (
+                        not isinstance(ticket_external_id, str)
+                        or ID_RE.fullmatch(ticket_external_id) is None
+                    ):
+                        raise ValueError("ticket receipt identity is malformed")
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                fail(
+                    "LEGACY_TICKET_AUTHORITY_UNSAFE",
+                    "legacy transport ticket authority is malformed or unsafe",
+                    exit_status=EXIT_STATE,
+                )
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+
+            task_matches = ticket_task_id == request["task_id"]
+            external_matches = ticket_external_id == request["external_thread_id"]
+            if task_matches != external_matches:
+                fail(
+                    "LEGACY_TICKET_IDENTITY_MISMATCH",
+                    "transport ticket matches only part of the canonical identity",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if task_matches and external_matches:
+                exact.append(
+                    {
+                        "path": path,
+                        "filename": path.name,
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "size": metadata.st_size,
+                        "device": metadata.st_dev,
+                        "inode": metadata.st_ino,
+                        "ticket": ticket,
+                    }
+                )
+
+        if len(exact) > 1:
+            fail(
+                "LEGACY_TICKET_DUPLICATE",
+                "multiple transport tickets match the canonical task identity",
+                exit_status=EXIT_CONFLICT,
+            )
+        if proof["state"] == "missing":
+            if exact:
+                fail(
+                    "LEGACY_TICKET_CONTENT_DRIFT",
+                    "a matching ticket appeared after the missing-ticket proof",
+                    exit_status=EXIT_CONFLICT,
+                )
+            return None
+        if not exact:
+            fail(
+                "LEGACY_TICKET_CONTENT_DRIFT",
+                "the exact stale-present ticket disappeared before reconciliation",
+                exit_status=EXIT_CONFLICT,
+            )
+        snapshot = exact[0]
+        if (
+            proof["matching_ticket_count"] != 1
+            or snapshot["filename"] != proof["ticket_filename"]
+            or snapshot["sha256"] != proof["ticket_sha256"]
+            or snapshot["size"] != proof["ticket_size"]
+            or snapshot["device"] != proof["ticket_device"]
+            or snapshot["inode"] != proof["ticket_inode"]
+        ):
+            fail(
+                "LEGACY_TICKET_CONTENT_DRIFT",
+                "the exact ticket path or content changed after its bounded proof",
+                exit_status=EXIT_CONFLICT,
+            )
+        return snapshot
+
+    @staticmethod
+    def _validate_stale_archive_ticket_content(
+        *,
+        request: dict[str, Any],
+        task: sqlite3.Row,
+        claim: sqlite3.Row,
+        launch: sqlite3.Row,
+        create_outbox: sqlite3.Row,
+        snapshot: dict[str, Any],
+    ) -> None:
+        ticket = snapshot["ticket"]
+        expected_fields = {
+            "ticket_version",
+            "control_schema_version",
+            "task_id",
+            "source_event_key",
+            "outcome_key",
+            "issued_at",
+            "receipt_deadline",
+            "lease_expires_at",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "applicable_rule_ids",
+            "runtime_policy",
+            "outbox",
+            "receipt",
+            "last_heartbeat_at",
+            "handback",
+            "duration_estimate",
+            "owner_claim_id",
+        }
+        try:
+            envelope = json.loads(launch["envelope_json"])
+            launch_receipt = json.loads(launch["receipt_json"])
+            create_payload = json.loads(create_outbox["payload_json"])
+            task_rule_ids = json.loads(task["applicable_rule_ids_json"])
+        except (TypeError, json.JSONDecodeError):
+            fail(
+                "LEGACY_ARCHIVE_EXTERNAL_RECEIPT_INVALID",
+                "canonical launch authority is malformed",
+                exit_status=EXIT_STATE,
+            )
+        receipt = ticket.get("receipt")
+        handback = ticket.get("handback")
+        ticket_rule_ids = ticket.get("applicable_rule_ids")
+        expected_runtime = envelope.get("receipt_required", {}).get(
+            "runtime_policy"
+        )
+        exact_create_outbox = {
+            "outbox_id": create_outbox["outbox_id"],
+            "kind": "CREATE_THREAD",
+        }
+        ticket_exact = (
+            set(ticket) == expected_fields
+            and ticket.get("ticket_version") == "1.3"
+            and ticket.get("control_schema_version") == "1.4"
+            and ticket.get("task_id") == request["task_id"]
+            and ticket.get("source_event_key")
+            == request["expected_source_event_key"]
+            and ticket.get("outcome_key") == task["outcome_key"]
+            and ticket.get("issued_at") == envelope.get("issued_at")
+            and ticket.get("policy_snapshot_revision")
+            == request["policy_snapshot_revision"]
+            and ticket.get("lease_epoch") == request["lease_epoch"]
+            and ticket.get("fencing_token") == request["fencing_token"]
+            and ticket.get("owner_claim_id") == request["owner_claim_id"]
+            and ticket.get("lease_expires_at") == claim["expires_at"]
+            and isinstance(ticket_rule_ids, list)
+            and all(isinstance(rule_id, str) for rule_id in ticket_rule_ids)
+            and len(ticket_rule_ids) == len(set(ticket_rule_ids))
+            and ticket_rule_ids == launch_receipt.get("applicable_rule_ids")
+            and set(ticket_rule_ids) == set(task_rule_ids)
+            and len(ticket_rule_ids) == len(task_rule_ids)
+            and ticket.get("runtime_policy") == expected_runtime
+            and ticket.get("duration_estimate")
+            == envelope.get("duration_estimate")
+            and ticket.get("outbox") == exact_create_outbox
+            and create_payload.get("task_id") == request["task_id"]
+            and create_payload.get("source_event_key")
+            == request["expected_source_event_key"]
+            and isinstance(receipt, dict)
+            and set(receipt)
+            == {"external_thread_id", "recorded_at", "runtime_attestation"}
+            and receipt.get("external_thread_id") == request["external_thread_id"]
+            and receipt.get("external_thread_id")
+            == launch_receipt.get("external_thread_id")
+            and receipt.get("recorded_at") == launch_receipt.get("now")
+            and receipt.get("runtime_attestation")
+            == launch_receipt.get("runtime_attestation")
+            and isinstance(handback, dict)
+            and set(handback) == {"recorded_at", "state"}
+            and handback.get("state") == "ARCHIVE_PENDING"
+            and handback.get("recorded_at") == task["updated_at"]
+        )
+        if not ticket_exact:
+            fail(
+                "LEGACY_TICKET_IDENTITY_MISMATCH",
+                "stale-present ticket content does not match canonical authority",
+                exit_status=EXIT_CONFLICT,
+            )
+        try:
+            stale = utc_instant(ticket["lease_expires_at"]) <= utc_instant(
+                request["now"]
+            )
+        except (TypeError, ValueError):
+            stale = False
+        if not stale:
+            fail(
+                "LEGACY_TICKET_FRESH",
+                "a fresh transport ticket must use the normal archive route",
+                exit_status=EXIT_CONFLICT,
+            )
+
+    @staticmethod
+    def _classify_stale_archive_refill(
+        connection: sqlite3.Connection,
+        task: sqlite3.Row,
+    ) -> str:
+        try:
+            closure = json.loads(task["closure_json"])
+        except (TypeError, json.JSONDecodeError):
+            closure = None
+        saga_rows = connection.execute(
+            "SELECT * FROM capacity_sagas WHERE task_id=?",
+            (task["task_id"],),
+        ).fetchall()
+        if len(saga_rows) != 1 or not isinstance(closure, dict):
+            fail(
+                "LEGACY_ARCHIVE_REFILL_AMBIGUOUS",
+                "one exact terminal closure and refill saga are required",
+                exit_status=EXIT_CONFLICT,
+            )
+        saga = saga_rows[0]
+        evidence_refs = json.loads(saga["evidence_refs_json"])
+        if not bool(saga["clean_handback"]) or not evidence_refs:
+            fail(
+                "LEGACY_ARCHIVE_REFILL_AMBIGUOUS",
+                "stale-present reconciliation requires clean refill evidence",
+                exit_status=EXIT_CONFLICT,
+            )
+        disposition = closure.get("disposition")
+        if saga["outcome"] == "EMPTY":
+            if (
+                saga["runnable_queue_count"] != 0
+                or saga["successor_task_id"] is not None
+                or bool(saga["successor_receipted"])
+            ):
+                fail(
+                    "LEGACY_ARCHIVE_REFILL_AMBIGUOUS",
+                    "EMPTY refill proof carries contradictory successor state",
+                    exit_status=EXIT_CONFLICT,
+                )
+            if disposition == "failed":
+                return "RECEIPT_STALE_TERMINAL"
+            if disposition == "superseded":
+                return "CAPACITY_EMPTY_TERMINAL"
+            fail(
+                "LEGACY_ARCHIVE_CLASS_UNSUPPORTED",
+                "the normal archive route owns this terminal disposition",
+                exit_status=EXIT_CONFLICT,
+            )
+        if saga["outcome"] != "SUCCESSOR_RECEIPTED" or disposition != "superseded":
+            fail(
+                "LEGACY_ARCHIVE_REFILL_AMBIGUOUS",
+                "refill proof is not an admissible terminal stale-present class",
+                exit_status=EXIT_CONFLICT,
+            )
+        successor_task_id = saga["successor_task_id"]
+        if (
+            not isinstance(successor_task_id, str)
+            or successor_task_id == task["task_id"]
+            or not bool(saga["successor_receipted"])
+        ):
+            fail(
+                "LEGACY_ARCHIVE_SUCCESSOR_INVALID",
+                "refill saga does not identify one exact receipted successor",
+                exit_status=EXIT_CONFLICT,
+            )
+        linked_sagas = connection.execute(
+            "SELECT saga_id,task_id FROM capacity_sagas WHERE successor_task_id=?",
+            (successor_task_id,),
+        ).fetchall()
+        successor = connection.execute(
+            "SELECT * FROM tasks WHERE task_id=?",
+            (successor_task_id,),
+        ).fetchone()
+        successor_claims = connection.execute(
+            "SELECT * FROM owner_claims WHERE task_id=?",
+            (successor_task_id,),
+        ).fetchall()
+        successor_launch = connection.execute(
+            "SELECT receipt_json FROM launches WHERE task_id=?",
+            (successor_task_id,),
+        ).fetchone()
+        successor_lifecycle = connection.execute(
+            "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+            (successor_task_id,),
+        ).fetchone()
+        successor_archive = connection.execute(
+            "SELECT * FROM outbox WHERE task_id=? AND kind='ARCHIVE_THREAD'",
+            (successor_task_id,),
+        ).fetchall()
+        successor_create = connection.execute(
+            "SELECT * FROM outbox WHERE task_id=? AND kind='CREATE_THREAD'",
+            (successor_task_id,),
+        ).fetchall()
+        try:
+            successor_receipt = (
+                None
+                if successor_launch is None
+                else json.loads(successor_launch["receipt_json"])
+            )
+            archive_payload = (
+                None
+                if len(successor_archive) != 1
+                else json.loads(successor_archive[0]["payload_json"])
+            )
+        except (TypeError, json.JSONDecodeError):
+            successor_receipt = None
+            archive_payload = None
+        exact_successor = (
+            len(linked_sagas) == 1
+            and linked_sagas[0]["saga_id"] == saga["saga_id"]
+            and linked_sagas[0]["task_id"] == task["task_id"]
+            and successor is not None
+            and successor["state"] == "ARCHIVED"
+            and len(successor_claims) == 1
+            and successor_claims[0]["status"] == "released"
+            and successor_claims[0]["lease_epoch"] == successor["lease_epoch"]
+            and successor_claims[0]["fencing_token"]
+            == successor["fencing_token"]
+            and isinstance(successor_receipt, dict)
+            and successor_receipt.get("external_thread_id")
+            == successor["external_thread_id"]
+            and successor_lifecycle is not None
+            and successor_lifecycle["lifecycle_state"] == "COMPLETED"
+            and successor_lifecycle["worker_status"] == "completed"
+            and successor_lifecycle["remaining_work_json"] is None
+            and successor_lifecycle["required_action"] == "ARCHIVE"
+            and len(successor_archive) == 1
+            and successor_archive[0]["state"] == "completed"
+            and archive_payload
+            == {
+                "task_id": successor_task_id,
+                "external_thread_id": successor["external_thread_id"],
+            }
+            and len(successor_create) == 1
+            and successor_create[0]["state"] == "completed"
+        )
+        if not exact_successor:
+            fail(
+                "LEGACY_ARCHIVE_SUCCESSOR_INVALID",
+                "receipted successor chain is partial, mismatched, or nonterminal",
+                exit_status=EXIT_CONFLICT,
+            )
+        return "CAPACITY_ARCHIVED_SUCCESSOR_TERMINAL"
+
+    def reconcile_stale_present_archive(self, raw: Any) -> dict[str, Any]:
+        request = validate_stale_present_archive_reconciliation(raw)
+        semantic_request = {
+            key: value
+            for key, value in request.items()
+            if key not in {"now", "transport_ticket_proof"}
+        }
+        request_hash = digest(semantic_request)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(
+                connection, "reconcile-stale-present-archive"
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS stale_present_archive_reconciliations (
+                     request_id TEXT PRIMARY KEY,
+                     request_hash TEXT NOT NULL,
+                     task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+                     external_thread_id TEXT NOT NULL,
+                     expected_state_revision INTEGER NOT NULL,
+                     ticket_filename TEXT NOT NULL,
+                     ticket_sha256 TEXT NOT NULL,
+                     reconciliation_class TEXT NOT NULL,
+                     result_json TEXT NOT NULL,
+                     recorded_at TEXT NOT NULL
+                   )"""
+            )
+            snapshot = self._scan_stale_archive_ticket(request)
+            existing = connection.execute(
+                """SELECT * FROM stale_present_archive_reconciliations
+                   WHERE request_id=?""",
+                (request["request_id"],),
+            ).fetchone()
+            if existing is not None:
+                if existing["request_hash"] != request_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "stale-present archive reconciliation request input changed",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                if snapshot is not None and (
+                    snapshot["filename"] != existing["ticket_filename"]
+                    or snapshot["sha256"] != existing["ticket_sha256"]
+                ):
+                    fail(
+                        "LEGACY_TICKET_CONTENT_DRIFT",
+                        "replay ticket content differs from the committed proof",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                replay = json.loads(existing["result_json"])
+                task = connection.execute(
+                    "SELECT * FROM tasks WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchone()
+                claims = connection.execute(
+                    "SELECT * FROM owner_claims WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchall()
+                lifecycle = connection.execute(
+                    "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchone()
+                archive = connection.execute(
+                    "SELECT * FROM outbox WHERE task_id=? AND kind='ARCHIVE_THREAD'",
+                    (request["task_id"],),
+                ).fetchall()
+                archive_payload = (
+                    None
+                    if len(archive) != 1
+                    else json.loads(archive[0]["payload_json"])
+                )
+                reconciliation_class = self._classify_stale_archive_refill(
+                    connection, task
+                ) if task is not None else None
+                if (
+                    task is None
+                    or task["state"] != "ARCHIVED"
+                    or task["source_event_key"]
+                    != request["expected_source_event_key"]
+                    or task["external_thread_id"] != request["external_thread_id"]
+                    or task["policy_revision"]
+                    != request["policy_snapshot_revision"]
+                    or task["lease_epoch"] != request["lease_epoch"]
+                    or task["fencing_token"] != request["fencing_token"]
+                    or len(claims) != 1
+                    or claims[0]["claim_id"] != request["owner_claim_id"]
+                    or claims[0]["status"] != "released"
+                    or lifecycle is None
+                    or lifecycle["lifecycle_state"] != "COMPLETED"
+                    or lifecycle["worker_status"] != "completed"
+                    or lifecycle["remaining_work_json"] is not None
+                    or lifecycle["required_action"] != "ARCHIVE"
+                    or len(archive) != 1
+                    or archive[0]["outbox_id"]
+                    != request["expected_archive_outbox_id"]
+                    or archive[0]["state"] != "completed"
+                    or archive_payload
+                    != {
+                        "task_id": request["task_id"],
+                        "external_thread_id": request["external_thread_id"],
+                    }
+                    or reconciliation_class != existing["reconciliation_class"]
+                ):
+                    fail(
+                        "STATE_CORRUPT",
+                        "stale-present archive replay no longer matches authority",
+                        exit_status=EXIT_STATE,
+                    )
+                replay["replayed"] = True
+                replay["current_state_revision"] = int(
+                    self.metadata(connection, "revision")
+                )
+                connection.commit()
+                return replay
+
+            if snapshot is None:
+                fail(
+                    "LEGACY_TICKET_MISSING",
+                    "stale-present reconciliation requires one exact ticket; use the missing-ticket route",
+                    exit_status=EXIT_CONFLICT,
+                )
+            prior = connection.execute(
+                """SELECT request_id FROM stale_present_archive_reconciliations
+                   WHERE task_id=?""",
+                (request["task_id"],),
+            ).fetchone()
+            if prior is not None:
+                fail(
+                    "STALE_PRESENT_ARCHIVE_ALREADY_RECONCILED",
+                    "task already has a different stale-present reconciliation",
+                    exit_status=EXIT_CONFLICT,
+                )
+            current_revision = int(self.metadata(connection, "revision"))
+            if request["expected_state_revision"] != current_revision:
+                fail(
+                    "STATE_REVISION_CONFLICT",
+                    "stale-present archive state revision is stale",
+                    exit_status=EXIT_CONFLICT,
+                    details={"current_state_revision": current_revision},
+                )
+            task = connection.execute(
+                "SELECT * FROM tasks WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if (
+                task is None
+                or task["state"] != "ARCHIVE_PENDING"
+                or task["source_event_key"]
+                != request["expected_source_event_key"]
+                or task["external_thread_id"] != request["external_thread_id"]
+                or task["policy_revision"]
+                != request["policy_snapshot_revision"]
+                or task["lease_epoch"] != request["lease_epoch"]
+                or task["fencing_token"] != request["fencing_token"]
+            ):
+                fail(
+                    "LEGACY_ARCHIVE_IDENTITY_MISMATCH",
+                    "stale-present task identity or fence does not match authority",
+                    exit_status=EXIT_CONFLICT,
+                )
+            claims = connection.execute(
+                "SELECT * FROM owner_claims WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchall()
+            if (
+                len(claims) != 1
+                or claims[0]["claim_id"] != request["owner_claim_id"]
+                or claims[0]["status"] != "released"
+                or claims[0]["lease_epoch"] != request["lease_epoch"]
+                or claims[0]["fencing_token"] != request["fencing_token"]
+            ):
+                fail(
+                    "LEGACY_ARCHIVE_CLAIM_INVALID",
+                    "stale-present reconciliation requires the exact released claim",
+                    exit_status=EXIT_CONFLICT,
+                )
+            launch = connection.execute(
+                "SELECT envelope_json,receipt_json FROM launches WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            create_outbox = connection.execute(
+                "SELECT * FROM outbox WHERE task_id=? AND kind='CREATE_THREAD'",
+                (request["task_id"],),
+            ).fetchall()
+            if launch is None or launch["receipt_json"] is None or len(create_outbox) != 1:
+                fail(
+                    "LEGACY_ARCHIVE_EXTERNAL_RECEIPT_INVALID",
+                    "stale-present reconciliation requires the canonical launch receipt",
+                    exit_status=EXIT_CONFLICT,
+                )
+            lifecycle = connection.execute(
+                "SELECT * FROM lifecycle_watchdog WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchone()
+            if (
+                lifecycle is None
+                or lifecycle["lifecycle_state"] != "COMPLETED"
+                or lifecycle["worker_status"] != "completed"
+                or lifecycle["remaining_work_json"] is not None
+                or lifecycle["required_action"] != "ARCHIVE"
+            ):
+                fail(
+                    "LEGACY_ARCHIVE_LIFECYCLE_INVALID",
+                    "stale-present reconciliation requires completed terminal lifecycle evidence",
+                    exit_status=EXIT_CONFLICT,
+                )
+            archive = connection.execute(
+                "SELECT * FROM outbox WHERE task_id=? AND kind='ARCHIVE_THREAD'",
+                (request["task_id"],),
+            ).fetchall()
+            archive_payload = (
+                None
+                if len(archive) != 1
+                else json.loads(archive[0]["payload_json"])
+            )
+            if (
+                len(archive) != 1
+                or archive[0]["outbox_id"]
+                != request["expected_archive_outbox_id"]
+                or archive[0]["state"] != "pending"
+                or archive_payload
+                != {
+                    "task_id": request["task_id"],
+                    "external_thread_id": request["external_thread_id"],
+                }
+            ):
+                fail(
+                    "LEGACY_ARCHIVE_OUTBOX_INVALID",
+                    "stale-present reconciliation requires the exact pending archive outbox",
+                    exit_status=EXIT_CONFLICT,
+                )
+            self._validate_stale_archive_ticket_content(
+                request=request,
+                task=task,
+                claim=claims[0],
+                launch=launch,
+                create_outbox=create_outbox[0],
+                snapshot=snapshot,
+            )
+            reconciliation_class = self._classify_stale_archive_refill(
+                connection, task
+            )
+            # Re-read the exact file immediately before the authoritative write.
+            # Any bridge-to-control path, inode, count, or content drift aborts.
+            final_snapshot = self._scan_stale_archive_ticket(request)
+            if final_snapshot is None:
+                fail(
+                    "LEGACY_TICKET_CONTENT_DRIFT",
+                    "stale-present ticket vanished before authoritative commit",
+                    exit_status=EXIT_CONFLICT,
+                )
+            self._validate_stale_archive_ticket_content(
+                request=request,
+                task=task,
+                claim=claims[0],
+                launch=launch,
+                create_outbox=create_outbox[0],
+                snapshot=final_snapshot,
+            )
+            archive_request = {
+                "request_id": request["request_id"],
+                "task_id": request["task_id"],
+                "policy_snapshot_revision": request["policy_snapshot_revision"],
+                "lease_epoch": request["lease_epoch"],
+                "fencing_token": request["fencing_token"],
+                "now": request["now"],
+            }
+            self._archive_receipt_locked(
+                connection,
+                archive_request,
+                event_type="STALE_PRESENT_ARCHIVE_RECONCILED",
+                reason_code=reconciliation_class,
+                event_metadata={
+                    "expected_state_revision": current_revision,
+                    "external_archive_state": request["external_archive_proof"][
+                        "state"
+                    ],
+                    "external_observation_source": request[
+                        "external_archive_proof"
+                    ]["observation_source"],
+                    "external_observed_at": request["external_archive_proof"][
+                        "observed_at"
+                    ],
+                    "evidence_refs": request["external_archive_proof"][
+                        "evidence_refs"
+                    ],
+                    "transport_ticket_state": "stale-present",
+                    "ticket_sha256": final_snapshot["sha256"],
+                    "ticket_scan_verified_at": request[
+                        "transport_ticket_proof"
+                    ]["verified_at"],
+                    "scanned_ticket_count": request[
+                        "transport_ticket_proof"
+                    ]["scanned_ticket_count"],
+                    "reconciliation_class": reconciliation_class,
+                },
+            )
+            committed_revision = int(self.metadata(connection, "revision"))
+            result = {
+                "request_id": request["request_id"],
+                "task_id": request["task_id"],
+                "external_thread_id": request["external_thread_id"],
+                "state": "ARCHIVED",
+                "archive_outbox_id": request["expected_archive_outbox_id"],
+                "owner_claim_state": "released",
+                "external_archive_state": request["external_archive_proof"]["state"],
+                "transport_ticket_state": "stale-present",
+                "transport_ticket_filename": final_snapshot["filename"],
+                "transport_ticket_sha256": final_snapshot["sha256"],
+                "transport_ticket_cleanup_state": "pending-post-commit",
+                "reconciliation_class": reconciliation_class,
+                "previous_state_revision": current_revision,
+                "committed_state_revision": committed_revision,
+                "replayed": False,
+            }
+            connection.execute(
+                """INSERT INTO stale_present_archive_reconciliations(
+                     request_id,request_hash,task_id,external_thread_id,
+                     expected_state_revision,ticket_filename,ticket_sha256,
+                     reconciliation_class,result_json,recorded_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    request["request_id"],
+                    request_hash,
+                    request["task_id"],
+                    request["external_thread_id"],
+                    current_revision,
+                    final_snapshot["filename"],
+                    final_snapshot["sha256"],
+                    reconciliation_class,
+                    canonical(result),
+                    request["now"],
+                ),
+            )
+            connection.commit()
+            return {**result, "current_state_revision": committed_revision}
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def reconcile_legacy_archive(self, raw: Any) -> dict[str, Any]:
         request = validate_legacy_archive_reconciliation(raw)
         semantic_request = {
@@ -7755,7 +8533,7 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
     )
     if (
         re.fullmatch(
-            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8|9|10))(?:\+codex\.\d{14})?",
+            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8|9|10|11))(?:\+codex\.\d{14})?",
             plugin_version,
         )
         is None
@@ -8333,6 +9111,261 @@ def validate_legacy_archive_reconciliation(value: Any) -> dict[str, Any]:
             exit_status=EXIT_CONFLICT,
         )
     reject_sensitive(output, "legacy archive reconciliation")
+    return output
+
+
+def validate_stale_present_archive_reconciliation(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "task_id",
+            "expected_source_event_key",
+            "external_thread_id",
+            "expected_state_revision",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "owner_claim_id",
+            "expected_archive_outbox_id",
+            "external_archive_proof",
+            "transport_ticket_proof",
+            "now",
+        },
+        label="stale-present archive reconciliation request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    external_proof = strict(
+        request["external_archive_proof"],
+        {
+            "external_thread_id",
+            "state",
+            "observation_source",
+            "observed_at",
+            "evidence_refs",
+        },
+        label="external_archive_proof",
+    )
+    ticket_proof = strict(
+        request["transport_ticket_proof"],
+        {
+            "task_id",
+            "external_thread_id",
+            "state",
+            "verified_at",
+            "scanned_ticket_count",
+            "matching_ticket_count",
+        },
+        {
+            "ticket_filename",
+            "ticket_sha256",
+            "ticket_size",
+            "ticket_device",
+            "ticket_inode",
+        },
+        label="transport_ticket_proof",
+    )
+    evidence_refs = string_list(
+        external_proof["evidence_refs"],
+        "external_archive_proof.evidence_refs",
+        maximum=16,
+    )
+    if not evidence_refs:
+        fail(
+            "EXTERNAL_ARCHIVE_PROOF_INVALID",
+            "external archive proof requires bounded independent evidence",
+        )
+    ticket_state = enum(
+        ticket_proof["state"],
+        "transport_ticket_proof.state",
+        {"missing", "stale-present"},
+    )
+    present_fields = {
+        "ticket_filename",
+        "ticket_sha256",
+        "ticket_size",
+        "ticket_device",
+        "ticket_inode",
+    }
+    supplied_present_fields = present_fields.intersection(ticket_proof)
+    if ticket_state == "stale-present" and supplied_present_fields != present_fields:
+        fail(
+            "SCHEMA_INVALID",
+            "stale-present ticket proof requires exact path, content, and inode fields",
+        )
+    if ticket_state == "missing" and supplied_present_fields:
+        fail(
+            "SCHEMA_INVALID",
+            "missing ticket proof cannot carry fabricated present-ticket fields",
+        )
+    output = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "task_id": identifier(request["task_id"], "task_id"),
+        "expected_source_event_key": identifier(
+            request["expected_source_event_key"], "expected_source_event_key"
+        ),
+        "external_thread_id": identifier(
+            request["external_thread_id"], "external_thread_id"
+        ),
+        "expected_state_revision": bounded_int(
+            request["expected_state_revision"],
+            "expected_state_revision",
+            0,
+            9_223_372_036_854_775_807,
+        ),
+        "policy_snapshot_revision": bounded_int(
+            request["policy_snapshot_revision"],
+            "policy_snapshot_revision",
+            1,
+            1_000_000,
+        ),
+        "lease_epoch": bounded_int(
+            request["lease_epoch"], "lease_epoch", 1, 1_000_000
+        ),
+        "fencing_token": bounded_int(
+            request["fencing_token"], "fencing_token", 1, 2_147_483_647
+        ),
+        "owner_claim_id": identifier(request["owner_claim_id"], "owner_claim_id"),
+        "expected_archive_outbox_id": identifier(
+            request["expected_archive_outbox_id"], "expected_archive_outbox_id"
+        ),
+        "external_archive_proof": {
+            "external_thread_id": identifier(
+                external_proof["external_thread_id"],
+                "external_archive_proof.external_thread_id",
+            ),
+            "state": enum(
+                external_proof["state"],
+                "external_archive_proof.state",
+                {"archived", "unavailable"},
+            ),
+            "observation_source": enum(
+                external_proof["observation_source"],
+                "external_archive_proof.observation_source",
+                {"external-task-api"},
+            ),
+            "observed_at": timestamp(
+                external_proof["observed_at"],
+                "external_archive_proof.observed_at",
+            ),
+            "evidence_refs": evidence_refs,
+        },
+        "transport_ticket_proof": {
+            "task_id": identifier(
+                ticket_proof["task_id"], "transport_ticket_proof.task_id"
+            ),
+            "external_thread_id": identifier(
+                ticket_proof["external_thread_id"],
+                "transport_ticket_proof.external_thread_id",
+            ),
+            "state": ticket_state,
+            "verified_at": timestamp(
+                ticket_proof["verified_at"],
+                "transport_ticket_proof.verified_at",
+            ),
+            "scanned_ticket_count": bounded_int(
+                ticket_proof["scanned_ticket_count"],
+                "transport_ticket_proof.scanned_ticket_count",
+                0,
+                4_096,
+            ),
+            "matching_ticket_count": bounded_int(
+                ticket_proof["matching_ticket_count"],
+                "transport_ticket_proof.matching_ticket_count",
+                0,
+                1,
+            ),
+        },
+        "now": timestamp(request["now"]),
+    }
+    if ticket_state == "stale-present":
+        ticket_filename = text(
+            ticket_proof["ticket_filename"],
+            "transport_ticket_proof.ticket_filename",
+            160,
+            single_line=True,
+        )
+        ticket_id = ticket_filename.removesuffix(".ticket.json")
+        if (
+            not ticket_filename.endswith(".ticket.json")
+            or identifier(ticket_id, "transport_ticket_proof.ticket_id") != ticket_id
+            or Path(ticket_filename).name != ticket_filename
+        ):
+            fail(
+                "LEGACY_TICKET_PATH_INVALID",
+                "transport ticket proof must bind one safe ticket basename",
+                exit_status=EXIT_CONFLICT,
+            )
+        ticket_sha256 = text(
+            ticket_proof["ticket_sha256"],
+            "transport_ticket_proof.ticket_sha256",
+            64,
+            single_line=True,
+        )
+        if SHA256_RE.fullmatch(ticket_sha256) is None:
+            fail("SCHEMA_INVALID", "transport ticket SHA-256 is invalid")
+        output["transport_ticket_proof"].update(
+            {
+                "ticket_filename": ticket_filename,
+                "ticket_sha256": ticket_sha256,
+                "ticket_size": bounded_int(
+                    ticket_proof["ticket_size"],
+                    "transport_ticket_proof.ticket_size",
+                    1,
+                    MAX_JSON_BYTES,
+                ),
+                "ticket_device": bounded_int(
+                    ticket_proof["ticket_device"],
+                    "transport_ticket_proof.ticket_device",
+                    0,
+                    9_223_372_036_854_775_807,
+                ),
+                "ticket_inode": bounded_int(
+                    ticket_proof["ticket_inode"],
+                    "transport_ticket_proof.ticket_inode",
+                    1,
+                    9_223_372_036_854_775_807,
+                ),
+            }
+        )
+    expected_matches = 1 if ticket_state == "stale-present" else 0
+    if output["transport_ticket_proof"]["matching_ticket_count"] != expected_matches:
+        fail(
+            "LEGACY_TICKET_PROOF_INVALID",
+            "transport ticket proof count contradicts its typed state",
+            exit_status=EXIT_CONFLICT,
+        )
+    if (
+        output["external_archive_proof"]["external_thread_id"]
+        != output["external_thread_id"]
+        or output["transport_ticket_proof"]["task_id"] != output["task_id"]
+        or output["transport_ticket_proof"]["external_thread_id"]
+        != output["external_thread_id"]
+    ):
+        fail(
+            "LEGACY_ARCHIVE_IDENTITY_MISMATCH",
+            "external and ticket proofs must identify the exact task",
+            exit_status=EXIT_CONFLICT,
+        )
+    if output["transport_ticket_proof"]["verified_at"] != output["now"]:
+        fail(
+            "LEGACY_TICKET_PROOF_STALE",
+            "transport ticket proof must be generated for the exact request time",
+            exit_status=EXIT_CONFLICT,
+        )
+    proof_time = utc_instant(output["external_archive_proof"]["observed_at"])
+    request_time = utc_instant(output["now"])
+    proof_age = (request_time - proof_time).total_seconds()
+    if proof_age < 0 or proof_age > 900:
+        fail(
+            "EXTERNAL_ARCHIVE_PROOF_STALE",
+            "external archive proof must be independently observed within fifteen minutes",
+            exit_status=EXIT_CONFLICT,
+        )
+    reject_sensitive(output, "stale-present archive reconciliation")
     return output
 
 
@@ -10024,6 +11057,7 @@ def parser() -> argparse.ArgumentParser:
         "record-handback",
         "record-archive-receipt",
         "reconcile-legacy-archive",
+        "reconcile-stale-present-archive",
         "configure-capacity",
         "capacity-watchdog",
         "lifecycle-watchdog",
@@ -10096,6 +11130,10 @@ def main(argv: list[str] | None = None) -> int:
             "reconcile-legacy-archive": (
                 plane.reconcile_legacy_archive,
                 "reconcile-legacy-archive",
+            ),
+            "reconcile-stale-present-archive": (
+                plane.reconcile_stale_present_archive,
+                "reconcile-stale-present-archive",
             ),
             "configure-capacity": (
                 plane.configure_capacity,

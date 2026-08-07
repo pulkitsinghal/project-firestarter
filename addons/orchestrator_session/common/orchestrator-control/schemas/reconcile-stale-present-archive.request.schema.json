@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/reconcile-stale-present-archive-request-1.0.schema.json",
+  "title": "Stale-present archive reconciliation request 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interface_version",
+    "request_id",
+    "task_id",
+    "expected_source_event_key",
+    "external_thread_id",
+    "expected_state_revision",
+    "policy_snapshot_revision",
+    "lease_epoch",
+    "fencing_token",
+    "owner_claim_id",
+    "expected_archive_outbox_id",
+    "external_archive_proof",
+    "transport_ticket_proof",
+    "now"
+  ],
+  "properties": {
+    "interface_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "expected_source_event_key": {"type": "string"},
+    "external_thread_id": {"type": "string"},
+    "expected_state_revision": {"type": "integer", "minimum": 0},
+    "policy_snapshot_revision": {"type": "integer", "minimum": 1},
+    "lease_epoch": {"type": "integer", "minimum": 1},
+    "fencing_token": {"type": "integer", "minimum": 1},
+    "owner_claim_id": {"type": "string"},
+    "expected_archive_outbox_id": {"type": "string"},
+    "external_archive_proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_thread_id",
+        "state",
+        "observation_source",
+        "observed_at",
+        "evidence_refs"
+      ],
+      "properties": {
+        "external_thread_id": {"type": "string"},
+        "state": {"enum": ["archived", "unavailable"]},
+        "observation_source": {"const": "external-task-api"},
+        "observed_at": {"type": "string"},
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "transport_ticket_proof": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "task_id",
+            "external_thread_id",
+            "state",
+            "verified_at",
+            "scanned_ticket_count",
+            "matching_ticket_count"
+          ],
+          "properties": {
+            "task_id": {"type": "string"},
+            "external_thread_id": {"type": "string"},
+            "state": {"const": "missing"},
+            "verified_at": {"type": "string"},
+            "scanned_ticket_count": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "matching_ticket_count": {"const": 0}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "task_id",
+            "external_thread_id",
+            "state",
+            "verified_at",
+            "scanned_ticket_count",
+            "matching_ticket_count",
+            "ticket_filename",
+            "ticket_sha256",
+            "ticket_size",
+            "ticket_device",
+            "ticket_inode"
+          ],
+          "properties": {
+            "task_id": {"type": "string"},
+            "external_thread_id": {"type": "string"},
+            "state": {"const": "stale-present"},
+            "verified_at": {"type": "string"},
+            "scanned_ticket_count": {"type": "integer", "minimum": 1, "maximum": 4096},
+            "matching_ticket_count": {"const": 1},
+            "ticket_filename": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\.ticket\\.json$"},
+            "ticket_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "ticket_size": {"type": "integer", "minimum": 1, "maximum": 1048576},
+            "ticket_device": {"type": "integer", "minimum": 0},
+            "ticket_inode": {"type": "integer", "minimum": 1}
+          }
+        }
+      ]
+    },
+    "now": {"type": "string"}
+  }
+}

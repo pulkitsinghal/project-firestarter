@@ -41,7 +41,7 @@ BRIDGE = (
     / "pm_proxy_bridge.py"
 )
 REFILL = BRIDGE.with_name("refill_saga.py")
-SERVER_VERSION = "0.4.10"
+SERVER_VERSION = "0.4.11"
 MAX_MESSAGE_BYTES = 2_000_000
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
@@ -1450,6 +1450,42 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
                     str(paths["legacy-archive"]),
                 ]
             )
+    if name == "pm_proxy_reconcile_stale_present_archive":
+        fields = {
+            "project_root",
+            "state_dir",
+            "request_id",
+            "task_id",
+            "expected_source_event_key",
+            "external_thread_id",
+            "expected_state_revision",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "owner_claim_id",
+            "expected_archive_outbox_id",
+            "external_archive_proof",
+            "now",
+        }
+        exact_keys(arguments, fields, fields - {"project_root"})
+        require_automatic_control_ready(project, state)
+        root_guard(project, state, "monitor_handback")
+        request = {
+            "interface_version": "1.0",
+            **{
+                key: arguments[key]
+                for key in fields - {"project_root", "state_dir"}
+            },
+        }
+        with request_files(state, {"stale-present-archive": request}) as paths:
+            return invoke(
+                base
+                + [
+                    "reconcile-stale-present-archive",
+                    "--request",
+                    str(paths["stale-present-archive"]),
+                ]
+            )
     if name == "pm_proxy_record_archive_receipt":
         exact_keys(
             arguments,
@@ -1630,6 +1666,62 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "pm_proxy_reconcile_legacy_archive": {
         "description": "Reconcile one exact terminal legacy archive only after a bounded ticket-missing scan and independent external archive proof.",
+        "inputSchema": schema(
+            {
+                "request_id": {"type": "string"},
+                "task_id": {"type": "string"},
+                "expected_source_event_key": {"type": "string"},
+                "external_thread_id": {"type": "string"},
+                "expected_state_revision": {"type": "integer", "minimum": 0},
+                "policy_snapshot_revision": {"type": "integer", "minimum": 1},
+                "lease_epoch": {"type": "integer", "minimum": 1},
+                "fencing_token": {"type": "integer", "minimum": 1},
+                "owner_claim_id": {"type": "string"},
+                "expected_archive_outbox_id": {"type": "string"},
+                "external_archive_proof": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "external_thread_id",
+                        "state",
+                        "observation_source",
+                        "observed_at",
+                        "evidence_refs",
+                    ],
+                    "properties": {
+                        "external_thread_id": {"type": "string"},
+                        "state": {"enum": ["archived", "unavailable"]},
+                        "observation_source": {"const": "external-task-api"},
+                        "observed_at": {"type": "string"},
+                        "evidence_refs": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 16,
+                            "uniqueItems": True,
+                            "items": {"type": "string"},
+                        },
+                    },
+                },
+                "now": {"type": "string"},
+            },
+            [
+                "request_id",
+                "task_id",
+                "expected_source_event_key",
+                "external_thread_id",
+                "expected_state_revision",
+                "policy_snapshot_revision",
+                "lease_epoch",
+                "fencing_token",
+                "owner_claim_id",
+                "expected_archive_outbox_id",
+                "external_archive_proof",
+                "now",
+            ],
+        ),
+    },
+    "pm_proxy_reconcile_stale_present_archive": {
+        "description": "Reconcile one exact terminal legacy archive with a unique stale-present ticket, authoritative terminal refill proof, independent external archive proof, and commit-before-unlink cleanup.",
         "inputSchema": schema(
             {
                 "request_id": {"type": "string"},

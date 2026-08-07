@@ -129,6 +129,7 @@ class PreToolUseHookTest(unittest.TestCase):
             {
                 "pm_proxy_acknowledge_control_schema_hold",
                 "pm_proxy_reconcile_legacy_archive",
+                "pm_proxy_reconcile_stale_present_archive",
                 "pm_proxy_record_setup_failure",
                 "pm_proxy_route_owner_decision",
             }.issubset(registered)

@@ -20,7 +20,7 @@ service and not a replacement policy source.
 - The caller selects a local state directory. The CLI enforces directory mode
   `0700`, database mode `0600`, current-user ownership, and no symlink path
   components.
-- Control bundle `1.4.9` retains state schema `1.4` and migrates an existing
+- Control bundle `1.4.10` retains state schema `1.4` and migrates an existing
   schema `1.0` through `1.3` database in place. This patch adds truthful local
   closure, receipt-fenced schema holds, and exact setup-failure repair. It also
   repairs an early schema-1.4 control-schema-hold table by adding its two
@@ -30,6 +30,16 @@ service and not a replacement policy source.
   changing configured capacity. The stable JSON interface remains `1.0`;
 copying an older database over a migrated database is not a supported
 rollback.
+- Control `1.4.10` adds one typed stale-present-ticket archive transaction. It
+  requires an exact terminal `ARCHIVE_PENDING` task, released claim, current
+  revision/policy/lease/fence identity, pending archive outbox, fresh independent
+  archived/unavailable external proof, and one unique mode-`0600` non-symlink
+  ticket whose inode and content match both the bridge proof and SQLite launch
+  authority. Only failed-plus-`EMPTY`, superseded-plus-`EMPTY`, or a superseded
+  predecessor with one exact receipted, completed, archived successor is
+  admissible. The bridge unlinks the exact ticket only after the archive/outbox
+  commit; exact replay is safe when cleanup already completed. No claim,
+  capacity, successor, or unrelated ticket is mutated.
 - Control `1.4.9` adds a compare-and-set legacy archive reconciliation for an
   exact terminal task whose claim is released and archive outbox remains pending.
   The wrapper must independently prove that the canonical external task is
@@ -361,6 +371,7 @@ claim for completion candidates.
 | `lifecycle-watchdog` | Reconcile worker messages/timeouts/status claims against objective completion evidence; bound handback waits; require an exact interrupt receipt; and atomically refill before archive. |
 | `record-archive-receipt` | Complete the archive outbox idempotently only after the successor launch receipt or evidenced `EMPTY`, `OWNER_GATED`, or `CAPACITY_FULL` outcome. |
 | `reconcile-legacy-archive` | Compare-and-set one exact completed task through its pending archive outbox only after a released claim, canonical launch receipt, independent external archive proof, and bounded proof that the old transport ticket is missing. |
+| `reconcile-stale-present-archive` | Compare-and-set one exact terminal task through its pending archive outbox only after a unique stale ticket, independent external archive proof, and an admissible authoritative EMPTY or archived-successor refill chain are rechecked atomically. |
 | `recycle-queue` | Audit every blocked item in one transaction and rank the highest-value safely resumable work before lower-value replenishment. |
 | `record-duration-progress` | Record separated active/queue/setup/wait/wall timing and atomically reclassify an underestimated receipt-backed worker without restart or ownership loss. |
 | `record-duration-observation` | Record one fenced completed timing sample, including early-finish evidence, without private task content. |

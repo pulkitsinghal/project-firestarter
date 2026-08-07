@@ -56,6 +56,8 @@ SCHEMAS = {
     "acknowledge-control-schema-hold.response.schema.json": "acknowledge-control-schema-hold-response-1.0.schema.json",
     "reconcile-legacy-archive.request.schema.json": "reconcile-legacy-archive-request-1.0.schema.json",
     "reconcile-legacy-archive.response.schema.json": "reconcile-legacy-archive-response-1.0.schema.json",
+    "reconcile-stale-present-archive.request.schema.json": "reconcile-stale-present-archive-request-1.0.schema.json",
+    "reconcile-stale-present-archive.response.schema.json": "reconcile-stale-present-archive-response-1.0.schema.json",
     "authority-transfer-receipt.schema.json": "authority-transfer-receipt-1.0.schema.json",
     "prepare-authority-transfer.request.schema.json": "prepare-authority-transfer-request-1.0.schema.json",
     "prepare-authority-transfer.response.schema.json": "prepare-authority-transfer-response-1.0.schema.json",
@@ -90,7 +92,7 @@ def make_fake_install(root: Path, *, version: str = "1.0.0") -> Path:
     schemas.mkdir(parents=True)
     shutil.copyfile(FAKE_SOURCE, cli_root / "orchestrator_control.py")
     (cli_root / "root_role_guard.py").write_text(
-        "# Synthetic bridge-test guard; reconcile-legacy-archive never executes it.\n",
+        "# Synthetic bridge-test guard; archive reconciliation never executes it.\n",
         encoding="utf-8",
     )
     (cli_root / "VERSION").write_text(version + "\n", encoding="utf-8")
