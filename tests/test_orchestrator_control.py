@@ -1883,6 +1883,110 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual("ARCHIVED", states["task-predecessor"])
         self.assertEqual("RUNNING", states["task-successor"])
 
+    def test_archive_receipt_accepts_exact_terminal_receipted_successor(self) -> None:
+        predecessor = self.run_cli(
+            "prepare-launch", self.prepare("terminal-chain-predecessor")
+        )
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(predecessor, "terminal-chain-predecessor"),
+        )
+        successor_request = self.prepare(
+            "terminal-chain-successor",
+            source_event_key="terminal-chain-successor-source",
+            outcome_key="terminal-chain-successor-outcome",
+        )
+        predecessor_closed = self.run_cli(
+            "record-handback",
+            self.handback(
+                predecessor,
+                "terminal-chain-predecessor",
+                successor=successor_request,
+            ),
+        )["result"]
+        successor = {
+            "result": {"envelope": predecessor_closed["successor"]["envelope"]}
+        }
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(successor, "terminal-chain-successor"),
+        )
+        successor_closed = self.run_cli(
+            "record-handback",
+            self.handback(successor, "terminal-chain-successor"),
+        )["result"]
+        self.assertEqual("ARCHIVE_PENDING", successor_closed["state"])
+
+        database = self.state / "orchestrator.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO lifecycle_watchdog(
+                     task_id,lifecycle_state,worker_status,completion_signals_json,
+                     evidence_refs_json,remaining_work_json,progress_ref,
+                     progress_observed_at,handback_deadline_checks,
+                     handback_deadline_limit,required_action,
+                     interrupt_receipt_id,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    "task-terminal-chain-successor",
+                    "COMPLETED",
+                    "completed",
+                    '["objective-complete"]',
+                    '["terminal-successor-handback"]',
+                    None,
+                    None,
+                    None,
+                    0,
+                    2,
+                    "TERMINALIZE",
+                    None,
+                    "2026-07-28T20:01:00Z",
+                ),
+            )
+            connection.commit()
+
+        predecessor_required = predecessor["result"]["envelope"]["receipt_required"]
+        predecessor_archive = {
+            "interface_version": "1.0",
+            "request_id": "archive-terminal-chain-predecessor",
+            "task_id": predecessor_required["task_id"],
+            "policy_snapshot_revision": predecessor_required[
+                "policy_snapshot_revision"
+            ],
+            "lease_epoch": predecessor_required["lease_epoch"],
+            "fencing_token": predecessor_required["fencing_token"],
+            "now": "2026-07-28T20:02:00Z",
+        }
+        denied = self.run_cli(
+            "record-archive-receipt", predecessor_archive, expected=3
+        )
+        self.assertEqual("CAPACITY_REFILL_PENDING", denied["error"]["code"])
+
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                """UPDATE lifecycle_watchdog SET required_action='ARCHIVE'
+                   WHERE task_id='task-terminal-chain-successor'"""
+            )
+            connection.commit()
+
+        successor_required = successor["result"]["envelope"]["receipt_required"]
+        self.run_cli(
+            "record-archive-receipt",
+            {
+                "interface_version": "1.0",
+                "request_id": "archive-terminal-chain-successor",
+                "task_id": successor_required["task_id"],
+                "policy_snapshot_revision": successor_required[
+                    "policy_snapshot_revision"
+                ],
+                "lease_epoch": successor_required["lease_epoch"],
+                "fencing_token": successor_required["fencing_token"],
+                "now": "2026-07-28T20:03:00Z",
+            },
+        )
+        archived = self.run_cli("record-archive-receipt", predecessor_archive)
+        self.assertEqual("ARCHIVED", archived["result"]["state"])
+
     def test_archive_receipt_requires_committed_terminal_release_and_pending_outbox(
         self,
     ) -> None:

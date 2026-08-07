@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.4.9 - 2026-08-06
+
+- Admit an exact receipted successor after it has itself completed only when its
+  launch receipt, released claim, completed lifecycle, and archive outbox match.
+- Admit an expired ordinary `completed` predecessor only through its exact
+  committed terminal handback, released claim, terminal refill proof, canonical
+  receipt fence, and matching archive outbox.
+- Keep stale, incomplete, mismatched, unreceipted, and nonterminal chains
+  fail-closed.
+
 ## 0.4.8 - 2026-08-06
 
 - Classify observed thread identities before recording worker lifecycle debt, so

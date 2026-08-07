@@ -687,6 +687,69 @@ class RefillSagaTestCase(unittest.TestCase):
         self.assertTrue(result["capacity_released"])
         self.assertEqual([], result["launches"])
 
+    def test_expired_completed_archive_admits_exact_terminal_empty_refill(self):
+        predecessor = self.start_predecessor("-completed-archive")
+        ticket = json.loads(predecessor.read_text(encoding="utf-8"))
+        self.set_terminal_evidence(
+            predecessor,
+            fence=ticket["fencing_token"],
+            worker_status="completed",
+        )
+        handback_value = handback_request(
+            task_id=ticket["task_id"],
+            handback_id="completed-archive",
+            now=iso(minutes=2),
+        )
+        for key in (
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+        ):
+            handback_value[key] = ticket[key]
+        handback_value["resources"] = [
+            {
+                "id": ticket["owner_claim_id"],
+                "disposition": "removed",
+                "reason": "synthetic fenced owner claim released",
+                "bytes": 0,
+            }
+        ]
+        handback = write_json(
+            self.root / "completed-archive-handback.json",
+            handback_value,
+        )
+        refill = write_json(
+            self.root / "completed-archive-refill.json",
+            refill_request(
+                request_id="completed-archive",
+                now=iso(minutes=2),
+            ),
+        )
+        closed = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(predecessor),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        self.assertEqual("EMPTY", json.loads(closed.stdout)["result"]["outcome"])
+
+        archived = self.run_script(
+            BRIDGE,
+            "record-archive-receipt",
+            "--ticket",
+            str(predecessor),
+            "--request-id",
+            "completed-archive-receipt",
+            "--now",
+            iso(minutes=31),
+        )
+        self.assertEqual(0, archived.returncode, archived.stderr)
+
     def test_expired_archive_admission_mismatches_and_incomplete_sagas_fail_closed(self):
         predecessor = self.start_predecessor("-archive-negative")
         ordinary_archive = self.run_script(
@@ -760,7 +823,7 @@ class RefillSagaTestCase(unittest.TestCase):
                 "required_action", "TERMINALIZE"
             ),
             "disposition": lambda task, state: task.__setitem__(
-                "terminal_disposition", "completed"
+                "terminal_disposition", "unknown-terminal-disposition"
             ),
             "superseded-without-replacement": lambda task, state: task.__setitem__(
                 "terminal_disposition", "superseded"

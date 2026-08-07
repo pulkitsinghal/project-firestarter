@@ -52,6 +52,7 @@ ARCHIVE_CONTROL_OUTCOMES = {
     "CAPACITY_FULL",
 }
 EXPIRED_ARCHIVE_DISPOSITIONS = {
+    "completed",
     "completed_local_only",
     "completed_local_artifact",
 }
