@@ -281,8 +281,18 @@ claim, completed lifecycle, and archive outbox all match. An expired ordinary
 terminal handback, released claim, terminal refill proof, lifecycle, receipt
 fence, and archive outbox agree. Partial and mismatched records remain denied.
 
+Control bundle `1.4.9` and plugin `0.4.10` add a generic typed legacy archive
+reconciliation for an exact completed task whose claim is released, archive
+outbox is pending, canonical external task is independently proved archived or
+unavailable, and old transport ticket is proved missing by a bounded private
+scan. Exact identity, state revision, fence, receipt, lifecycle, and outbox are
+rechecked transactionally; unsafe, active, partial, or mismatched authority
+fails closed and exact replay is idempotent. Current `capacity_failure` truth is
+derived from the newest audit observation while historical audit rows remain
+inspectable.
+
 The orchestrator Desktop host binds a process-local prompt-free grant to only
-sixteen named typed control tools after exact runtime-pin, current-version
+seventeen named typed control tools after exact runtime-pin, current-version
 covered adoption, private-proof, and receipt-fence verification. The exact root
 task is admitted; attested workers and shell, file, browser, Sites, expired-lease,
 owner-gated, and universal paths remain outside that grant.

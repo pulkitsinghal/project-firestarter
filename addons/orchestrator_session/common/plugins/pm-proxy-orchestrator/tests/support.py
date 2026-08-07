@@ -44,12 +44,31 @@ SCHEMAS = {
     "record-duration-progress.response.schema.json": "record-duration-progress-response-1.0.schema.json",
     "record-duration-observation.request.schema.json": "record-duration-observation-request-1.0.schema.json",
     "record-duration-observation.response.schema.json": "record-duration-observation-response-1.0.schema.json",
+    "record-setup-failure.request.schema.json": "record-setup-failure-request-1.0.schema.json",
+    "record-setup-failure.response.schema.json": "record-setup-failure-response-1.0.schema.json",
     "root-role-guard.request.schema.json": "root-role-guard-request-1.0.schema.json",
     "root-role-guard.response.schema.json": "root-role-guard-response-1.0.schema.json",
     "lifecycle-watchdog.request.schema.json": "lifecycle-watchdog-request-1.0.schema.json",
     "lifecycle-watchdog.response.schema.json": "lifecycle-watchdog-response-1.0.schema.json",
     "dispatcher-adoption.request.schema.json": "dispatcher-adoption-request-1.0.schema.json",
     "dispatcher-adoption.response.schema.json": "dispatcher-adoption-response-1.0.schema.json",
+    "acknowledge-control-schema-hold.request.schema.json": "acknowledge-control-schema-hold-request-1.0.schema.json",
+    "acknowledge-control-schema-hold.response.schema.json": "acknowledge-control-schema-hold-response-1.0.schema.json",
+    "reconcile-legacy-archive.request.schema.json": "reconcile-legacy-archive-request-1.0.schema.json",
+    "reconcile-legacy-archive.response.schema.json": "reconcile-legacy-archive-response-1.0.schema.json",
+    "authority-transfer-receipt.schema.json": "authority-transfer-receipt-1.0.schema.json",
+    "prepare-authority-transfer.request.schema.json": "prepare-authority-transfer-request-1.0.schema.json",
+    "prepare-authority-transfer.response.schema.json": "prepare-authority-transfer-response-1.0.schema.json",
+    "stage-federation.request.schema.json": "stage-federation-request-1.0.schema.json",
+    "stage-federation.response.schema.json": "stage-federation-response-1.0.schema.json",
+    "finalize-authority-transfer.request.schema.json": "finalize-authority-transfer-request-1.0.schema.json",
+    "finalize-authority-transfer.response.schema.json": "finalize-authority-transfer-response-1.0.schema.json",
+    "activate-federation.request.schema.json": "activate-federation-request-1.0.schema.json",
+    "activate-federation.response.schema.json": "activate-federation-response-1.0.schema.json",
+    "enable-subordinate.request.schema.json": "enable-subordinate-request-1.0.schema.json",
+    "enable-subordinate.response.schema.json": "enable-subordinate-response-1.0.schema.json",
+    "abort-authority-transfer.request.schema.json": "abort-authority-transfer-request-1.0.schema.json",
+    "abort-authority-transfer.response.schema.json": "abort-authority-transfer-response-1.0.schema.json",
 }
 
 
@@ -70,6 +89,10 @@ def make_fake_install(root: Path, *, version: str = "1.0.0") -> Path:
     schemas = cli_root / "schemas"
     schemas.mkdir(parents=True)
     shutil.copyfile(FAKE_SOURCE, cli_root / "orchestrator_control.py")
+    (cli_root / "root_role_guard.py").write_text(
+        "# Synthetic bridge-test guard; reconcile-legacy-archive never executes it.\n",
+        encoding="utf-8",
+    )
     (cli_root / "VERSION").write_text(version + "\n", encoding="utf-8")
     for filename, suffix in SCHEMAS.items():
         (schemas / filename).write_text(

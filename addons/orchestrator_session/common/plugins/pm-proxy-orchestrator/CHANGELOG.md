@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.4.10 - 2026-08-07
+
+- Add one generic typed reconciliation for an exact completed task with a
+  released claim, pending archive outbox, independently proved external archive
+  or unavailability, and a bounded proof that its legacy ticket is missing.
+- Recheck exact identity, revision, fence, claim, lifecycle, outbox, receipt,
+  external proof, and ticket absence in the archive transaction; replay the same
+  request idempotently and fail closed on partial or unsafe authority.
+- Derive actionable capacity failure from only the newest audit observation while
+  retaining all historical audit rows.
+
 ## 0.4.9 - 2026-08-06
 
 - Admit an exact receipted successor after it has itself completed only when its

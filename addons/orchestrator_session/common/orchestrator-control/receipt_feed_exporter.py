@@ -487,7 +487,17 @@ def derive_discrepancies(
             discrepancies.add("SUPPLIED_DERIVED_MISMATCH")
     capacity = status.get("capacity")
     if isinstance(capacity, list) and capacity:
-        latest = capacity[-1]
+        latest = max(
+            capacity,
+            key=lambda item: (
+                (
+                    item.get("updated_at", ""),
+                    item.get("saga_id", ""),
+                )
+                if isinstance(item, dict)
+                else ("", "")
+            ),
+        )
         if isinstance(latest, dict):
             if latest.get("active_count") not in (None, active):
                 discrepancies.add("SUPPLIED_DERIVED_MISMATCH")
@@ -1439,6 +1449,7 @@ def feed_from_ledger(
             task_facts.append(fact)
         capacity_rows = [
             {
+                "saga_id": row["saga_id"],
                 "configured_capacity": row["configured_capacity"],
                 "active_count": active_count,
                 "reserved_setup_count": reserved_count,
@@ -1448,9 +1459,18 @@ def feed_from_ledger(
                     and active_count + reserved_count != row["configured_capacity"]
                     else None
                 ),
+                "updated_at": row["updated_at"],
             }
             for row in capacity_by_task.values()
         ]
+        latest_capacity = (
+            None
+            if not capacity_rows
+            else max(
+                capacity_rows,
+                key=lambda item: (item["updated_at"], item["saga_id"]),
+            )
+        )
         status_response = {
             "interface_version": INTERFACE_VERSION,
             "ok": True,
@@ -1460,8 +1480,9 @@ def feed_from_ledger(
                 "revision": int(metadata.get("revision", "0")),
                 "tasks": status_tasks,
                 "capacity": capacity_rows,
-                "capacity_failure": any(
-                    item["failure_state"] is not None for item in capacity_rows
+                "capacity_failure": (
+                    latest_capacity is not None
+                    and latest_capacity["failure_state"] is not None
                 ),
                 "duration": {
                     "root_excluded_from_worker_capacity": True,

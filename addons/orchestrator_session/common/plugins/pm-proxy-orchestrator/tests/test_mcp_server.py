@@ -421,6 +421,7 @@ class McpServerTest(unittest.TestCase):
         self.assertTrue(
             {
                 "pm_proxy_acknowledge_control_schema_hold",
+                "pm_proxy_reconcile_legacy_archive",
                 "pm_proxy_record_setup_failure",
                 "pm_proxy_route_owner_decision",
             }.issubset(names)
@@ -449,6 +450,7 @@ class McpServerTest(unittest.TestCase):
                 "now": iso(),
             }
         )
+
         failed_launch = launch_request(
             task_id="refill-screen-sanitizer-red-team-012",
             source_event_key="source-refill-screen-sanitizer-red-team-012",
@@ -602,6 +604,123 @@ class McpServerTest(unittest.TestCase):
             "credential_url",
         ):
             self.assertNotIn(forbidden, serialized)
+
+    def test_legacy_archive_mcp_route_scans_missing_ticket_and_replays(self) -> None:
+        self.adopt_current_plugin("legacy-archive-adoption")
+        ticket_id = "legacy-archive-ticket"
+        task_id = "legacy-archive-task"
+        ticket = self.prepare_receipted_task(
+            ticket_id=ticket_id,
+            task_id=task_id,
+            fence=57,
+        )
+        self.set_expired_terminal_evidence(
+            task_id=task_id,
+            worker_status="completed",
+            signal="objective-complete",
+        )
+        handback = handback_request(
+            task_id=task_id,
+            handback_id="legacy-archive-handback",
+            now=iso(minutes=2),
+        )
+        handback["disposition"] = "completed_local_only"
+        handback["external_delivery"] = "not_performed"
+        for key in ("policy_snapshot_revision", "lease_epoch", "fencing_token"):
+            handback[key] = ticket[key]
+        handback["resources"] = [
+            {
+                "id": ticket["owner_claim_id"],
+                "disposition": "removed",
+                "reason": "synthetic legacy owner claim released",
+                "bytes": 0,
+            }
+        ]
+        closed = self.call(
+            "pm_proxy_close_and_refill",
+            {
+                **self.common(),
+                "predecessor_ticket_id": ticket_id,
+                "handback_request": handback,
+                "refill_request": refill_request(
+                    request_id="legacy-archive-refill",
+                    capacity=4,
+                    now=iso(minutes=2),
+                ),
+            },
+        )["result"]
+        self.assertIsNot(closed.get("isError"), True, closed)
+        database = self.state / "orchestrator.sqlite3"
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO lifecycle_watchdog(
+                     task_id,lifecycle_state,worker_status,completion_signals_json,
+                     evidence_refs_json,remaining_work_json,progress_ref,
+                     progress_observed_at,handback_deadline_checks,
+                     handback_deadline_limit,required_action,
+                     interrupt_receipt_id,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    task_id,
+                    "COMPLETED",
+                    "completed",
+                    '["objective-complete"]',
+                    '["synthetic-legacy-handback"]',
+                    None,
+                    None,
+                    None,
+                    0,
+                    2,
+                    "ARCHIVE",
+                    None,
+                    iso(minutes=3),
+                ),
+            )
+        status = self.call(
+            "pm_proxy_status", {**self.common(), "now": iso(minutes=4)}
+        )["result"]["structuredContent"]["result"]
+        task = next(item for item in status["tasks"] if item["task_id"] == task_id)
+        archive = next(
+            item
+            for item in status["outbox"]
+            if item["task_id"] == task_id and item["kind"] == "ARCHIVE_THREAD"
+        )
+        (self.state / f"{ticket_id}.ticket.json").unlink()
+        arguments = {
+            **self.common(),
+            "request_id": "legacy-archive-reconciliation",
+            "task_id": task_id,
+            "expected_source_event_key": ticket_id,
+            "external_thread_id": f"thread-{task_id}",
+            "expected_state_revision": status["revision"],
+            "policy_snapshot_revision": task["receipt_fence"][
+                "policy_snapshot_revision"
+            ],
+            "lease_epoch": task["receipt_fence"]["lease_epoch"],
+            "fencing_token": task["receipt_fence"]["fencing_token"],
+            "owner_claim_id": task["receipt_fence"]["owner_claim_id"],
+            "expected_archive_outbox_id": archive["outbox_id"],
+            "external_archive_proof": {
+                "external_thread_id": f"thread-{task_id}",
+                "state": "unavailable",
+                "observation_source": "external-task-api",
+                "observed_at": iso(minutes=4),
+                "evidence_refs": ["external-task-read-unavailable"],
+            },
+            "now": iso(minutes=5),
+        }
+        reconciled = self.call(
+            "pm_proxy_reconcile_legacy_archive", arguments
+        )["result"]
+        self.assertIsNot(reconciled.get("isError"), True, reconciled)
+        result = reconciled["structuredContent"]["result"]
+        self.assertEqual("ARCHIVED", result["state"])
+        self.assertEqual("missing", result["transport_ticket_state"])
+        self.assertFalse(result["replayed"])
+        replayed = self.call(
+            "pm_proxy_reconcile_legacy_archive", arguments
+        )["result"]["structuredContent"]["result"]
+        self.assertTrue(replayed["replayed"])
 
     def test_screen_sanitizer_fence_41_local_artifact_uses_control_validation(self) -> None:
         self.adopt_current_plugin("screen-sanitizer-fence-41-adoption")

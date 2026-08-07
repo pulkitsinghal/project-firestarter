@@ -24,6 +24,7 @@ SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1", "1.2", "1.3", "1.4"}
 LAUNCH_RECEIPT_TTL_SECONDS = 300
 MAX_MACHINE_OUTPUT = 1_048_576
 MAX_REQUEST_BYTES = 524_288
+MAX_LEGACY_TICKETS = 4_096
 CLI_TIMEOUT_SECONDS = 15
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 RUNTIME_POLICY_REQUIRED = {
@@ -104,6 +105,10 @@ LIFECYCLE_SCHEMAS = {
     "reconcile-expired-lease.request.schema.json": "reconcile-expired-lease-request-1.0.schema.json",
     "acknowledge-control-schema-hold.request.schema.json": "acknowledge-control-schema-hold-request-1.0.schema.json",
     "acknowledge-control-schema-hold.response.schema.json": "acknowledge-control-schema-hold-response-1.0.schema.json",
+}
+LEGACY_ARCHIVE_SCHEMAS = {
+    "reconcile-legacy-archive.request.schema.json": "reconcile-legacy-archive-request-1.0.schema.json",
+    "reconcile-legacy-archive.response.schema.json": "reconcile-legacy-archive-response-1.0.schema.json",
 }
 FEDERATION_SCHEMAS = {
     "authority-transfer-receipt.schema.json": "authority-transfer-receipt-1.0.schema.json",
@@ -486,6 +491,7 @@ def validate_installation(cli_value: str) -> tuple[Path, str]:
         required_schemas.update(LIFECYCLE_SCHEMAS)
     if int(match.group("minor")) >= 4:
         required_schemas.update(FEDERATION_SCHEMAS)
+        required_schemas.update(LEGACY_ARCHIVE_SCHEMAS)
     validate_schema_files(root, required_schemas)
     return cli, version
 
@@ -536,6 +542,7 @@ def run_cli(
         "reconcile-expired-lease",
         "record-handback",
         "record-archive-receipt",
+        "reconcile-legacy-archive",
         "capacity-watchdog",
         "configure-capacity",
         "lifecycle-watchdog",
@@ -669,6 +676,7 @@ def doctor(cli: Path, state_dir: Path, version: str) -> dict[str, Any]:
         required.update(LIFECYCLE_SCHEMAS)
     if schema_at_least(schema_version, (1, 4)):
         required.update(FEDERATION_SCHEMAS)
+        required.update(LEGACY_ARCHIVE_SCHEMAS)
     validate_schema_files(cli.parent, required)
     rules = status.get("rules")
     if not isinstance(rules, list):
@@ -1002,6 +1010,114 @@ def load_ticket(path_value: str) -> tuple[Path, dict[str, Any]]:
         raise BridgeError("RECEIPT_INVALID", "ticket identity is malformed", exit_status=2)
     scan_strings(ticket, durable=True)
     return path, ticket
+
+
+def require_missing_legacy_transport_ticket(
+    state_dir: Path,
+    task_id: str,
+    external_thread_id: str,
+    *,
+    now: str,
+) -> dict[str, Any]:
+    """Prove one legacy task has no matching private transport ticket."""
+
+    if ID_RE.fullmatch(task_id) is None or ID_RE.fullmatch(external_thread_id) is None:
+        raise BridgeError(
+            "LEGACY_ARCHIVE_IDENTITY_INVALID",
+            "legacy archive task identity must use stable identifiers",
+            exit_status=2,
+        )
+    try:
+        tickets = list(state_dir.glob("*.ticket.json"))
+    except OSError as exc:
+        raise BridgeError(
+            "LEGACY_TICKET_AUTHORITY_UNSAFE",
+            "legacy transport ticket authority is unreadable",
+            exit_status=4,
+        ) from exc
+    if len(tickets) > MAX_LEGACY_TICKETS:
+        raise BridgeError(
+            "LEGACY_TICKET_AUTHORITY_UNSAFE",
+            "legacy transport ticket scan exceeds its bounded authority",
+            exit_status=4,
+        )
+
+    exact_matches = 0
+    for path in tickets:
+        try:
+            metadata = path.lstat()
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+                or metadata.st_size > MAX_REQUEST_BYTES
+                or (hasattr(os, "getuid") and metadata.st_uid != os.getuid())
+            ):
+                raise ValueError("unsafe ticket metadata")
+
+            def no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+                value: dict[str, Any] = {}
+                for key, child in pairs:
+                    if key in value:
+                        raise ValueError("duplicate ticket key")
+                    value[key] = child
+                return value
+
+            ticket = json.loads(
+                path.read_text(encoding="utf-8"),
+                object_pairs_hook=no_duplicate_keys,
+            )
+            if not isinstance(ticket, dict):
+                raise ValueError("ticket is not an object")
+            ticket_task_id = ticket.get("task_id")
+            if (
+                not isinstance(ticket_task_id, str)
+                or ID_RE.fullmatch(ticket_task_id) is None
+                or "receipt" not in ticket
+            ):
+                raise ValueError("ticket identity is malformed")
+            receipt = ticket["receipt"]
+            ticket_external_id = None
+            if receipt is not None:
+                if not isinstance(receipt, dict):
+                    raise ValueError("ticket receipt is malformed")
+                ticket_external_id = receipt.get("external_thread_id")
+                if (
+                    not isinstance(ticket_external_id, str)
+                    or ID_RE.fullmatch(ticket_external_id) is None
+                ):
+                    raise ValueError("ticket receipt identity is malformed")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise BridgeError(
+                "LEGACY_TICKET_AUTHORITY_UNSAFE",
+                "legacy transport ticket authority is malformed or unsafe",
+                exit_status=4,
+            ) from exc
+
+        task_matches = ticket_task_id == task_id
+        external_matches = ticket_external_id == external_thread_id
+        if task_matches != external_matches:
+            raise BridgeError(
+                "LEGACY_TICKET_IDENTITY_MISMATCH",
+                "legacy transport ticket matches only part of the canonical identity",
+                exit_status=3,
+            )
+        if task_matches and external_matches:
+            exact_matches += 1
+
+    if exact_matches:
+        raise BridgeError(
+            "LEGACY_TICKET_PRESENT",
+            "matching transport ticket exists; use the normal archive receipt route",
+            exit_status=3,
+        )
+    return {
+        "task_id": task_id,
+        "external_thread_id": external_thread_id,
+        "state": "missing",
+        "verified_at": now,
+        "scanned_ticket_count": len(tickets),
+        "matching_ticket_count": 0,
+    }
 
 
 def replace_ticket(path: Path, ticket: dict[str, Any]) -> None:
@@ -1526,6 +1642,9 @@ def build_parser() -> argparse.ArgumentParser:
     archive.add_argument("--request-id", required=True)
     archive.add_argument("--now", required=True)
 
+    legacy_archive = sub.add_parser("reconcile-legacy-archive")
+    legacy_archive.add_argument("--request", required=True)
+
     status = sub.add_parser("status")
     status.add_argument("--now")
     return parser
@@ -1560,6 +1679,99 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         request = load_json_file(args.request, "root-action request")
         validate_request(request, durable=True)
         return success(operation, run_root_guard(cli, state_dir, request))
+
+    if operation == "reconcile-legacy-archive":
+        if not schema_at_least(health["schema_version"], (1, 4)):
+            raise BridgeError(
+                "LEGACY_ARCHIVE_RECONCILIATION_UNAVAILABLE",
+                "legacy archive reconciliation requires Firestarter schema 1.4",
+                exit_status=2,
+            )
+        request = load_json_file(args.request, "legacy archive reconciliation request")
+        required = {
+            "interface_version",
+            "request_id",
+            "task_id",
+            "expected_source_event_key",
+            "external_thread_id",
+            "expected_state_revision",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "owner_claim_id",
+            "expected_archive_outbox_id",
+            "external_archive_proof",
+            "now",
+        }
+        if set(request) != required:
+            raise BridgeError(
+                "SCHEMA_INVALID",
+                "legacy archive reconciliation request fields are invalid",
+                exit_status=2,
+            )
+        validate_request(request, durable=True)
+        parse_time(request.get("now"))
+        task_id = request.get("task_id")
+        external_thread_id = request.get("external_thread_id")
+        if not isinstance(task_id, str) or not isinstance(external_thread_id, str):
+            raise BridgeError(
+                "LEGACY_ARCHIVE_IDENTITY_INVALID",
+                "legacy archive reconciliation requires exact task identities",
+                exit_status=2,
+            )
+        request["missing_transport_ticket_proof"] = (
+            require_missing_legacy_transport_ticket(
+                state_dir,
+                task_id,
+                external_thread_id,
+                now=request.get("now"),
+            )
+        )
+        result = run_cli(
+            cli,
+            state_dir,
+            "reconcile-legacy-archive",
+            request=request,
+        )
+        expected_fields = {
+            "request_id",
+            "task_id",
+            "external_thread_id",
+            "state",
+            "archive_outbox_id",
+            "external_archive_state",
+            "transport_ticket_state",
+            "previous_state_revision",
+            "committed_state_revision",
+            "current_state_revision",
+            "replayed",
+        }
+        if (
+            set(result) != expected_fields
+            or result.get("request_id") != request["request_id"]
+            or result.get("task_id") != task_id
+            or result.get("external_thread_id") != external_thread_id
+            or result.get("state") != "ARCHIVED"
+            or result.get("archive_outbox_id")
+            != request["expected_archive_outbox_id"]
+            or result.get("external_archive_state")
+            != request["external_archive_proof"].get("state")
+            or result.get("transport_ticket_state") != "missing"
+            or result.get("previous_state_revision")
+            != request["expected_state_revision"]
+            or not isinstance(result.get("committed_state_revision"), int)
+            or result["committed_state_revision"]
+            != result["previous_state_revision"] + 1
+            or not isinstance(result.get("current_state_revision"), int)
+            or result["current_state_revision"]
+            < result["committed_state_revision"]
+            or not isinstance(result.get("replayed"), bool)
+        ):
+            raise BridgeError(
+                "MACHINE_RESPONSE_INVALID",
+                "legacy archive reconciliation result is incompatible",
+            )
+        return success(operation, result)
 
     if operation == "route-owner-decision":
         request = load_json_file(args.request, "route-owner-decision request")

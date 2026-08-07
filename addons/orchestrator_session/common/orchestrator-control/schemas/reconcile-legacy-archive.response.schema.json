@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/reconcile-legacy-archive-response-1.0.schema.json",
+  "title": "Legacy archive reconciliation response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "task_id",
+    "external_thread_id",
+    "state",
+    "archive_outbox_id",
+    "external_archive_state",
+    "transport_ticket_state",
+    "previous_state_revision",
+    "committed_state_revision",
+    "current_state_revision",
+    "replayed"
+  ],
+  "properties": {
+    "request_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "external_thread_id": {"type": "string"},
+    "state": {"const": "ARCHIVED"},
+    "archive_outbox_id": {"type": "string"},
+    "external_archive_state": {"enum": ["archived", "unavailable"]},
+    "transport_ticket_state": {"const": "missing"},
+    "previous_state_revision": {"type": "integer", "minimum": 0},
+    "committed_state_revision": {"type": "integer", "minimum": 1},
+    "current_state_revision": {"type": "integer", "minimum": 1},
+    "replayed": {"type": "boolean"}
+  }
+}

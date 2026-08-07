@@ -268,6 +268,83 @@ class ControlPlaneTests(unittest.TestCase):
             "now": now,
         }
 
+    def legacy_archive_fixture(
+        self,
+        suffix: str,
+        *,
+        external_state: str = "archived",
+    ) -> dict[str, object]:
+        prepared = self.run_cli("prepare-launch", self.prepare(suffix))
+        self.run_cli("record-launch-receipt", self.receipt(prepared, suffix))
+        closed = self.run_cli(
+            "record-handback", self.handback(prepared, suffix)
+        )["result"]
+        self.assertEqual("ARCHIVE_PENDING", closed["state"])
+        task_id = f"task-{suffix}"
+        with sqlite3.connect(self.state / "orchestrator.sqlite3") as connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO lifecycle_watchdog(
+                     task_id,lifecycle_state,worker_status,completion_signals_json,
+                     evidence_refs_json,remaining_work_json,progress_ref,
+                     progress_observed_at,handback_deadline_checks,
+                     handback_deadline_limit,required_action,
+                     interrupt_receipt_id,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    task_id,
+                    "COMPLETED",
+                    "completed",
+                    '["objective-complete"]',
+                    '["synthetic-terminal-handback"]',
+                    None,
+                    None,
+                    None,
+                    0,
+                    2,
+                    "ARCHIVE",
+                    None,
+                    "2026-07-28T20:01:00Z",
+                ),
+            )
+        status = self.run_cli("status")["result"]
+        task = next(item for item in status["tasks"] if item["task_id"] == task_id)
+        archive = next(
+            item
+            for item in status["outbox"]
+            if item["task_id"] == task_id and item["kind"] == "ARCHIVE_THREAD"
+        )
+        required = prepared["result"]["envelope"]["receipt_required"]
+        now = "2026-07-28T20:05:00Z"
+        return {
+            "interface_version": "1.0",
+            "request_id": f"legacy-archive-{suffix}",
+            "task_id": task_id,
+            "expected_source_event_key": f"source-{suffix}",
+            "external_thread_id": f"thread-{suffix}",
+            "expected_state_revision": status["revision"],
+            "policy_snapshot_revision": required["policy_snapshot_revision"],
+            "lease_epoch": required["lease_epoch"],
+            "fencing_token": required["fencing_token"],
+            "owner_claim_id": prepared["result"]["envelope"]["owner_claim_id"],
+            "expected_archive_outbox_id": archive["outbox_id"],
+            "external_archive_proof": {
+                "external_thread_id": f"thread-{suffix}",
+                "state": external_state,
+                "observation_source": "external-task-api",
+                "observed_at": "2026-07-28T20:04:00Z",
+                "evidence_refs": [f"external-observation-{suffix}"],
+            },
+            "missing_transport_ticket_proof": {
+                "task_id": task_id,
+                "external_thread_id": f"thread-{suffix}",
+                "state": "missing",
+                "verified_at": now,
+                "scanned_ticket_count": 0,
+                "matching_ticket_count": 0,
+            },
+            "now": now,
+        }
+
     def classify_request(
         self,
         suffix: str,
@@ -2047,6 +2124,218 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(
             archived,
             self.run_cli("record-archive-receipt", archive)["result"],
+        )
+
+    def test_legacy_archive_reconciliation_accepts_exact_external_proof_and_replays(
+        self,
+    ) -> None:
+        for external_state in ("archived", "unavailable"):
+            with self.subTest(external_state=external_state):
+                suffix = f"legacy-{external_state}"
+                request = self.legacy_archive_fixture(
+                    suffix, external_state=external_state
+                )
+                reconciled = self.run_cli(
+                    "reconcile-legacy-archive", request
+                )["result"]
+                self.assertEqual("ARCHIVED", reconciled["state"])
+                self.assertEqual("missing", reconciled["transport_ticket_state"])
+                self.assertEqual(external_state, reconciled["external_archive_state"])
+                self.assertFalse(reconciled["replayed"])
+                self.assertEqual(
+                    reconciled["previous_state_revision"] + 1,
+                    reconciled["committed_state_revision"],
+                )
+                replayed = self.run_cli(
+                    "reconcile-legacy-archive", request
+                )["result"]
+                self.assertTrue(replayed["replayed"])
+                self.assertEqual(
+                    reconciled["committed_state_revision"],
+                    replayed["committed_state_revision"],
+                )
+                status = self.run_cli("status")["result"]
+                task = next(
+                    item
+                    for item in status["tasks"]
+                    if item["task_id"] == request["task_id"]
+                )
+                archive = next(
+                    item
+                    for item in status["outbox"]
+                    if item["outbox_id"] == request["expected_archive_outbox_id"]
+                )
+                self.assertEqual("ARCHIVED", task["state"])
+                self.assertEqual("completed", archive["state"])
+
+        database = self.state / "orchestrator.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "UPDATE owner_claims SET status='active' WHERE task_id=?",
+                (request["task_id"],),
+            )
+        corrupted_replay = self.run_cli(
+            "reconcile-legacy-archive", request, expected=control.EXIT_STATE
+        )
+        self.assertEqual("STATE_CORRUPT", corrupted_replay["error"]["code"])
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "UPDATE owner_claims SET status='released' WHERE task_id=?",
+                (request["task_id"],),
+            )
+
+        changed = json.loads(json.dumps(request))
+        changed["external_archive_proof"]["evidence_refs"] = [
+            "different-external-observation"
+        ]
+        conflict = self.run_cli(
+            "reconcile-legacy-archive", changed, expected=control.EXIT_CONFLICT
+        )
+        self.assertEqual("IDEMPOTENCY_CONFLICT", conflict["error"]["code"])
+
+    def test_legacy_archive_reconciliation_mismatches_fail_closed(self) -> None:
+        cases = (
+            "nonterminal-lifecycle",
+            "completed-outbox",
+            "external-identity",
+            "missing-external-proof",
+            "stale-revision",
+            "stale-fence",
+            "active-claim",
+        )
+        for label in cases:
+            with self.subTest(label=label):
+                request = self.legacy_archive_fixture(f"legacy-deny-{label}")
+                database = self.state / "orchestrator.sqlite3"
+                expected_status = control.EXIT_CONFLICT
+                expected_code = {
+                    "nonterminal-lifecycle": "LEGACY_ARCHIVE_LIFECYCLE_INVALID",
+                    "completed-outbox": "LEGACY_ARCHIVE_OUTBOX_INVALID",
+                    "external-identity": "LEGACY_ARCHIVE_IDENTITY_MISMATCH",
+                    "missing-external-proof": "SCHEMA_INVALID",
+                    "stale-revision": "STATE_REVISION_CONFLICT",
+                    "stale-fence": "LEGACY_ARCHIVE_IDENTITY_MISMATCH",
+                    "active-claim": "LEGACY_ARCHIVE_CLAIM_INVALID",
+                }[label]
+                if label == "nonterminal-lifecycle":
+                    with sqlite3.connect(database) as connection:
+                        connection.execute(
+                            "UPDATE lifecycle_watchdog SET lifecycle_state='RUNNING' WHERE task_id=?",
+                            (request["task_id"],),
+                        )
+                elif label == "completed-outbox":
+                    with sqlite3.connect(database) as connection:
+                        connection.execute(
+                            "UPDATE outbox SET state='completed' WHERE outbox_id=?",
+                            (request["expected_archive_outbox_id"],),
+                        )
+                elif label == "external-identity":
+                    request["external_archive_proof"][
+                        "external_thread_id"
+                    ] = "different-external-task"
+                elif label == "missing-external-proof":
+                    del request["external_archive_proof"]
+                    expected_status = control.EXIT_INVALID
+                elif label == "stale-revision":
+                    request["expected_state_revision"] += 1
+                elif label == "stale-fence":
+                    request["fencing_token"] += 1
+                elif label == "active-claim":
+                    with sqlite3.connect(database) as connection:
+                        connection.execute(
+                            "UPDATE owner_claims SET status='active' WHERE task_id=?",
+                            (request["task_id"],),
+                        )
+                denied = self.run_cli(
+                    "reconcile-legacy-archive",
+                    request,
+                    expected=expected_status,
+                )
+                self.assertEqual(expected_code, denied["error"]["code"])
+                with sqlite3.connect(database) as connection:
+                    task_state = connection.execute(
+                        "SELECT state FROM tasks WHERE task_id=?",
+                        (request["task_id"],),
+                    ).fetchone()[0]
+                    receipts = connection.execute(
+                        "SELECT COUNT(*) FROM legacy_archive_reconciliations WHERE task_id=?",
+                        (request["task_id"],),
+                    ).fetchone()[0]
+                self.assertEqual("ARCHIVE_PENDING", task_state)
+                self.assertEqual(0, receipts)
+
+    def test_capacity_failure_uses_latest_audit_and_preserves_historical_rows(
+        self,
+    ) -> None:
+        historical = self.run_cli(
+            "prepare-launch", self.prepare("capacity-history-old")
+        )
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(historical, "capacity-history-old"),
+        )
+        self.run_cli(
+            "record-handback",
+            self.handback(
+                historical,
+                "capacity-history-old",
+                now="2026-07-28T20:00:00Z",
+            ),
+        )
+        current = self.run_cli(
+            "prepare-launch", self.prepare("capacity-history-current")
+        )
+        self.run_cli(
+            "record-launch-receipt",
+            self.receipt(current, "capacity-history-current"),
+        )
+        self.run_cli(
+            "record-handback",
+            self.handback(
+                current,
+                "capacity-history-current",
+                now="2026-07-28T20:02:00Z",
+            ),
+        )
+        database = self.state / "orchestrator.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                """UPDATE capacity_sagas
+                   SET runnable_queue_count=1,updated_at='2026-07-28T20:01:00Z'
+                   WHERE task_id='task-capacity-history-old'"""
+            )
+        healthy = self.run_cli("status")["result"]
+        historical_row = next(
+            item
+            for item in healthy["capacity"]
+            if item["saga_id"] == "handback-capacity-history-old"
+        )
+        current_row = next(
+            item
+            for item in healthy["capacity"]
+            if item["saga_id"] == "handback-capacity-history-current"
+        )
+        self.assertEqual(
+            "CAPACITY_INVARIANT_FAILED", historical_row["failure_state"]
+        )
+        self.assertIsNone(current_row["failure_state"])
+        self.assertFalse(healthy["capacity_failure"])
+
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                """UPDATE capacity_sagas
+                   SET runnable_queue_count=1,updated_at='2026-07-28T20:03:00Z'
+                   WHERE task_id='task-capacity-history-current'"""
+            )
+        failed = self.run_cli("status")["result"]
+        self.assertTrue(failed["capacity_failure"])
+        self.assertEqual(
+            "CAPACITY_INVARIANT_FAILED",
+            next(
+                item
+                for item in failed["capacity"]
+                if item["saga_id"] == "handback-capacity-history-old"
+            )["failure_state"],
         )
 
     def test_under_capacity_exact_replacement_preserves_occupancy_and_archive_fence(

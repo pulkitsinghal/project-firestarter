@@ -88,6 +88,7 @@ def default_state() -> dict[str, Any]:
         "handbacks": {},
         "capacity": [],
         "lease_expirations": {},
+        "legacy_archive_reconciliations": {},
         "recycle_revision": 0,
     }
 
@@ -663,6 +664,72 @@ def main() -> int:
                     outbox["updated_at"] = request["now"]
             authority.commit()
             return emit(command, {"task_id": task["task_id"], "state": "ARCHIVED"})
+
+        if command == "reconcile-legacy-archive":
+            semantic = {
+                key: value
+                for key, value in request.items()
+                if key not in {"now", "missing_transport_ticket_proof"}
+            }
+            request_hash = hashlib.sha256(canonical(semantic).encode()).hexdigest()
+            existing = state["legacy_archive_reconciliations"].get(
+                request.get("request_id")
+            )
+            if existing is not None:
+                if existing["request_hash"] != request_hash:
+                    return deny("IDEMPOTENCY_CONFLICT", "legacy request changed", 3)
+                replay = dict(existing["result"])
+                replay["replayed"] = True
+                replay["current_state_revision"] = state["revision"]
+                return emit(command, replay)
+            task = state["tasks"].get(request.get("task_id"))
+            if (
+                task is None
+                or task["state"] != "ARCHIVE_PENDING"
+                or not receipt_matches(task, request)
+                or task.get("external_thread_id") != request.get("external_thread_id")
+            ):
+                return deny("LEGACY_ARCHIVE_IDENTITY_MISMATCH", "legacy task mismatch", 3)
+            archive = [
+                item
+                for item in state["outbox"].values()
+                if item["task_id"] == task["task_id"]
+                and item["kind"] == "ARCHIVE_THREAD"
+            ]
+            if (
+                len(archive) != 1
+                or archive[0]["outbox_id"]
+                != request.get("expected_archive_outbox_id")
+                or archive[0]["state"] != "PENDING"
+            ):
+                return deny("LEGACY_ARCHIVE_OUTBOX_INVALID", "legacy outbox mismatch", 3)
+            previous_revision = state["revision"]
+            if previous_revision != request.get("expected_state_revision"):
+                return deny("STATE_REVISION_CONFLICT", "legacy revision changed", 3)
+            task["state"] = "ARCHIVED"
+            task["updated_at"] = request["now"]
+            archive[0]["state"] = "completed"
+            archive[0]["updated_at"] = request["now"]
+            state["revision"] += 1
+            result = {
+                "request_id": request["request_id"],
+                "task_id": task["task_id"],
+                "external_thread_id": request["external_thread_id"],
+                "state": "ARCHIVED",
+                "archive_outbox_id": archive[0]["outbox_id"],
+                "external_archive_state": request["external_archive_proof"]["state"],
+                "transport_ticket_state": "missing",
+                "previous_state_revision": previous_revision,
+                "committed_state_revision": state["revision"],
+                "current_state_revision": state["revision"],
+                "replayed": False,
+            }
+            state["legacy_archive_reconciliations"][request["request_id"]] = {
+                "request_hash": request_hash,
+                "result": result,
+            }
+            authority.commit()
+            return emit(command, result)
 
         if command in {"effective-rules", "takeover-lease"}:
             return emit(command, {})
