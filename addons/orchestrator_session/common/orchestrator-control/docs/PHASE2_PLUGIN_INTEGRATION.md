@@ -65,11 +65,33 @@ returns both its original commit and the current capacity/revision without a
 second write. It never launches, refills, retires, or archives a task.
 
 An upgraded existing schema-1.0 through schema-1.3 database must first run the
-idempotent `init` command from control bundle `1.4.9` so the additive authority
+idempotent `init` command from control bundle `1.4.10` so the additive authority
 and transfer tables exist. The
 MCP operation additionally requires the exact reviewed runtime pin, a matching
 current-version covered-path adoption receipt, and the exact adapter-attested
 root guard decision. Direct SQLite changes are unsupported.
+
+## Closed legacy archive reconciliation
+
+Schema `1.4` exposes two non-overlapping repair routes. The existing
+`reconcile-legacy-archive` accepts only an exact terminal task after a bounded
+wrapper scan proves the matching ticket is missing. The
+`reconcile-stale-present-archive` route accepts only one unique private regular
+ticket that is already stale and still matches canonical SQLite launch,
+receipt, source/external identity, revision, policy, lease, fence, released
+claim, terminal lifecycle, and pending archive outbox authority. Both require a
+fresh independent `external-task-api` observation of archived or unavailable
+state and recheck all authority inside `BEGIN IMMEDIATE`.
+
+The stale-present route additionally admits only one typed terminal refill
+class: failed plus clean `EMPTY`, superseded plus clean `EMPTY`, or superseded
+with the same saga's exact receipted successor fully completed and archived.
+Missing, duplicate, unsafe, symlinked, partial, active, mismatched, unrelated,
+or drifting authority fails closed. The transaction commits only the exact task
+archive and archive-outbox completion. The wrapper verifies the committed
+filename/digest again and unlinks that ticket afterward; exact replay remains
+safe if cleanup already happened. Neither route changes capacity, creates a
+successor, renews a lease, or rewrites another claim or ticket.
 
 ## Owner-operated authority transfer
 

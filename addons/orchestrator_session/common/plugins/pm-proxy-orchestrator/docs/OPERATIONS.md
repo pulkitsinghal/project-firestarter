@@ -60,21 +60,27 @@ python skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py \
 ```
 
 After updating an existing schema-1.0 through schema-1.3 state to control bundle
-`1.4.9`, run the same idempotent `init` command once before recreating the
+`1.4.10`, run the same idempotent `init` command once before recreating the
 runtime pin. It adds authority-transfer state and does not change stored
 capacity. The bundle also repairs an early schema-1.4 hold table before status
-or doctor reads without changing any accepted hold. Control `1.4.9` adds the
-typed legacy archive-reconciliation receipt table without changing capacity and
-accepts covered-dispatcher adoption from plugin `0.4.10`. The route requires a
-current status revision, the exact released claim and pending outbox, independent
-external archive proof, and the bridge's bounded proof that the legacy transport
-ticket is missing. It must never be used to infer external state or bypass an
-active claim. Control `1.4.8` extends the
+or doctor reads without changing any accepted hold. Control `1.4.10` adds the
+typed stale-present archive-reconciliation receipt table without changing
+capacity and accepts covered-dispatcher adoption from plugin `0.4.11`. The new
+route requires the current revision, exact source/external identity, released
+claim, terminal lifecycle, pending archive outbox, fresh independent external
+archive proof, one unique stale ticket, and one admissible terminal refill
+classification: failed plus `EMPTY`, superseded plus `EMPTY`, or superseded with
+the exact receipted successor completed and archived. The control transaction
+rechecks the ticket path, mode, ownership, inode, digest, and canonical content;
+the bridge unlinks it only after commit. Missing tickets still use the existing
+`reconcile-legacy-archive` route. Neither route may infer external state, bypass
+an active claim, repair a partial chain, or alter capacity/successors. Control
+`1.4.8` extends the
 exact terminal archive proof to a receipted successor that has itself completed,
 keeps state schema and capacity unchanged, and accepts covered-dispatcher
 adoption from plugin `0.4.9`. That plugin repairs
 only its private hook lifecycle ledger; it does not migrate SQLite authority.
-Install the complete version-distinct plugin `0.4.10` before recreating the
+Install the complete version-distinct plugin `0.4.11` before recreating the
 runtime pin; do not
 overwrite an older cache under the same version identity. Then read
 `status` and capture its exact `revision` and

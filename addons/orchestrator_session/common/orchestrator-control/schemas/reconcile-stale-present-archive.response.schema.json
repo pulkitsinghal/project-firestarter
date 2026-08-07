@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.invalid/orchestrator-control/reconcile-stale-present-archive-response-1.0.schema.json",
+  "title": "Stale-present archive reconciliation response 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "task_id",
+    "external_thread_id",
+    "state",
+    "archive_outbox_id",
+    "owner_claim_state",
+    "external_archive_state",
+    "transport_ticket_state",
+    "transport_ticket_filename",
+    "transport_ticket_sha256",
+    "transport_ticket_cleanup_state",
+    "reconciliation_class",
+    "previous_state_revision",
+    "committed_state_revision",
+    "current_state_revision",
+    "replayed"
+  ],
+  "properties": {
+    "request_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "external_thread_id": {"type": "string"},
+    "state": {"const": "ARCHIVED"},
+    "archive_outbox_id": {"type": "string"},
+    "owner_claim_state": {"const": "released"},
+    "external_archive_state": {"enum": ["archived", "unavailable"]},
+    "transport_ticket_state": {"const": "stale-present"},
+    "transport_ticket_filename": {"type": "string"},
+    "transport_ticket_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "transport_ticket_cleanup_state": {"enum": ["pending-post-commit", "completed"]},
+    "reconciliation_class": {
+      "enum": [
+        "RECEIPT_STALE_TERMINAL",
+        "CAPACITY_EMPTY_TERMINAL",
+        "CAPACITY_ARCHIVED_SUCCESSOR_TERMINAL"
+      ]
+    },
+    "previous_state_revision": {"type": "integer", "minimum": 0},
+    "committed_state_revision": {"type": "integer", "minimum": 1},
+    "current_state_revision": {"type": "integer", "minimum": 1},
+    "replayed": {"type": "boolean"}
+  }
+}

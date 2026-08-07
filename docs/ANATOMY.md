@@ -291,8 +291,19 @@ fails closed and exact replay is idempotent. Current `capacity_failure` truth is
 derived from the newest audit observation while historical audit rows remain
 inspectable.
 
+Control bundle `1.4.10` and plugin `0.4.11` add a separate typed reconciliation
+for an exact terminal task whose unique legacy ticket is still present but
+stale. The control transaction rechecks the ticket path, mode, owner, inode,
+digest, canonical launch/receipt content, task/source/external identity,
+revision, policy, lease, fence, released claim, terminal lifecycle, pending
+archive outbox, and independent archived/unavailable external proof. Admission
+is closed to failed-plus-`EMPTY`, superseded-plus-`EMPTY`, or a superseded
+predecessor with its exact receipted successor fully completed and archived.
+The bridge unlinks only that ticket after the archive/outbox commit; replay is
+safe after cleanup and no capacity, claim, or successor side effect is added.
+
 The orchestrator Desktop host binds a process-local prompt-free grant to only
-seventeen named typed control tools after exact runtime-pin, current-version
+eighteen named typed control tools after exact runtime-pin, current-version
 covered adoption, private-proof, and receipt-fence verification. The exact root
 task is admitted; attested workers and shell, file, browser, Sites, expired-lease,
 owner-gated, and universal paths remain outside that grant.

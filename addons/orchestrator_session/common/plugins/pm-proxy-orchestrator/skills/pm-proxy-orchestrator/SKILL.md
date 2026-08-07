@@ -105,6 +105,16 @@ or receipt fails.
    pending archive outbox. The bridge performs its own bounded private ticket
    scan; never infer absence, reuse another task's proof, or use this route for an
    active claim, nonterminal lifecycle, completed outbox, or ambiguous identity.
+   A terminal task whose exact ticket is still present but stale may instead use
+   `pm_proxy_reconcile_stale_present_archive` after the same independent external
+   proof. Supply the exact current revision, source/external identity, fence,
+   released claim, and pending outbox. The bridge binds one unique safe ticket;
+   control rechecks its inode/content and accepts only failed-plus-`EMPTY`,
+   superseded-plus-`EMPTY`, or a superseded predecessor whose exact receipted
+   successor completed and archived. The archive/outbox commit happens before
+   the bridge unlinks that exact ticket. Missing, duplicate, mismatched,
+   symlinked, unsafe, fresh, active, partial, unrelated, or drifting chains stop
+   without a new mutation. Replay after committed cleanup is idempotent.
 14. Run `refill_saga.py slot-status` for dashboard truth and
     `watchdog-refill` on periodic heartbeat/startup fallback. A positive runnable
     count with active-or-reserved below configured capacity is a failure state

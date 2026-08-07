@@ -1,10 +1,21 @@
 # PM Proxy Orchestrator
 
-Version `0.4.10` is a source-only agent-CLI plugin for Firestarter control-plane
-interface `1.0` and control bundle `1.4.9`. It makes typed configured-capacity
+Version `0.4.11` is a source-only agent-CLI plugin for Firestarter control-plane
+interface `1.0` and control bundle `1.4.10`. It makes typed configured-capacity
 compare-and-set, task reservation, policy receipts, approval routing, fenced
 handback, successor creation, and queue recycling operational without installing
 anything globally.
+
+Version `0.4.11` adds a separate fail-closed reconciliation for an exact
+terminal `ARCHIVE_PENDING` task whose unique private transport ticket is still
+present but stale. It accepts only a failed task with clean `EMPTY` refill
+proof, a superseded task with clean `EMPTY` proof, or a superseded task whose
+exact receipted successor is fully completed and archived. The bridge and
+control transaction independently bind ticket path, inode, content, task,
+external receipt, revision, policy, lease, fence, claim, lifecycle, outbox, and
+external archive proof. The authoritative archive commits before the exact
+ticket is unlinked; replay after cleanup is idempotent. No capacity, claim,
+successor, or unrelated ticket is changed.
 
 Version `0.4.10` adds a generic legacy archive-reconciliation route for an exact
 terminal task whose claim is released and archive outbox remains pending after
@@ -121,7 +132,8 @@ visible and do not turn that already-reserved successor back into runnable work.
 
 The plugin includes a local stdio MCP server exposing only typed verifier,
 doctor, configured-capacity, reserve/receipt, lifecycle, close/refill, status,
-archive-receipt, and legacy archive-reconciliation operations. It has no network client, app connector, shell
+archive-receipt, missing-ticket reconciliation, and stale-present-ticket
+reconciliation operations. It has no network client, app connector, shell
 executor, generic filesystem tool, or arbitrary-command field.
 
 An owner-operated runtime pin binds that MCP surface to one exact Firestarter

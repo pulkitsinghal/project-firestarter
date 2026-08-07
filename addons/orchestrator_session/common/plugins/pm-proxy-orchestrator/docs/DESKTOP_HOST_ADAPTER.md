@@ -1,6 +1,6 @@
 # Codex Desktop host adapter
 
-Version `0.4.10` includes an opt-in desktop host adapter for one exact root task.
+Version `0.4.11` includes an opt-in desktop host adapter for one exact root task.
 It does not export `ROOT_ORCHESTRATOR_ROLE` to the normal desktop process and it
 does not infer root identity from a prompt, working directory, project, or
 model-visible field.
@@ -33,7 +33,8 @@ For the exact bound root task, the proxy adds Codex's supported per-tool
 `status`, bounded capacity reconfiguration, runtime verification,
 `prepare-launch`, launch receipt, heartbeat, lifecycle watchdog, close/refill,
 archive and refill receipts, slot status, watchdog refill, exact setup-failure
-repair, typed owner-decision routing, and one-use schema-hold recovery. It does not
+repair, typed owner-decision routing, missing-ticket archive reconciliation,
+stale-present-ticket archive reconciliation, and one-use schema-hold recovery. It does not
 change the user's global approval policy or plugin
 configuration. The native hook denies that prompt-free set for every other task
 ID in the isolated host. Expired-lease reconciliation remains outside the grant,
@@ -89,7 +90,7 @@ non-secret instance ID.
 ## Operator workflow
 
 Run these commands from an owner-controlled terminal, outside an enforced root
-task. First install the complete `0.4.10` plugin, recreate the runtime pin for the
+task. First install the complete `0.4.11` plugin, recreate the runtime pin for the
 reviewed clean Firestarter runtime, and run doctor. Keep any global
 `ROOT_ORCHESTRATOR_ROLE` export unset.
 
