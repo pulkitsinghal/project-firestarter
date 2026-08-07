@@ -5424,16 +5424,67 @@ class Plane:
             successor_receipt_valid = True
             if saga["outcome"] == "SUCCESSOR_RECEIPTED":
                 successor = connection.execute(
-                    """SELECT task.state FROM tasks AS task
-                       JOIN owner_claims AS claim ON claim.task_id=task.task_id
-                       WHERE task.task_id=? AND claim.status='active'""",
+                    "SELECT state,external_thread_id FROM tasks WHERE task_id=?",
                     (saga["successor_task_id"],),
                 ).fetchone()
-                successor_receipt_valid = (
-                    bool(saga["successor_receipted"])
-                    and successor is not None
+                successor_claims = connection.execute(
+                    """SELECT status FROM owner_claims
+                       WHERE task_id=?""",
+                    (saga["successor_task_id"],),
+                ).fetchall()
+                running_successor = (
+                    successor is not None
                     and successor["state"] == "RUNNING"
+                    and len(successor_claims) == 1
+                    and successor_claims[0]["status"] == "active"
                 )
+                terminal_successor = False
+                if successor is not None and successor["state"] in {
+                    "ARCHIVE_PENDING",
+                    "ARCHIVED",
+                }:
+                    successor_lifecycle = connection.execute(
+                        """SELECT lifecycle_state,worker_status,required_action
+                           FROM lifecycle_watchdog WHERE task_id=?""",
+                        (saga["successor_task_id"],),
+                    ).fetchone()
+                    successor_launch = connection.execute(
+                        "SELECT receipt_json FROM launches WHERE task_id=?",
+                        (saga["successor_task_id"],),
+                    ).fetchone()
+                    successor_archive = connection.execute(
+                        """SELECT state FROM outbox
+                           WHERE task_id=? AND kind='ARCHIVE_THREAD'""",
+                        (saga["successor_task_id"],),
+                    ).fetchall()
+                    successor_launch_receipt = (
+                        None
+                        if successor_launch is None
+                        or successor_launch["receipt_json"] is None
+                        else json.loads(successor_launch["receipt_json"])
+                    )
+                    expected_archive_state = (
+                        "completed"
+                        if successor["state"] == "ARCHIVED"
+                        else "pending"
+                    )
+                    terminal_successor = (
+                        len(successor_claims) == 1
+                        and successor_claims[0]["status"] == "released"
+                        and isinstance(successor_launch_receipt, dict)
+                        and successor_launch_receipt.get("external_thread_id")
+                        == successor["external_thread_id"]
+                        and successor_lifecycle is not None
+                        and successor_lifecycle["lifecycle_state"] == "COMPLETED"
+                        and successor_lifecycle["worker_status"] == "completed"
+                        and successor_lifecycle["required_action"] == "ARCHIVE"
+                        and len(successor_archive) == 1
+                        and successor_archive[0]["state"]
+                        == expected_archive_state
+                    )
+                successor_receipt_valid = bool(
+                    saga["successor_receipted"]
+                ) and (running_successor or terminal_successor)
             if not bool(saga["clean_handback"]) or not successor_receipt_valid:
                 fail(
                     "CAPACITY_REFILL_PENDING",
@@ -7387,7 +7438,7 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
     )
     if (
         re.fullmatch(
-            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8))(?:\+codex\.\d{14})?",
+            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8|9))(?:\+codex\.\d{14})?",
             plugin_version,
         )
         is None

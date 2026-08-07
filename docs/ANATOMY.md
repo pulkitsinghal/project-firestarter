@@ -273,6 +273,14 @@ idempotent legacy migration removes that same exact typed sink identity; real,
 incomplete, unknown, duplicate, mismatched, or unverifiable identities remain
 blocked.
 
+Control bundle `1.4.8` and plugin `0.4.9` close the terminal archive handoff
+without changing state schema `1.4` or interface `1.0`. A receipted successor
+that has itself completed remains valid only when its launch receipt, released
+claim, completed lifecycle, and archive outbox all match. An expired ordinary
+`completed` predecessor is admitted only when its exact ticket, committed
+terminal handback, released claim, terminal refill proof, lifecycle, receipt
+fence, and archive outbox agree. Partial and mismatched records remain denied.
+
 The orchestrator Desktop host binds a process-local prompt-free grant to only
 sixteen named typed control tools after exact runtime-pin, current-version
 covered adoption, private-proof, and receipt-fence verification. The exact root
