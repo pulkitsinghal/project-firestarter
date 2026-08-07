@@ -60,15 +60,21 @@ python skills/pm-proxy-orchestrator/scripts/pm_proxy_bridge.py \
 ```
 
 After updating an existing schema-1.0 through schema-1.3 state to control bundle
-`1.4.8`, run the same idempotent `init` command once before recreating the
+`1.4.9`, run the same idempotent `init` command once before recreating the
 runtime pin. It adds authority-transfer state and does not change stored
 capacity. The bundle also repairs an early schema-1.4 hold table before status
-or doctor reads without changing any accepted hold. Control `1.4.8` extends the
+or doctor reads without changing any accepted hold. Control `1.4.9` adds the
+typed legacy archive-reconciliation receipt table without changing capacity and
+accepts covered-dispatcher adoption from plugin `0.4.10`. The route requires a
+current status revision, the exact released claim and pending outbox, independent
+external archive proof, and the bridge's bounded proof that the legacy transport
+ticket is missing. It must never be used to infer external state or bypass an
+active claim. Control `1.4.8` extends the
 exact terminal archive proof to a receipted successor that has itself completed,
 keeps state schema and capacity unchanged, and accepts covered-dispatcher
 adoption from plugin `0.4.9`. That plugin repairs
 only its private hook lifecycle ledger; it does not migrate SQLite authority.
-Install the complete version-distinct plugin `0.4.9` before recreating the
+Install the complete version-distinct plugin `0.4.10` before recreating the
 runtime pin; do not
 overwrite an older cache under the same version identity. Then read
 `status` and capture its exact `revision` and

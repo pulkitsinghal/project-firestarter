@@ -98,6 +98,13 @@ or receipt fails.
    attestation boundary. Archive is forbidden until every reserved successor
    has an exact receipt or the saga durably records `EMPTY`, `OWNER_GATED`, or
    `CAPACITY_FULL` with evidence.
+   A legacy terminal task whose old transport ticket is missing may use
+   `pm_proxy_reconcile_legacy_archive` only after an independent canonical task
+   read proves the exact external task archived or unavailable. Supply the exact
+   current state revision, source/external identity, fence, released claim, and
+   pending archive outbox. The bridge performs its own bounded private ticket
+   scan; never infer absence, reuse another task's proof, or use this route for an
+   active claim, nonterminal lifecycle, completed outbox, or ambiguous identity.
 14. Run `refill_saga.py slot-status` for dashboard truth and
     `watchdog-refill` on periodic heartbeat/startup fallback. A positive runnable
     count with active-or-reserved below configured capacity is a failure state

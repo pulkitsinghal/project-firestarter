@@ -65,7 +65,7 @@ returns both its original commit and the current capacity/revision without a
 second write. It never launches, refills, retires, or archives a task.
 
 An upgraded existing schema-1.0 through schema-1.3 database must first run the
-idempotent `init` command from control bundle `1.4.8` so the additive authority
+idempotent `init` command from control bundle `1.4.9` so the additive authority
 and transfer tables exist. The
 MCP operation additionally requires the exact reviewed runtime pin, a matching
 current-version covered-path adoption receipt, and the exact adapter-attested
@@ -307,6 +307,12 @@ output.
     exact receipted successor. Admission never renews a lease or mutates a task,
     claim, capacity, or successor; the archive transaction rechecks its durable
     proofs before completing the outbox.
+    A missing legacy ticket does not weaken those checks. The dedicated
+    reconciliation accepts only a current exact revision/fence, released claim,
+    completed lifecycle, pending archive outbox, canonical launch receipt,
+    independent external archive/unavailability proof, and the bridge's bounded
+    exact ticket-absence proof. Its receipt is idempotent and it creates no task,
+    claim, capacity, successor, or external archive action.
 12. Drive refill from the durable capacity-release event. On process startup,
     heartbeat, or a periodic timer, invoke `capacity-watchdog` for any
     unsatisfied saga. It may reserve only the exact supplied successor and may

@@ -63,6 +63,8 @@ REQUIRED_FILES = {
     "orchestrator-control/schemas/reconcile-external-task.request.schema.json",
     "orchestrator-control/schemas/reconcile-external-task.response.schema.json",
     "orchestrator-control/schemas/reconcile-expired-lease.request.schema.json",
+    "orchestrator-control/schemas/reconcile-legacy-archive.request.schema.json",
+    "orchestrator-control/schemas/reconcile-legacy-archive.response.schema.json",
     "orchestrator-control/schemas/record-handback.request.schema.json",
     "orchestrator-control/schemas/record-handback.response.schema.json",
     "orchestrator-control/schemas/record-duration-observation.request.schema.json",
@@ -276,7 +278,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         self.assertEqual(entry["name"], manifest["name"])
         self.assertRegex(
             manifest["version"],
-            r"^0\.4\.9(?:\+codex\.\d{14})?$",
+            r"^0\.4\.10(?:\+codex\.\d{14})?$",
         )
         self.assertEqual("./skills/", manifest["skills"])
         self.assertEqual("./.mcp.json", manifest["mcpServers"])
@@ -315,7 +317,7 @@ class OrchestratorSessionContractTests(unittest.TestCase):
         canonical_bytes = CANONICAL_BILL.read_bytes()
         canonical_text = canonical_bytes.decode("utf-8")
         self.assertEqual(
-            "1.4.8",
+            "1.4.9",
             (ADDON / "orchestrator-control" / "VERSION")
             .read_text(encoding="utf-8")
             .strip(),

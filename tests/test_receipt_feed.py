@@ -922,6 +922,66 @@ class ReceiptFeedTests(unittest.TestCase):
                 before, (output / "receipt-feed-current.json").read_bytes()
             )
 
+    def test_ledger_capacity_failure_uses_latest_audit_not_historical_failure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "state"
+            fixture = self.populate_synthetic_ledger(state)
+            database = state / "orchestrator.sqlite3"
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    """UPDATE capacity_sagas
+                       SET configured_capacity=3,runnable_queue_count=1,
+                           updated_at='2026-07-28T14:59:00Z'
+                       WHERE saga_id='fixture-capacity'"""
+                )
+                connection.execute(
+                    """INSERT INTO capacity_sagas(
+                         saga_id,task_id,configured_capacity,runnable_queue_count,
+                         terminal_status,clean_handback,outcome,successor_task_id,
+                         successor_receipted,evidence_refs_json,created_at,updated_at
+                       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        "fixture-capacity-current",
+                        "fixture-waiting",
+                        3,
+                        0,
+                        "completed",
+                        1,
+                        "EMPTY",
+                        None,
+                        0,
+                        '["test:current-capacity"]',
+                        "2026-07-28T15:00:00Z",
+                        "2026-07-28T15:00:00Z",
+                    ),
+                )
+            healthy = EXPORTER.feed_from_ledger(
+                str(state),
+                generated_at=fixture["generatedAt"],
+                served_at=fixture["servedAt"],
+                freshness_threshold_seconds=60,
+            )
+            self.assertEqual("live", healthy["source"]["sourceStatus"])
+
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    """UPDATE capacity_sagas SET runnable_queue_count=1
+                       WHERE saga_id='fixture-capacity-current'"""
+                )
+            failed = EXPORTER.feed_from_ledger(
+                str(state),
+                generated_at=fixture["generatedAt"],
+                served_at=fixture["servedAt"],
+                freshness_threshold_seconds=60,
+            )
+            self.assertEqual("degraded", failed["source"]["sourceStatus"])
+            self.assertIn(
+                "CAPACITY_INVARIANT_FAILED",
+                failed["source"]["discrepancies"],
+            )
+
     def test_manifest_bootstrap_is_idempotent_and_publish_is_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

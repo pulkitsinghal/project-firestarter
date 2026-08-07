@@ -1133,6 +1133,15 @@ CREATE TABLE IF NOT EXISTS lease_expirations (
   result_json TEXT NOT NULL,
   recorded_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS legacy_archive_reconciliations (
+  request_id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+  external_thread_id TEXT NOT NULL,
+  expected_state_revision INTEGER NOT NULL,
+  result_json TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS dispatcher_adoptions (
   request_id TEXT PRIMARY KEY,
   request_hash TEXT NOT NULL,
@@ -3374,6 +3383,18 @@ class Plane:
             "updated_at": row["updated_at"],
         }
 
+    @staticmethod
+    def current_capacity_failure(capacity: list[dict[str, Any]]) -> bool:
+        """Aggregate only the newest capacity audit while retaining history."""
+
+        if not capacity:
+            return False
+        latest = max(
+            capacity,
+            key=lambda item: (item["updated_at"], item["saga_id"]),
+        )
+        return latest["failure_state"] is not None
+
     def record_capacity_receipt(
         self, connection: sqlite3.Connection, request: dict[str, Any]
     ) -> None:
@@ -5371,228 +5392,526 @@ class Plane:
         finally:
             connection.close()
 
+    def _archive_receipt_locked(
+        self,
+        connection: sqlite3.Connection,
+        request: dict[str, Any],
+        *,
+        event_type: str = "ARCHIVE_RECEIPT",
+        reason_code: str = "EXTERNAL_ARCHIVE_CONFIRMED",
+        event_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        task = connection.execute(
+            "SELECT * FROM tasks WHERE task_id=?", (request["task_id"],)
+        ).fetchone()
+        if (
+            task
+            and task["state"] == "ARCHIVED"
+            and request["policy_snapshot_revision"] == task["policy_revision"]
+            and request["lease_epoch"] == task["lease_epoch"]
+            and request["fencing_token"] == task["fencing_token"]
+        ):
+            return {"task_id": request["task_id"], "state": "ARCHIVED"}
+        if not task or task["state"] != "ARCHIVE_PENDING":
+            fail("TASK_STATE_INVALID", "task is not awaiting archive")
+        if (
+            request["policy_snapshot_revision"] != task["policy_revision"]
+            or request["lease_epoch"] != task["lease_epoch"]
+            or request["fencing_token"] != task["fencing_token"]
+        ):
+            fail("STALE_FENCE", "archive receipt has stale fencing")
+        saga = connection.execute(
+            "SELECT * FROM capacity_sagas WHERE task_id=?",
+            (request["task_id"],),
+        ).fetchone()
+        if not saga:
+            fail(
+                "CAPACITY_SAGA_MISSING",
+                "archive is fenced until a durable closure/refill saga exists",
+                exit_status=EXIT_STATE,
+            )
+        if saga["outcome"] not in {
+            "SUCCESSOR_RECEIPTED",
+            "EMPTY",
+            "OWNER_GATED",
+            "CAPACITY_FULL",
+        }:
+            fail(
+                "CAPACITY_REFILL_PENDING",
+                "archive is fenced until refill is receipted or a terminal empty outcome is evidenced",
+                exit_status=EXIT_CONFLICT,
+                details={"saga_id": saga["saga_id"], "outcome": saga["outcome"]},
+            )
+        successor_receipt_valid = True
+        if saga["outcome"] == "SUCCESSOR_RECEIPTED":
+            successor = connection.execute(
+                "SELECT state,external_thread_id FROM tasks WHERE task_id=?",
+                (saga["successor_task_id"],),
+            ).fetchone()
+            successor_claims = connection.execute(
+                """SELECT status FROM owner_claims
+                   WHERE task_id=?""",
+                (saga["successor_task_id"],),
+            ).fetchall()
+            running_successor = (
+                successor is not None
+                and successor["state"] == "RUNNING"
+                and len(successor_claims) == 1
+                and successor_claims[0]["status"] == "active"
+            )
+            terminal_successor = False
+            if successor is not None and successor["state"] in {
+                "ARCHIVE_PENDING",
+                "ARCHIVED",
+            }:
+                successor_lifecycle = connection.execute(
+                    """SELECT lifecycle_state,worker_status,required_action
+                       FROM lifecycle_watchdog WHERE task_id=?""",
+                    (saga["successor_task_id"],),
+                ).fetchone()
+                successor_launch = connection.execute(
+                    "SELECT receipt_json FROM launches WHERE task_id=?",
+                    (saga["successor_task_id"],),
+                ).fetchone()
+                successor_archive = connection.execute(
+                    """SELECT state FROM outbox
+                       WHERE task_id=? AND kind='ARCHIVE_THREAD'""",
+                    (saga["successor_task_id"],),
+                ).fetchall()
+                successor_launch_receipt = (
+                    None
+                    if successor_launch is None
+                    or successor_launch["receipt_json"] is None
+                    else json.loads(successor_launch["receipt_json"])
+                )
+                expected_archive_state = (
+                    "completed" if successor["state"] == "ARCHIVED" else "pending"
+                )
+                terminal_successor = (
+                    len(successor_claims) == 1
+                    and successor_claims[0]["status"] == "released"
+                    and isinstance(successor_launch_receipt, dict)
+                    and successor_launch_receipt.get("external_thread_id")
+                    == successor["external_thread_id"]
+                    and successor_lifecycle is not None
+                    and successor_lifecycle["lifecycle_state"] == "COMPLETED"
+                    and successor_lifecycle["worker_status"] == "completed"
+                    and successor_lifecycle["required_action"] == "ARCHIVE"
+                    and len(successor_archive) == 1
+                    and successor_archive[0]["state"] == expected_archive_state
+                )
+            successor_receipt_valid = bool(saga["successor_receipted"]) and (
+                running_successor or terminal_successor
+            )
+        if not bool(saga["clean_handback"]) or not successor_receipt_valid:
+            fail(
+                "CAPACITY_REFILL_PENDING",
+                "archive requires an exact clean terminal refill outcome",
+                exit_status=EXIT_CONFLICT,
+                details={"saga_id": saga["saga_id"], "outcome": saga["outcome"]},
+            )
+        closure = (
+            None if task["closure_json"] is None else json.loads(task["closure_json"])
+        )
+        claim = connection.execute(
+            """SELECT claim_id,status,lease_epoch,fencing_token
+               FROM owner_claims WHERE task_id=?""",
+            (request["task_id"],),
+        ).fetchall()
+        launch = connection.execute(
+            "SELECT receipt_json FROM launches WHERE task_id=?",
+            (request["task_id"],),
+        ).fetchone()
+        archive_outbox = connection.execute(
+            """SELECT outbox_id,payload_json,state FROM outbox
+               WHERE task_id=? AND kind='ARCHIVE_THREAD'""",
+            (request["task_id"],),
+        ).fetchall()
+        launch_receipt = (
+            None
+            if launch is None or launch["receipt_json"] is None
+            else json.loads(launch["receipt_json"])
+        )
+        outbox_payload = (
+            None
+            if len(archive_outbox) != 1
+            else json.loads(archive_outbox[0]["payload_json"])
+        )
+        exact_terminal_fence = (
+            isinstance(closure, dict)
+            and isinstance(closure.get("disposition"), str)
+            and len(claim) == 1
+            and claim[0]["status"] == "released"
+            and claim[0]["lease_epoch"] == request["lease_epoch"]
+            and claim[0]["fencing_token"] == request["fencing_token"]
+            and isinstance(launch_receipt, dict)
+            and launch_receipt.get("external_thread_id") == task["external_thread_id"]
+            and len(archive_outbox) == 1
+            and archive_outbox[0]["state"] == "pending"
+            and outbox_payload
+            == {
+                "task_id": request["task_id"],
+                "external_thread_id": task["external_thread_id"],
+            }
+        )
+        if closure and closure.get("disposition") == "interrupted/notLoaded":
+            lifecycle = connection.execute(
+                """SELECT lifecycle_state,required_action,interrupt_receipt_id
+                   FROM lifecycle_watchdog WHERE task_id=?""",
+                (request["task_id"],),
+            ).fetchone()
+            durable_terminal = (
+                lifecycle is not None
+                and lifecycle["lifecycle_state"] == "INTERRUPTED"
+                and lifecycle["required_action"] == "ARCHIVE"
+                and isinstance(lifecycle["interrupt_receipt_id"], str)
+            )
+        else:
+            handbacks = connection.execute(
+                "SELECT result_json FROM handbacks WHERE task_id=?",
+                (request["task_id"],),
+            ).fetchall()
+            terminal_handbacks = [
+                json.loads(row["result_json"])
+                for row in handbacks
+                if json.loads(row["result_json"]).get("state") == "ARCHIVE_PENDING"
+            ]
+            durable_terminal = len(terminal_handbacks) == 1
+        if not exact_terminal_fence or not durable_terminal:
+            fail(
+                "ARCHIVE_PROOF_INVALID",
+                "archive requires an exact durable terminal handback, released claim, and pending outbox",
+                exit_status=EXIT_CONFLICT,
+            )
+        connection.execute(
+            "UPDATE tasks SET state='ARCHIVED',updated_at=? WHERE task_id=?",
+            (request["now"], request["task_id"]),
+        )
+        connection.execute(
+            "UPDATE outbox SET state='completed',updated_at=? WHERE task_id=? AND kind='ARCHIVE_THREAD'",
+            (request["now"], request["task_id"]),
+        )
+        self.event(
+            connection,
+            request["now"],
+            request["task_id"],
+            request["request_id"],
+            event_type,
+            reason_code,
+            [],
+            "ARCHIVE_PENDING",
+            "ARCHIVED",
+            event_metadata or {},
+        )
+        return {"task_id": request["task_id"], "state": "ARCHIVED"}
+
     def archive_receipt(self, raw: Any) -> dict[str, Any]:
         request = validate_receipt(raw, "archive")
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self.require_operational_authority(connection, "record-archive-receipt")
+            result = self._archive_receipt_locked(connection, request)
+            connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def reconcile_legacy_archive(self, raw: Any) -> dict[str, Any]:
+        request = validate_legacy_archive_reconciliation(raw)
+        semantic_request = {
+            key: value
+            for key, value in request.items()
+            if key not in {"now", "missing_transport_ticket_proof"}
+        }
+        request_hash = digest(semantic_request)
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
             self.require_operational_authority(
-                connection, "record-archive-receipt"
+                connection, "reconcile-legacy-archive"
             )
+            existing = connection.execute(
+                """SELECT request_hash,result_json
+                   FROM legacy_archive_reconciliations WHERE request_id=?""",
+                (request["request_id"],),
+            ).fetchone()
+            if existing is not None:
+                if existing["request_hash"] != request_hash:
+                    fail(
+                        "IDEMPOTENCY_CONFLICT",
+                        "legacy archive reconciliation request input changed",
+                        exit_status=EXIT_CONFLICT,
+                    )
+                replay = json.loads(existing["result_json"])
+                task = connection.execute(
+                    "SELECT * FROM tasks WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchone()
+                claims = connection.execute(
+                    """SELECT claim_id,status,lease_epoch,fencing_token
+                       FROM owner_claims WHERE task_id=?""",
+                    (request["task_id"],),
+                ).fetchall()
+                launch = connection.execute(
+                    "SELECT receipt_json FROM launches WHERE task_id=?",
+                    (request["task_id"],),
+                ).fetchone()
+                lifecycle = connection.execute(
+                    """SELECT lifecycle_state,worker_status,remaining_work_json,
+                              required_action
+                       FROM lifecycle_watchdog WHERE task_id=?""",
+                    (request["task_id"],),
+                ).fetchone()
+                archive = connection.execute(
+                    """SELECT outbox_id,payload_json,state FROM outbox
+                       WHERE task_id=? AND kind='ARCHIVE_THREAD'""",
+                    (request["task_id"],),
+                ).fetchall()
+                try:
+                    launch_receipt = (
+                        None
+                        if launch is None or launch["receipt_json"] is None
+                        else json.loads(launch["receipt_json"])
+                    )
+                    archive_payload = (
+                        None
+                        if len(archive) != 1
+                        else json.loads(archive[0]["payload_json"])
+                    )
+                except (TypeError, json.JSONDecodeError):
+                    launch_receipt = None
+                    archive_payload = None
+                if (
+                    task is None
+                    or task["state"] != "ARCHIVED"
+                    or task["source_event_key"]
+                    != request["expected_source_event_key"]
+                    or task["external_thread_id"] != request["external_thread_id"]
+                    or task["policy_revision"]
+                    != request["policy_snapshot_revision"]
+                    or task["lease_epoch"] != request["lease_epoch"]
+                    or task["fencing_token"] != request["fencing_token"]
+                    or len(claims) != 1
+                    or claims[0]["claim_id"] != request["owner_claim_id"]
+                    or claims[0]["status"] != "released"
+                    or claims[0]["lease_epoch"] != request["lease_epoch"]
+                    or claims[0]["fencing_token"] != request["fencing_token"]
+                    or not isinstance(launch_receipt, dict)
+                    or launch_receipt.get("external_thread_id")
+                    != request["external_thread_id"]
+                    or lifecycle is None
+                    or lifecycle["lifecycle_state"] != "COMPLETED"
+                    or lifecycle["worker_status"] != "completed"
+                    or lifecycle["remaining_work_json"] is not None
+                    or lifecycle["required_action"] != "ARCHIVE"
+                    or len(archive) != 1
+                    or archive[0]["outbox_id"]
+                    != request["expected_archive_outbox_id"]
+                    or archive[0]["state"] != "completed"
+                    or archive_payload
+                    != {
+                        "task_id": request["task_id"],
+                        "external_thread_id": request["external_thread_id"],
+                    }
+                ):
+                    fail(
+                        "STATE_CORRUPT",
+                        "legacy archive reconciliation replay no longer matches authority",
+                        exit_status=EXIT_STATE,
+                    )
+                replay["replayed"] = True
+                replay["current_state_revision"] = int(
+                    self.metadata(connection, "revision")
+                )
+                connection.commit()
+                return replay
+
+            prior_task_reconciliation = connection.execute(
+                """SELECT request_id FROM legacy_archive_reconciliations
+                   WHERE task_id=?""",
+                (request["task_id"],),
+            ).fetchone()
+            if prior_task_reconciliation is not None:
+                fail(
+                    "LEGACY_ARCHIVE_ALREADY_RECONCILED",
+                    "task already has a different legacy archive reconciliation",
+                    exit_status=EXIT_CONFLICT,
+                )
+            current_revision = int(self.metadata(connection, "revision"))
+            if request["expected_state_revision"] != current_revision:
+                fail(
+                    "STATE_REVISION_CONFLICT",
+                    "legacy archive reconciliation state revision is stale",
+                    exit_status=EXIT_CONFLICT,
+                    details={"current_state_revision": current_revision},
+                )
             task = connection.execute(
                 "SELECT * FROM tasks WHERE task_id=?", (request["task_id"],)
             ).fetchone()
             if (
-                task
-                and task["state"] == "ARCHIVED"
-                and request["policy_snapshot_revision"] == task["policy_revision"]
-                and request["lease_epoch"] == task["lease_epoch"]
-                and request["fencing_token"] == task["fencing_token"]
+                task is None
+                or task["state"] != "ARCHIVE_PENDING"
+                or task["source_event_key"]
+                != request["expected_source_event_key"]
+                or task["external_thread_id"] != request["external_thread_id"]
+                or task["policy_revision"]
+                != request["policy_snapshot_revision"]
+                or task["lease_epoch"] != request["lease_epoch"]
+                or task["fencing_token"] != request["fencing_token"]
             ):
-                connection.commit()
-                return {"task_id": request["task_id"], "state": "ARCHIVED"}
-            if not task or task["state"] != "ARCHIVE_PENDING":
-                fail("TASK_STATE_INVALID", "task is not awaiting archive")
-            if (
-                request["policy_snapshot_revision"] != task["policy_revision"]
-                or request["lease_epoch"] != task["lease_epoch"]
-                or request["fencing_token"] != task["fencing_token"]
-            ):
-                fail("STALE_FENCE", "archive receipt has stale fencing")
-            saga = connection.execute(
-                "SELECT * FROM capacity_sagas WHERE task_id=?",
-                (request["task_id"],),
-            ).fetchone()
-            if not saga:
                 fail(
-                    "CAPACITY_SAGA_MISSING",
-                    "archive is fenced until a durable closure/refill saga exists",
-                    exit_status=EXIT_STATE,
-                )
-            if saga["outcome"] not in {
-                "SUCCESSOR_RECEIPTED",
-                "EMPTY",
-                "OWNER_GATED",
-                "CAPACITY_FULL",
-            }:
-                fail(
-                    "CAPACITY_REFILL_PENDING",
-                    "archive is fenced until refill is receipted or a terminal empty outcome is evidenced",
+                    "LEGACY_ARCHIVE_IDENTITY_MISMATCH",
+                    "legacy archive task identity or fence does not match authority",
                     exit_status=EXIT_CONFLICT,
-                    details={"saga_id": saga["saga_id"], "outcome": saga["outcome"]},
                 )
-            successor_receipt_valid = True
-            if saga["outcome"] == "SUCCESSOR_RECEIPTED":
-                successor = connection.execute(
-                    "SELECT state,external_thread_id FROM tasks WHERE task_id=?",
-                    (saga["successor_task_id"],),
-                ).fetchone()
-                successor_claims = connection.execute(
-                    """SELECT status FROM owner_claims
-                       WHERE task_id=?""",
-                    (saga["successor_task_id"],),
-                ).fetchall()
-                running_successor = (
-                    successor is not None
-                    and successor["state"] == "RUNNING"
-                    and len(successor_claims) == 1
-                    and successor_claims[0]["status"] == "active"
-                )
-                terminal_successor = False
-                if successor is not None and successor["state"] in {
-                    "ARCHIVE_PENDING",
-                    "ARCHIVED",
-                }:
-                    successor_lifecycle = connection.execute(
-                        """SELECT lifecycle_state,worker_status,required_action
-                           FROM lifecycle_watchdog WHERE task_id=?""",
-                        (saga["successor_task_id"],),
-                    ).fetchone()
-                    successor_launch = connection.execute(
-                        "SELECT receipt_json FROM launches WHERE task_id=?",
-                        (saga["successor_task_id"],),
-                    ).fetchone()
-                    successor_archive = connection.execute(
-                        """SELECT state FROM outbox
-                           WHERE task_id=? AND kind='ARCHIVE_THREAD'""",
-                        (saga["successor_task_id"],),
-                    ).fetchall()
-                    successor_launch_receipt = (
-                        None
-                        if successor_launch is None
-                        or successor_launch["receipt_json"] is None
-                        else json.loads(successor_launch["receipt_json"])
-                    )
-                    expected_archive_state = (
-                        "completed"
-                        if successor["state"] == "ARCHIVED"
-                        else "pending"
-                    )
-                    terminal_successor = (
-                        len(successor_claims) == 1
-                        and successor_claims[0]["status"] == "released"
-                        and isinstance(successor_launch_receipt, dict)
-                        and successor_launch_receipt.get("external_thread_id")
-                        == successor["external_thread_id"]
-                        and successor_lifecycle is not None
-                        and successor_lifecycle["lifecycle_state"] == "COMPLETED"
-                        and successor_lifecycle["worker_status"] == "completed"
-                        and successor_lifecycle["required_action"] == "ARCHIVE"
-                        and len(successor_archive) == 1
-                        and successor_archive[0]["state"]
-                        == expected_archive_state
-                    )
-                successor_receipt_valid = bool(
-                    saga["successor_receipted"]
-                ) and (running_successor or terminal_successor)
-            if not bool(saga["clean_handback"]) or not successor_receipt_valid:
-                fail(
-                    "CAPACITY_REFILL_PENDING",
-                    "archive requires an exact clean terminal refill outcome",
-                    exit_status=EXIT_CONFLICT,
-                    details={"saga_id": saga["saga_id"], "outcome": saga["outcome"]},
-                )
-            closure = (
-                None
-                if task["closure_json"] is None
-                else json.loads(task["closure_json"])
-            )
-            claim = connection.execute(
+            claims = connection.execute(
                 """SELECT claim_id,status,lease_epoch,fencing_token
                    FROM owner_claims WHERE task_id=?""",
                 (request["task_id"],),
             ).fetchall()
+            if (
+                len(claims) != 1
+                or claims[0]["claim_id"] != request["owner_claim_id"]
+                or claims[0]["status"] != "released"
+                or claims[0]["lease_epoch"] != request["lease_epoch"]
+                or claims[0]["fencing_token"] != request["fencing_token"]
+            ):
+                fail(
+                    "LEGACY_ARCHIVE_CLAIM_INVALID",
+                    "legacy archive reconciliation requires the exact released claim",
+                    exit_status=EXIT_CONFLICT,
+                )
             launch = connection.execute(
                 "SELECT receipt_json FROM launches WHERE task_id=?",
                 (request["task_id"],),
             ).fetchone()
-            archive_outbox = connection.execute(
-                """SELECT outbox_id,payload_json,state FROM outbox
-                   WHERE task_id=? AND kind='ARCHIVE_THREAD'""",
-                (request["task_id"],),
-            ).fetchall()
             launch_receipt = (
                 None
                 if launch is None or launch["receipt_json"] is None
                 else json.loads(launch["receipt_json"])
             )
-            outbox_payload = (
-                None
-                if len(archive_outbox) != 1
-                else json.loads(archive_outbox[0]["payload_json"])
-            )
-            exact_terminal_fence = (
-                isinstance(closure, dict)
-                and isinstance(closure.get("disposition"), str)
-                and len(claim) == 1
-                and claim[0]["status"] == "released"
-                and claim[0]["lease_epoch"] == request["lease_epoch"]
-                and claim[0]["fencing_token"] == request["fencing_token"]
-                and isinstance(launch_receipt, dict)
-                and launch_receipt.get("external_thread_id")
-                == task["external_thread_id"]
-                and len(archive_outbox) == 1
-                and archive_outbox[0]["state"] == "pending"
-                and outbox_payload
-                == {
-                    "task_id": request["task_id"],
-                    "external_thread_id": task["external_thread_id"],
-                }
-            )
-            if closure and closure.get("disposition") == "interrupted/notLoaded":
-                lifecycle = connection.execute(
-                    """SELECT lifecycle_state,required_action,interrupt_receipt_id
-                       FROM lifecycle_watchdog WHERE task_id=?""",
-                    (request["task_id"],),
-                ).fetchone()
-                durable_terminal = (
-                    lifecycle is not None
-                    and lifecycle["lifecycle_state"] == "INTERRUPTED"
-                    and lifecycle["required_action"] == "ARCHIVE"
-                    and isinstance(lifecycle["interrupt_receipt_id"], str)
-                )
-            else:
-                handbacks = connection.execute(
-                    "SELECT result_json FROM handbacks WHERE task_id=?",
-                    (request["task_id"],),
-                ).fetchall()
-                terminal_handbacks = [
-                    json.loads(row["result_json"])
-                    for row in handbacks
-                    if json.loads(row["result_json"]).get("state")
-                    == "ARCHIVE_PENDING"
-                ]
-                durable_terminal = (
-                    len(terminal_handbacks) == 1
-                )
-            if not exact_terminal_fence or not durable_terminal:
+            if (
+                not isinstance(launch_receipt, dict)
+                or launch_receipt.get("external_thread_id")
+                != request["external_thread_id"]
+            ):
                 fail(
-                    "ARCHIVE_PROOF_INVALID",
-                    "archive requires an exact durable terminal handback, released claim, and pending outbox",
+                    "LEGACY_ARCHIVE_EXTERNAL_RECEIPT_INVALID",
+                    "legacy archive reconciliation requires the canonical launch receipt",
                     exit_status=EXIT_CONFLICT,
                 )
-            connection.execute(
-                "UPDATE tasks SET state='ARCHIVED',updated_at=? WHERE task_id=?",
-                (request["now"], request["task_id"]),
+            lifecycle = connection.execute(
+                """SELECT lifecycle_state,worker_status,remaining_work_json,
+                          required_action
+                   FROM lifecycle_watchdog WHERE task_id=?""",
+                (request["task_id"],),
+            ).fetchone()
+            if (
+                lifecycle is None
+                or lifecycle["lifecycle_state"] != "COMPLETED"
+                or lifecycle["worker_status"] != "completed"
+                or lifecycle["remaining_work_json"] is not None
+                or lifecycle["required_action"] != "ARCHIVE"
+            ):
+                fail(
+                    "LEGACY_ARCHIVE_LIFECYCLE_INVALID",
+                    "legacy archive reconciliation requires completed terminal lifecycle evidence",
+                    exit_status=EXIT_CONFLICT,
+                )
+            archive = connection.execute(
+                """SELECT outbox_id,payload_json,state FROM outbox
+                   WHERE task_id=? AND kind='ARCHIVE_THREAD'""",
+                (request["task_id"],),
+            ).fetchall()
+            archive_payload = (
+                None if len(archive) != 1 else json.loads(archive[0]["payload_json"])
             )
-            connection.execute(
-                "UPDATE outbox SET state='completed',updated_at=? WHERE task_id=? AND kind='ARCHIVE_THREAD'",
-                (request["now"], request["task_id"]),
-            )
-            self.event(
+            if (
+                len(archive) != 1
+                or archive[0]["outbox_id"]
+                != request["expected_archive_outbox_id"]
+                or archive[0]["state"] != "pending"
+                or archive_payload
+                != {
+                    "task_id": request["task_id"],
+                    "external_thread_id": request["external_thread_id"],
+                }
+            ):
+                fail(
+                    "LEGACY_ARCHIVE_OUTBOX_INVALID",
+                    "legacy archive reconciliation requires the exact pending archive outbox",
+                    exit_status=EXIT_CONFLICT,
+                )
+            archive_request = {
+                "request_id": request["request_id"],
+                "task_id": request["task_id"],
+                "policy_snapshot_revision": request["policy_snapshot_revision"],
+                "lease_epoch": request["lease_epoch"],
+                "fencing_token": request["fencing_token"],
+                "now": request["now"],
+            }
+            self._archive_receipt_locked(
                 connection,
-                request["now"],
-                request["task_id"],
-                request["request_id"],
-                "ARCHIVE_RECEIPT",
-                "EXTERNAL_ARCHIVE_CONFIRMED",
-                [],
-                "ARCHIVE_PENDING",
-                "ARCHIVED",
-                {},
+                archive_request,
+                event_type="LEGACY_ARCHIVE_RECONCILED",
+                reason_code="EXTERNAL_ARCHIVE_INDEPENDENTLY_CONFIRMED",
+                event_metadata={
+                    "expected_state_revision": current_revision,
+                    "external_archive_state": request["external_archive_proof"][
+                        "state"
+                    ],
+                    "external_observation_source": request[
+                        "external_archive_proof"
+                    ]["observation_source"],
+                    "external_observed_at": request["external_archive_proof"][
+                        "observed_at"
+                    ],
+                    "evidence_refs": request["external_archive_proof"][
+                        "evidence_refs"
+                    ],
+                    "transport_ticket_state": "missing",
+                    "ticket_scan_verified_at": request[
+                        "missing_transport_ticket_proof"
+                    ]["verified_at"],
+                    "scanned_ticket_count": request[
+                        "missing_transport_ticket_proof"
+                    ]["scanned_ticket_count"],
+                },
+            )
+            committed_revision = int(self.metadata(connection, "revision"))
+            result = {
+                "request_id": request["request_id"],
+                "task_id": request["task_id"],
+                "external_thread_id": request["external_thread_id"],
+                "state": "ARCHIVED",
+                "archive_outbox_id": request["expected_archive_outbox_id"],
+                "external_archive_state": request["external_archive_proof"]["state"],
+                "transport_ticket_state": "missing",
+                "previous_state_revision": current_revision,
+                "committed_state_revision": committed_revision,
+                "replayed": False,
+            }
+            connection.execute(
+                """INSERT INTO legacy_archive_reconciliations(
+                     request_id,request_hash,task_id,external_thread_id,
+                     expected_state_revision,result_json,recorded_at
+                   ) VALUES(?,?,?,?,?,?,?)""",
+                (
+                    request["request_id"],
+                    request_hash,
+                    request["task_id"],
+                    request["external_thread_id"],
+                    current_revision,
+                    canonical(result),
+                    request["now"],
+                ),
             )
             connection.commit()
-            return {"task_id": request["task_id"], "state": "ARCHIVED"}
+            return {**result, "current_state_revision": committed_revision}
         except Exception:
             connection.rollback()
             raise
@@ -6964,9 +7283,7 @@ class Plane:
                 "tasks": tasks,
                 "rules": rules,
                 "capacity": capacity,
-                "capacity_failure": any(
-                    item["failure_state"] is not None for item in capacity
-                ),
+                "capacity_failure": self.current_capacity_failure(capacity),
                 "duration": {
                     "bucket_order": list(DURATION_BUCKETS),
                     "non_runtime_states": sorted(NON_RUNTIME_STATES),
@@ -7438,7 +7755,7 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
     )
     if (
         re.fullmatch(
-            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8|9))(?:\+codex\.\d{14})?",
+            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8|9|10))(?:\+codex\.\d{14})?",
             plugin_version,
         )
         is None
@@ -7842,6 +8159,180 @@ def validate_receipt(value: Any, kind: str) -> dict[str, Any]:
                 "full-history inheritance requires a verified parent",
             )
         output["runtime_attestation"] = runtime
+    return output
+
+
+def validate_legacy_archive_reconciliation(value: Any) -> dict[str, Any]:
+    request = strict(
+        value,
+        {
+            "interface_version",
+            "request_id",
+            "task_id",
+            "expected_source_event_key",
+            "external_thread_id",
+            "expected_state_revision",
+            "policy_snapshot_revision",
+            "lease_epoch",
+            "fencing_token",
+            "owner_claim_id",
+            "expected_archive_outbox_id",
+            "external_archive_proof",
+            "missing_transport_ticket_proof",
+            "now",
+        },
+        label="legacy archive reconciliation request",
+    )
+    if request["interface_version"] != INTERFACE_VERSION:
+        fail("VERSION_UNSUPPORTED", "interface version is unsupported")
+    external_proof = strict(
+        request["external_archive_proof"],
+        {
+            "external_thread_id",
+            "state",
+            "observation_source",
+            "observed_at",
+            "evidence_refs",
+        },
+        label="external_archive_proof",
+    )
+    missing_ticket = strict(
+        request["missing_transport_ticket_proof"],
+        {
+            "task_id",
+            "external_thread_id",
+            "state",
+            "verified_at",
+            "scanned_ticket_count",
+            "matching_ticket_count",
+        },
+        label="missing_transport_ticket_proof",
+    )
+    evidence_refs = string_list(
+        external_proof["evidence_refs"],
+        "external_archive_proof.evidence_refs",
+        maximum=16,
+    )
+    if not evidence_refs:
+        fail(
+            "EXTERNAL_ARCHIVE_PROOF_INVALID",
+            "external archive proof requires bounded independent evidence",
+        )
+    output = {
+        "interface_version": INTERFACE_VERSION,
+        "request_id": identifier(request["request_id"], "request_id"),
+        "task_id": identifier(request["task_id"], "task_id"),
+        "expected_source_event_key": identifier(
+            request["expected_source_event_key"], "expected_source_event_key"
+        ),
+        "external_thread_id": identifier(
+            request["external_thread_id"], "external_thread_id"
+        ),
+        "expected_state_revision": bounded_int(
+            request["expected_state_revision"],
+            "expected_state_revision",
+            0,
+            9_223_372_036_854_775_807,
+        ),
+        "policy_snapshot_revision": bounded_int(
+            request["policy_snapshot_revision"],
+            "policy_snapshot_revision",
+            1,
+            1_000_000,
+        ),
+        "lease_epoch": bounded_int(
+            request["lease_epoch"], "lease_epoch", 1, 1_000_000
+        ),
+        "fencing_token": bounded_int(
+            request["fencing_token"], "fencing_token", 1, 2_147_483_647
+        ),
+        "owner_claim_id": identifier(request["owner_claim_id"], "owner_claim_id"),
+        "expected_archive_outbox_id": identifier(
+            request["expected_archive_outbox_id"], "expected_archive_outbox_id"
+        ),
+        "external_archive_proof": {
+            "external_thread_id": identifier(
+                external_proof["external_thread_id"],
+                "external_archive_proof.external_thread_id",
+            ),
+            "state": enum(
+                external_proof["state"],
+                "external_archive_proof.state",
+                {"archived", "unavailable"},
+            ),
+            "observation_source": enum(
+                external_proof["observation_source"],
+                "external_archive_proof.observation_source",
+                {"external-task-api"},
+            ),
+            "observed_at": timestamp(
+                external_proof["observed_at"],
+                "external_archive_proof.observed_at",
+            ),
+            "evidence_refs": evidence_refs,
+        },
+        "missing_transport_ticket_proof": {
+            "task_id": identifier(
+                missing_ticket["task_id"],
+                "missing_transport_ticket_proof.task_id",
+            ),
+            "external_thread_id": identifier(
+                missing_ticket["external_thread_id"],
+                "missing_transport_ticket_proof.external_thread_id",
+            ),
+            "state": enum(
+                missing_ticket["state"],
+                "missing_transport_ticket_proof.state",
+                {"missing"},
+            ),
+            "verified_at": timestamp(
+                missing_ticket["verified_at"],
+                "missing_transport_ticket_proof.verified_at",
+            ),
+            "scanned_ticket_count": bounded_int(
+                missing_ticket["scanned_ticket_count"],
+                "missing_transport_ticket_proof.scanned_ticket_count",
+                0,
+                4_096,
+            ),
+            "matching_ticket_count": bounded_int(
+                missing_ticket["matching_ticket_count"],
+                "missing_transport_ticket_proof.matching_ticket_count",
+                0,
+                0,
+            ),
+        },
+        "now": timestamp(request["now"]),
+    }
+    if (
+        output["external_archive_proof"]["external_thread_id"]
+        != output["external_thread_id"]
+        or output["missing_transport_ticket_proof"]["task_id"]
+        != output["task_id"]
+        or output["missing_transport_ticket_proof"]["external_thread_id"]
+        != output["external_thread_id"]
+    ):
+        fail(
+            "LEGACY_ARCHIVE_IDENTITY_MISMATCH",
+            "external and missing-ticket proofs must identify the exact task",
+            exit_status=EXIT_CONFLICT,
+        )
+    if output["missing_transport_ticket_proof"]["verified_at"] != output["now"]:
+        fail(
+            "LEGACY_TICKET_PROOF_STALE",
+            "missing-ticket proof must be generated for the exact request time",
+            exit_status=EXIT_CONFLICT,
+        )
+    proof_time = utc_instant(output["external_archive_proof"]["observed_at"])
+    request_time = utc_instant(output["now"])
+    proof_age = (request_time - proof_time).total_seconds()
+    if proof_age < 0 or proof_age > 900:
+        fail(
+            "EXTERNAL_ARCHIVE_PROOF_STALE",
+            "external archive proof must be independently observed within fifteen minutes",
+            exit_status=EXIT_CONFLICT,
+        )
+    reject_sensitive(output, "legacy archive reconciliation")
     return output
 
 
@@ -9532,6 +10023,7 @@ def parser() -> argparse.ArgumentParser:
         "record-setup-failure",
         "record-handback",
         "record-archive-receipt",
+        "reconcile-legacy-archive",
         "configure-capacity",
         "capacity-watchdog",
         "lifecycle-watchdog",
@@ -9601,6 +10093,10 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "record-handback": (plane.record_handback, "record-handback"),
             "record-archive-receipt": (plane.archive_receipt, "record-archive-receipt"),
+            "reconcile-legacy-archive": (
+                plane.reconcile_legacy_archive,
+                "reconcile-legacy-archive",
+            ),
             "configure-capacity": (
                 plane.configure_capacity,
                 "configure-capacity",

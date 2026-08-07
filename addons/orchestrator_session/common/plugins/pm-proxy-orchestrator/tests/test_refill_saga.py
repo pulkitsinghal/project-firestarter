@@ -223,6 +223,84 @@ class RefillSagaTestCase(unittest.TestCase):
         ]
         return write_json(self.root / f"{handback_id}.json", value)
 
+    def close_for_legacy_archive(self, ticket_path: Path, suffix: str) -> Path:
+        ticket = json.loads(ticket_path.read_text(encoding="utf-8"))
+        self.set_terminal_evidence(
+            ticket_path,
+            fence=ticket["fencing_token"],
+            lifecycle_state="COMPLETED",
+            worker_status="completed",
+            required_action="ARCHIVE",
+        )
+        ticket = json.loads(ticket_path.read_text(encoding="utf-8"))
+        handback_value = handback_request(
+            task_id=ticket["task_id"],
+            handback_id=f"legacy-{suffix}",
+            now=iso(minutes=2),
+        )
+        for key in ("policy_snapshot_revision", "lease_epoch", "fencing_token"):
+            handback_value[key] = ticket[key]
+        handback_value["resources"] = [
+            {
+                "id": ticket["owner_claim_id"],
+                "disposition": "removed",
+                "reason": "synthetic legacy owner claim released",
+                "bytes": 0,
+            }
+        ]
+        handback = write_json(
+            self.root / f"legacy-{suffix}-handback.json", handback_value
+        )
+        refill = write_json(
+            self.root / f"legacy-{suffix}-refill.json",
+            refill_request(request_id=f"legacy-{suffix}", now=iso(minutes=2)),
+        )
+        closed = self.run_script(
+            REFILL,
+            "close-and-refill",
+            "--predecessor-ticket",
+            str(ticket_path),
+            "--handback-request",
+            str(handback),
+            "--refill-request",
+            str(refill),
+        )
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        state = json.loads((self.state / "fake-state.json").read_text(encoding="utf-8"))
+        state["schema_version"] = "1.4"
+        (self.state / "fake-state.json").write_text(
+            json.dumps(state, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        task = state["tasks"][ticket["task_id"]]
+        archive = next(
+            item
+            for item in state["outbox"].values()
+            if item["task_id"] == ticket["task_id"]
+            and item["kind"] == "ARCHIVE_THREAD"
+        )
+        request = {
+            "interface_version": "1.0",
+            "request_id": f"legacy-reconcile-{suffix}",
+            "task_id": ticket["task_id"],
+            "expected_source_event_key": ticket["source_event_key"],
+            "external_thread_id": ticket["receipt"]["external_thread_id"],
+            "expected_state_revision": state["revision"],
+            "policy_snapshot_revision": ticket["policy_snapshot_revision"],
+            "lease_epoch": ticket["lease_epoch"],
+            "fencing_token": ticket["fencing_token"],
+            "owner_claim_id": task["owner_claim_id"],
+            "expected_archive_outbox_id": archive["outbox_id"],
+            "external_archive_proof": {
+                "external_thread_id": ticket["receipt"]["external_thread_id"],
+                "state": "archived",
+                "observation_source": "external-task-api",
+                "observed_at": iso(minutes=4),
+                "evidence_refs": [f"external-observation-{suffix}"],
+            },
+            "now": iso(minutes=5),
+        }
+        return write_json(self.root / f"legacy-{suffix}-request.json", request)
+
     def test_interrupted_notloaded_clean_handback_refills_once_without_owner_prompt(self):
         predecessor = self.start_predecessor()
         successor = launch_request(
@@ -749,6 +827,83 @@ class RefillSagaTestCase(unittest.TestCase):
             iso(minutes=31),
         )
         self.assertEqual(0, archived.returncode, archived.stderr)
+
+    def test_legacy_archive_reconciliation_requires_missing_ticket_and_replays(self):
+        predecessor = self.start_predecessor("-legacy-route")
+        request = self.close_for_legacy_archive(predecessor, "route")
+        present = self.run_script(
+            BRIDGE,
+            "reconcile-legacy-archive",
+            "--request",
+            str(request),
+        )
+        self.assertEqual(3, present.returncode, present.stderr)
+        self.assertEqual(
+            "LEGACY_TICKET_PRESENT",
+            json.loads(present.stderr)["error"]["code"],
+        )
+
+        predecessor.unlink()
+        reconciled = self.run_script(
+            BRIDGE,
+            "reconcile-legacy-archive",
+            "--request",
+            str(request),
+        )
+        self.assertEqual(0, reconciled.returncode, reconciled.stderr)
+        result = json.loads(reconciled.stdout)["result"]
+        self.assertEqual("ARCHIVED", result["state"])
+        self.assertEqual("missing", result["transport_ticket_state"])
+        self.assertFalse(result["replayed"])
+
+        replayed = self.run_script(
+            BRIDGE,
+            "reconcile-legacy-archive",
+            "--request",
+            str(request),
+        )
+        self.assertEqual(0, replayed.returncode, replayed.stderr)
+        self.assertTrue(json.loads(replayed.stdout)["result"]["replayed"])
+
+    def test_legacy_archive_reconciliation_rejects_mismatched_and_unsafe_tickets(self):
+        predecessor = self.start_predecessor("-legacy-mismatch")
+        request = self.close_for_legacy_archive(predecessor, "mismatch")
+        ticket = json.loads(predecessor.read_text(encoding="utf-8"))
+        ticket["receipt"]["external_thread_id"] = "different-external-task"
+        predecessor.write_text(
+            json.dumps(ticket, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        mismatched = self.run_script(
+            BRIDGE,
+            "reconcile-legacy-archive",
+            "--request",
+            str(request),
+        )
+        self.assertEqual(3, mismatched.returncode, mismatched.stderr)
+        self.assertEqual(
+            "LEGACY_TICKET_IDENTITY_MISMATCH",
+            json.loads(mismatched.stderr)["error"]["code"],
+        )
+
+        predecessor.unlink()
+        unsafe = self.state / "unsafe-legacy.ticket.json"
+        unsafe.symlink_to(request)
+        denied = self.run_script(
+            BRIDGE,
+            "reconcile-legacy-archive",
+            "--request",
+            str(request),
+        )
+        self.assertEqual(4, denied.returncode, denied.stderr)
+        self.assertEqual(
+            "LEGACY_TICKET_AUTHORITY_UNSAFE",
+            json.loads(denied.stderr)["error"]["code"],
+        )
+        state = json.loads((self.state / "fake-state.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            "ARCHIVE_PENDING",
+            state["tasks"]["task-predecessor-legacy-mismatch"]["state"],
+        )
 
     def test_expired_archive_admission_mismatches_and_incomplete_sagas_fail_closed(self):
         predecessor = self.start_predecessor("-archive-negative")

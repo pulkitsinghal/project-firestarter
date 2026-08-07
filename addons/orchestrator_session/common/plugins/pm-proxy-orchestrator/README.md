@@ -1,10 +1,18 @@
 # PM Proxy Orchestrator
 
-Version `0.4.9` is a source-only agent-CLI plugin for Firestarter control-plane
-interface `1.0` and control bundle `1.4.8`. It makes typed configured-capacity
+Version `0.4.10` is a source-only agent-CLI plugin for Firestarter control-plane
+interface `1.0` and control bundle `1.4.9`. It makes typed configured-capacity
 compare-and-set, task reservation, policy receipts, approval routing, fenced
 handback, successor creation, and queue recycling operational without installing
 anything globally.
+
+Version `0.4.10` adds a generic legacy archive-reconciliation route for an exact
+terminal task whose claim is released and archive outbox remains pending after
+the external task was independently proved archived or unavailable, but its old
+transport ticket is missing. Exact identity, state revision, fence, claim,
+outbox, external proof, and a bounded ticket scan are required; every mismatch
+fails closed. Capacity failure now reports only the newest actionable invariant
+state while preserving every historical audit row.
 
 Version `0.4.9` closes the final terminal archive gap. The control transaction
 accepts a receipted successor that has itself completed only when its launch
@@ -113,7 +121,7 @@ visible and do not turn that already-reserved successor back into runnable work.
 
 The plugin includes a local stdio MCP server exposing only typed verifier,
 doctor, configured-capacity, reserve/receipt, lifecycle, close/refill, status,
-and archive-receipt operations. It has no network client, app connector, shell
+archive-receipt, and legacy archive-reconciliation operations. It has no network client, app connector, shell
 executor, generic filesystem tool, or arbitrary-command field.
 
 An owner-operated runtime pin binds that MCP surface to one exact Firestarter

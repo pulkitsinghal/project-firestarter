@@ -21,7 +21,8 @@ python /absolute/orchestrator_control.py \
 The wrapper permits these commands: `init`, `status`, `record-policy-rule`,
 `effective-rules`, `prepare-launch`, `record-launch-receipt`,
 `classify-decision`, `record-heartbeat`, `takeover-lease`,
-`record-handback`, `record-archive-receipt`, `recycle-queue`, capacity
+`record-handback`, `record-archive-receipt`, `reconcile-legacy-archive`,
+`recycle-queue`, capacity
 reconciliation, schema 1.2 duration commands, `record-setup-failure`, and
 schema 1.3 `lifecycle-watchdog`. Schema 1.4 authority-transfer commands are
 reserved to the fixed owner-operated federation coordinator and are not exposed
@@ -81,6 +82,9 @@ Response validation intentionally fails on:
   current-version covered-path dispatcher adoption;
 - any attempt by the MCP orchestrator to self-record dispatcher adoption;
 - a direct terminal handback that bypasses `close-and-refill`.
+- a legacy archive reconciliation without an exact released claim, current
+  revision/fence, pending archive outbox, independent canonical external archive
+  proof, or the bridge's bounded proof that the old transport ticket is missing.
 
 ## Closure/refill extension
 
