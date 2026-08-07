@@ -22,6 +22,7 @@
   "include_browser_automation_policy": ["no", "yes"],
   "include_local_ollama": ["no", "yes"],
   "include_encrypted_local_areas": ["no", "yes"],
+  "include_datastore_advisor": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",
