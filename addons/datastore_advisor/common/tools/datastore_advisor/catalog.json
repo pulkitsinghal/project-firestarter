@@ -1,0 +1,380 @@
+{
+  "_comment": "Candidate datastores. Every entry carries a `wrong_for` list, and that list is the point of this file — a pitch is easy to find, an honest disqualification is not. `citations` carry a URL and the date the claim was read; capability and pricing details move, so re-check before relying on one. Where something is not publicly documented the entry says so rather than guessing.",
+  "version": "1.0.0",
+  "citations_checked": "2026-08-07",
+  "engines": [
+    {
+      "id": "postgres",
+      "name": "PostgreSQL (self-hosted or managed)",
+      "family": "relational",
+      "summary": "The default answer, and for most projects the correct one. A single well-indexed instance covers relational, document (JSONB), key-value, full-text, geospatial (PostGIS), queue, and — with pgvector — semantic search, in one system with one backup, one transaction boundary, and one thing to learn.",
+      "handles": ["relational", "document", "key_value", "vector", "timeseries", "graph_shallow"],
+      "fits": [
+        "Anything relational, which is most things.",
+        "Mixed workloads: JSONB gives you document storage with real indexes without a second system, and you keep joins and transactions across both.",
+        "Row-level multi-tenancy, enforced in the database by row-level security rather than in every query by hand.",
+        "One-hop and two-hop relationship queries. These are joins, and a relational planner is good at joins.",
+        "Recursive queries via WITH RECURSIVE, which covers tree and ancestry traversal without a second engine."
+      ],
+      "wrong_for": [
+        "Write throughput beyond what one primary can absorb. Postgres scales reads horizontally with replicas easily and writes horizontally only with real effort (sharding, or an extension that does it for you). If your write volume genuinely exceeds a large single node, this is the wrong shape.",
+        "Variable-depth traversal over a densely connected graph. Each hop is another join; the cost compounds and the plan degrades. A real graph workload will beat a relational plan here.",
+        "Very large binary objects stored in the table. Blobs belong in object storage with a URL in the row; putting them in the database inflates every backup and every restore.",
+        "Workloads that must scale to zero cost. A plain managed Postgres instance bills while idle unless the provider explicitly supports suspending compute.",
+        "Extremely high-cardinality time-series at ingest rates measured in millions of points per second, without a purpose-built extension or engine."
+      ],
+      "edition_traps": [
+        "Extensions are the edition gap here. A managed provider decides which extensions you may install; if your design depends on one, confirm it is available on that provider and on the plan you will buy, before you build on it."
+      ],
+      "operational_notes": [
+        "Backups are a plain dump or a physical snapshot; both restore into any other Postgres. This is the lowest-drama restore story of anything in this catalog.",
+        "The default configuration is conservative. Tuning is a real, learnable task, not an emergency."
+      ],
+      "scale_to_zero": "No, unless the provider offers compute suspension.",
+      "exit_cost": "Lowest. Standard wire protocol, standard dump format, dozens of interchangeable providers, and self-hosting is always available as a floor.",
+      "citations": []
+    },
+    {
+      "id": "postgres_pgvector",
+      "name": "PostgreSQL + pgvector",
+      "family": "relational",
+      "summary": "Postgres with vector similarity search added as an extension. The right first answer for semantic search when you already have, or would otherwise need, a relational database.",
+      "handles": ["relational", "vector", "document"],
+      "fits": [
+        "Semantic search where the embeddings belong to rows you already store. Keeping vectors beside their source rows means one join instead of two systems kept in sync.",
+        "Filtered vector search — 'nearest neighbours, but only within this tenant, and only published'. A dedicated vector store often makes this awkward; in Postgres it is a WHERE clause.",
+        "Corpora into the millions of vectors, which covers the overwhelming majority of retrieval-augmented applications."
+      ],
+      "wrong_for": [
+        "Very large vector corpora with demanding recall and latency targets at high query concurrency. At that point a purpose-built vector engine is doing real work Postgres is not designed for.",
+        "Teams that want vector indexing to be free. HNSW indexes are memory-hungry, and index build time on a large table is significant; this is a capacity planning item, not a checkbox.",
+        "Anything where the vector workload is the entire product and there is no relational data at all — you are then carrying a relational database for nothing."
+      ],
+      "edition_traps": [
+        "The dimension limit is a real and frequently-missed gap between what you can STORE and what you can INDEX. pgvector documents columns of up to 16,000 dimensions, but an approximate-nearest-neighbour index on the `vector` type supports up to 2,000 dimensions. A common large embedding model emits more than that, so the column accepts your data, the insert succeeds, and only the index build fails — after the schema is written. The documented ways out are the `halfvec` type (up to 4,000 indexed dimensions) or reducing dimensionality. Check your model's output size against the index limit before you design the table.",
+        "pgvector is an extension, so it is also subject to the extension-availability question: confirm your managed provider offers it, and at what version — index types and limits differ by version."
+      ],
+      "operational_notes": [
+        "Re-embedding after a model change rewrites the whole column. Plan for it; it is the migration everyone forgets."
+      ],
+      "scale_to_zero": "Same as Postgres — provider-dependent.",
+      "exit_cost": "Low. Vectors are ordinary columns; a dump carries them.",
+      "citations": [
+        { "claim": "pgvector supports HNSW and IVFFlat indexes; vectors may have up to 16,000 dimensions, but indexed `vector` columns are limited to 2,000 dimensions (halfvec: 4,000)", "url": "https://github.com/pgvector/pgvector", "accessed": "2026-08-07" }
+      ]
+    },
+    {
+      "id": "sqlite",
+      "name": "SQLite / embedded",
+      "family": "embedded",
+      "summary": "A full relational database as a library and a single file. No server, no network, no connection pool, no operational surface. Its own documentation frames it precisely: it does not compete with client/server databases, it competes with writing your own file format.",
+      "handles": ["relational", "document", "key_value"],
+      "fits": [
+        "Device-local storage — a mobile or desktop app holding its own user's data. This is the answer when you decided you would rather not hold the data at all.",
+        "Single-node server applications with modest write concurrency. SQLite's own guidance suggests sites under roughly 100,000 hits a day are comfortably within range.",
+        "Read-heavy workloads. Concurrent readers are unlimited; the constraint is entirely on writers.",
+        "Application file formats, caches, test fixtures, and local development, where a file you delete is a clean slate.",
+        "Anything where the operational win of having no server at all outweighs everything else."
+      ],
+      "wrong_for": [
+        "Multiple application servers writing to one database. SQLite expects the database file to be local, and its documentation names a network filesystem as a reason to choose client/server instead. This is the hard boundary, and no configuration works around it.",
+        "High write concurrency. The documentation is explicit: unlimited simultaneous readers, but only one writer at any instant. Write-ahead logging improves reader/writer overlap; it does not make writers parallel.",
+        "Workloads needing fine-grained per-user access control inside the database. There are no roles and no row-level security; access control lives entirely in your application.",
+        "Very large datasets — the documented ceiling is large (hundreds of terabytes), but the single-file architecture becomes unwieldy long before that."
+      ],
+      "edition_traps": [
+        "Not applicable in the usual sense — SQLite is public domain and there is no gated edition. The nearest equivalent trap is assuming a hosted 'SQLite-compatible' service behaves identically to the library, including durability and concurrency. Compatibility is claimed at the SQL layer, which is not the same as the durability layer; read that service's own consistency documentation.",
+        "The surrounding ecosystem is less settled than the engine. libSQL's own README now directs new projects to Turso Database instead, describing libSQL as maintained but no longer where new features land — so 'we will use libSQL' deserves a second look at which project you actually mean. Turso Database is pre-1.0 and its README recommends keeping independent backups until 1.0. On replication: Litestream is cutting releases regularly; LiteFS describes itself as beta and its last release is over a year old. Check the release cadence yourself before depending on either."
+      ],
+      "operational_notes": [
+        "A backup is a file copy — but only a consistent one. Use the database's own backup mechanism rather than copying the file from under a running writer.",
+        "Because the whole database is one file, a restore drill is genuinely trivial to run. There is no excuse for never having done one."
+      ],
+      "scale_to_zero": "Inherently — there is no server to run.",
+      "exit_cost": "Very low. Standard SQL, and a dump imports into Postgres with modest effort.",
+      "citations": [
+        { "claim": "SQLite 'does not compete with client/server databases, it competes with fopen()'; names network filesystems, many concurrent writers (unlimited readers but one writer at a time), and very large datasets as the three reasons to choose client/server instead; suggests sites under ~100K hits/day are fine", "url": "https://www.sqlite.org/whentouse.html", "accessed": "2026-08-07" },
+        { "claim": "libSQL README directs new projects to Turso Database; libSQL is maintained but new features are developed in Turso", "url": "https://github.com/tursodatabase/libsql", "accessed": "2026-08-07" },
+        { "claim": "Turso Database is a Rust rewrite, SQLite-compatible, pre-1.0, with a README recommendation to keep independent backups until 1.0", "url": "https://github.com/tursodatabase/turso", "accessed": "2026-08-07" },
+        { "claim": "Litestream releases are current (v0.5.16, 2026-08-05); LiteFS describes itself as beta with its most recent release in April 2025", "url": "https://github.com/benbjohnson/litestream", "accessed": "2026-08-07" }
+      ]
+    },
+    {
+      "id": "device_local",
+      "name": "Device-local / client-encrypted (operator holds nothing readable)",
+      "family": "user_owned",
+      "summary": "Not an engine so much as a decision: the user's data lives on the user's device, or reaches your server only as ciphertext you cannot read. This removes a liability class rather than managing it, and it deserves to be a real candidate rather than a footnote.",
+      "handles": ["relational", "document", "key_value", "blob"],
+      "fits": [
+        "Single-user data with no cross-user queries — notes, journals, local media, personal tracking, drafts.",
+        "Products whose value proposition includes privacy, where 'we cannot read it' is a stronger and cheaper claim than any policy document.",
+        "Regulated or sensitive data where the least risky amount to hold is none. A breach cannot disclose records you never had.",
+        "Reducing compliance surface: no readable store means far less to say about retention, export, deletion, and subprocessor handling."
+      ],
+      "wrong_for": [
+        "Anything the server must compute over. Search, aggregation, ranking, recommendations, moderation, and analytics all require readable data — encrypted-at-the-client data cannot be queried server-side without giving the property back.",
+        "Sharing and collaboration between users, which becomes a key-distribution problem, and key distribution is genuinely hard to get right.",
+        "Products that need server-side account recovery. If you cannot read the data, you generally cannot recover it when the user loses their key. This is the single most common reason teams abandon the approach, and it must be decided before launch, not after the first support ticket.",
+        "Multi-device sync, which is solvable but is real engineering — conflict resolution and key sync on top of the storage itself.",
+        "Teams that want the marketing claim without the constraint. Partial encryption where the server holds the keys provides very little of the benefit and all of the complexity."
+      ],
+      "edition_traps": [
+        "The trap here is architectural rather than commercial: verify that the property you are claiming actually holds end to end. If your server ever sees plaintext — during processing, in a log, in a crash report, in an analytics payload, or in a backup — you do not have the property, whatever the marketing page says. Trace one real record through the whole system before claiming it."
+      ],
+      "operational_notes": [
+        "Backup becomes the user's problem unless you design for it, and users do not back things up. Decide explicitly whether device loss means data loss, and say so plainly in the product.",
+        "You still need a restore drill — of the user's export and import path, which is now the only recovery mechanism that exists."
+      ],
+      "scale_to_zero": "Trivially — there is often no server-side store at all.",
+      "exit_cost": "Low for you, because you hold little. Potentially high for users if your export format is proprietary; ship a plain export from day one.",
+      "citations": []
+    },
+    {
+      "id": "neon",
+      "name": "Neon (serverless Postgres)",
+      "family": "relational",
+      "summary": "Managed Postgres that separates storage from compute, which buys two specific things: compute that suspends when idle, and copy-on-write database branches that are cheap to create and throw away. The compute node is documented as standard Postgres — the query engine is not reimplemented.",
+      "handles": ["relational", "document", "key_value", "vector"],
+      "fits": [
+        "Databases that are idle most of the time — pre-launch products, internal tools, per-developer environments, demo and preview deployments. Compute suspends after an inactivity period (documented default: 5 minutes) on all plans, and that is a real saving on genuinely idle workloads.",
+        "Per-pull-request ephemeral databases seeded from a realistic dataset, via copy-on-write branching. This is the strongest reason to choose it: it changes how a team tests migrations.",
+        "Teams that want Postgres and nothing else, with the smallest operational footprint.",
+        "Workloads that spike unpredictably from near zero, where paying for a provisioned instance around the clock is waste.",
+        "Geospatial workloads — PostGIS installs on any project, so this is not a blocker."
+      ],
+      "wrong_for": [
+        "Steadily busy production databases. If compute never suspends, you are paying for a managed Postgres and the headline feature is inert — compare it against ordinary managed Postgres on price and support, not on the branching demo. Very large computes are documented as always-active and not eligible for scale to zero at all.",
+        "Latency-critical paths that go idle. Waking suspended compute takes time; the vendor's own figure is a few hundred milliseconds, which is small but not zero, and it lands on a user-facing request. If your traffic is sparse *and* latency-sensitive, this is the worst combination — decide deliberately whether to keep compute alive.",
+        "Teams whose real need is a full application platform. This is a database. Authentication, storage, background functions, and the rest are separate decisions, some of which the provider has added and some of which you will assemble yourself.",
+        "Long recovery windows on cheap plans. History retention — which is what point-in-time restore reads from — is documented as 6 hours on Free, up to 7 days on Launch, and up to 30 days on Scale. If you need a 30-day restore window, that is a plan decision, not a default.",
+        "Migrating an existing application that depends on a *different* provider's platform surface. The Postgres part ports cleanly; the platform-specific parts around it are the actual work, and they are usually underestimated by a wide margin."
+      ],
+      "edition_traps": [
+        "Branch counts are included up to a limit and billed per branch-hour beyond it, and a child branch that falls outside the history window is documented as becoming as expensive as a root branch. A branching workflow that leaves branches lying around therefore has a cost curve that is not obvious from the included-branches number.",
+        "HIPAA support is documented as a self-serve feature on the Scale plan. Note that the vendor's own pages are not consistent on price — the HIPAA page says there is currently no additional cost with a future 15% surcharge, while the plans page annotates it as an additional charge. If compliance is part of your reason for choosing this, confirm the current position in writing rather than from a comparison table."
+      ],
+      "operational_notes": [
+        "The Data API is enabled per branch for a single database, and is documented as not supporting projects with IP Allow or Private Networking enabled. If you plan to use it, check those constraints against your networking requirements first."
+      ],
+      "scale_to_zero": "Yes — compute suspends after an inactivity period (default 5 minutes), on all plans. This is the differentiating feature.",
+      "exit_cost": "Low. It is Postgres; a dump restores anywhere. Branching workflows and any platform-specific APIs you adopt are what you would rebuild.",
+      "citations": [
+        { "claim": "Scale to zero suspends compute after a period of inactivity; default 5 minutes; available on all plans (Free cannot disable it); computes above 16 CU remain always active; resumes within a few hundred milliseconds", "url": "https://neon.com/docs/introduction/scale-to-zero", "accessed": "2026-08-07" },
+        { "claim": "Branching is copy-on-write; included branch counts per plan, $0.002 per branch-hour beyond them; a child branch outside the history window becomes as expensive as a root branch; history retention 6 hours (Free) / up to 7 days (Launch) / up to 30 days (Scale)", "url": "https://neon.com/pricing", "accessed": "2026-08-07" },
+        { "claim": "Each Postgres compute node is a standard Postgres instance; nothing about Postgres itself is rewritten or replaced; storage and compute are separate layers connected by a WAL stream", "url": "https://neon.com/docs/introduction/architecture-overview", "accessed": "2026-08-07" },
+        { "claim": "HIPAA compliance is a self-serve feature on the Scale plan, currently at no additional cost with a stated future 15% surcharge (the plans page annotates it as an additional charge — the two pages disagree)", "url": "https://neon.com/docs/security/hipaa", "accessed": "2026-08-07" },
+        { "claim": "PostGIS can be installed on any Neon project", "url": "https://neon.com/docs/extensions/postgis", "accessed": "2026-08-07" },
+        { "claim": "The Data API is a REST endpoint secured by JWT and row-level security; enabled per branch for a single database; does not support projects with IP Allow or Private Networking enabled", "url": "https://neon.com/docs/data-api/get-started", "accessed": "2026-08-07" }
+      ]
+    },
+    {
+      "id": "supabase",
+      "name": "Supabase (Postgres plus a platform)",
+      "family": "relational_platform",
+      "summary": "Postgres with a platform around it: an auto-generated REST layer over your schema (PostgREST), hosted authentication (GoTrue), object storage, realtime subscriptions, serverless functions (Deno), connection pooling, and a dashboard. You are adopting the platform, not only the database.",
+      "handles": ["relational", "document", "key_value", "vector", "blob"],
+      "fits": [
+        "Client-heavy applications where the browser or mobile app talks to the database through the generated API and row-level security is the authorisation layer. This removes a whole backend tier.",
+        "Teams that want authentication, storage, and functions decided for them rather than assembled.",
+        "Anyone who wants a local development stack that is the same software as production — the components are published as open-source container images, and the vendor states the cloud offering is compatible with the self-hosted product.",
+        "Projects that will genuinely use more than the database. If you only want Postgres, you are paying in coupling for parts you do not use."
+      ],
+      "wrong_for": [
+        "Teams that want a database and nothing more. The platform is the value; if you do not use it, plainer managed Postgres is a better fit with less to leave behind later.",
+        "Applications that need a conventional server-side backend anyway. If you already have an API tier, the generated REST layer duplicates it, and you end up with two ways to reach the data and two places to enforce rules.",
+        "Workloads that are idle most of the time on a paid plan. Free-plan projects pause after a week of inactivity, which is a development convenience; paid plans are documented as never pausing, so an idle paid project pays in full.",
+        "Anyone who dislikes the coupling. Row-level security policies that call platform-specific helper functions, and a schema shaped around the generated API, are portable in principle and irritating in practice."
+      ],
+      "edition_traps": [
+        "Compliance is tied to a plan and an add-on, not to the software. Storing health data under a signed processor agreement is documented as requiring at least the Team plan, plus a specific control set — projects flagged as such, multi-factor authentication on all accounts, point-in-time recovery enabled, enforced SSL, network restrictions, and connection logging. The add-on's price is not published. Budget the plan and the controls, not just the database.",
+        "The open-source distribution and the hosted product are not automatically feature-identical. If your fallback plan is 'we can always self-host', verify that the specific features you depend on exist in the self-hosted distribution before you rely on that as an exit."
+      ],
+      "operational_notes": [
+        "Because the database is exposed to clients directly, an unprotected table is publicly readable rather than merely reachable. Row-level security is not an enhancement here; it is the authorisation layer, and a table without it is the default failure mode.",
+        "Standard Postgres dumps work, so the database is portable even where the platform is not.",
+        "Branching exists on paid plans and is billed per branch-hour."
+      ],
+      "scale_to_zero": "Not on paid plans, which are documented as never pausing. Free-plan projects pause after one week of inactivity.",
+      "exit_cost": "Moderate. The database leaves easily; the authentication model, generated API, storage, and functions are the rebuild. Budget for the platform, not the data.",
+      "citations": [
+        { "claim": "Platform components are Postgres, Studio, GoTrue (auth), PostgREST (REST API), Realtime, Storage API, Deno (edge functions), postgres-meta, Supavisor (pooling) and Envoy (gateway); the project is open source and the cloud offering is compatible with the self-hosted product", "url": "https://supabase.com/docs/guides/getting-started/architecture", "accessed": "2026-08-07" },
+        { "claim": "Free projects pause after 1 week of inactivity; Pro/Team/Enterprise never pause; Pro is $25/month; branching is billed per branch-hour on Pro and Team; HIPAA is available as a paid add-on on Team", "url": "https://supabase.com/pricing", "accessed": "2026-08-07" },
+        { "claim": "Storing protected health data requires a signed Business Associate Agreement and at least the Team plan, plus marking projects accordingly, MFA on all accounts, point-in-time recovery, enforced SSL, network restrictions and connection logging", "url": "https://supabase.com/docs/guides/deployment/shared-responsibility-model", "accessed": "2026-08-07" }
+      ]
+    },
+    {
+      "id": "cloud_sql",
+      "name": "Cloud SQL / RDS-class managed relational",
+      "family": "relational",
+      "summary": "A conventional managed relational instance from a major cloud. Boring in the way infrastructure should be: provisioned capacity, well-understood failure modes, deep integration with the surrounding cloud, and support you can escalate to.",
+      "handles": ["relational", "document", "key_value", "vector"],
+      "fits": [
+        "Production workloads with steady traffic, where provisioned capacity is what you want and idle savings are irrelevant.",
+        "Applications already inside that cloud, where private networking, identity, secrets, and monitoring are already there and integration is the point.",
+        "Organisations that need a named support contract and an escalation path.",
+        "Regulated workloads — the major clouds' compliance coverage is broad, well documented, and offered under a formal processor agreement, with the caveat that you must stay within the products the agreement actually covers."
+      ],
+      "wrong_for": [
+        "Idle or intermittent workloads. There is no autosuspend-on-idle: you can stop an instance manually, but the documentation is explicit that storage and IP address charges continue. It never reaches zero, and this is the most common source of surprise cost on hobby and pre-launch projects.",
+        "Very small or experimental projects. There is no always-free tier for the managed relational service — only a time-limited free trial instance — so the floor price is meaningfully above the serverless and free-tier alternatives.",
+        "Teams that want to create and destroy databases constantly. Provisioning is slower and heavier than copy-on-write branching.",
+        "Anyone hoping to avoid cloud-specific configuration. The database is portable; the networking, identity, and access configuration around it is not."
+      ],
+      "edition_traps": [
+        "High availability, cross-region replicas, extended backup retention, and audit logging are usually separately-priced options rather than defaults. Confirm the tier you are budgeting for includes the durability and audit properties you are assuming.",
+        "A cloud-wide compliance agreement is not a blanket permission. The documentation requires that you not use products outside the agreement's covered-products list when handling regulated data — so the check is per-service, not per-vendor."
+      ],
+      "operational_notes": [
+        "Automated backups exist by default on most managed offerings, which makes it especially tempting to never test a restore. Test it anyway — into a fresh instance, with your application pointed at it."
+      ],
+      "scale_to_zero": "No. Stopping an instance suspends instance charges but storage and IP charges continue.",
+      "exit_cost": "Low for the data, moderate for the surrounding configuration.",
+      "citations": [
+        { "claim": "Stopping a Cloud SQL instance suspends instance charges, but charges for storage and IP addresses continue to apply", "url": "https://cloud.google.com/sql/docs/postgres/start-stop-restart-instance", "accessed": "2026-08-07" },
+        { "claim": "There is no always-free tier for Cloud SQL — only a 30-day free trial instance (Firestore, by contrast, has an always-free storage allowance)", "url": "https://docs.cloud.google.com/free/docs/free-cloud-features", "accessed": "2026-08-07" },
+        { "claim": "Google Cloud supports HIPAA compliance within the scope of a Business Associate Agreement, and customers must not use products outside the covered-products list when handling protected health data", "url": "https://cloud.google.com/security/compliance/hipaa", "accessed": "2026-08-07" }
+      ]
+    },
+    {
+      "id": "dynamodb",
+      "name": "DynamoDB",
+      "family": "key_value_document",
+      "summary": "A managed key-value and document store with predictable single-digit-millisecond access at effectively unlimited scale — provided every query you will ever run is known before you design the table.",
+      "handles": ["key_value", "document"],
+      "fits": [
+        "Known access patterns at very high scale, where the query set is small, stable, and understood up front.",
+        "Workloads needing predictable latency regardless of data volume.",
+        "Genuinely spiky traffic on on-demand capacity, which requires no capacity planning and bills per request.",
+        "Session stores, user profiles keyed by identifier, event sinks, and similar shapes where you always know the key."
+      ],
+      "wrong_for": [
+        "Exploratory or evolving queries. The data model is designed around the access patterns; a new query that does not fit often means a new index or a table redesign, and 'we do not know all our queries yet' is a disqualifier rather than a detail.",
+        "Ad-hoc reporting and analytics. There are no joins and no flexible aggregation; analytical needs are met by exporting elsewhere, which is a second system.",
+        "Anything needing multi-item transactional integrity across many entities as a routine operation. Transactions exist but are constrained and cost double the request units, and a relational database is simply better at this.",
+        "Records that grow without bound. There is a documented hard maximum of 400 KB per item, and exceeding it fails the write — designs that append to an item will hit this. Large content belongs in object storage with a pointer.",
+        "Small projects. The operational and cognitive cost of the single-table design discipline is only repaid at a scale most projects never reach."
+      ],
+      "edition_traps": [
+        "The trap here is capacity mode and indexes rather than an edition. On-demand and provisioned capacity have very different cost curves, and the wrong one for your traffic shape can be dramatically more expensive.",
+        "Secondary indexes are the specific cost trap. Documentation is explicit that index updates consume write capacity from the index, not the base table — so each index multiplies write cost — and that in provisioned mode an under-provisioned index will throttle writes to the *base table*. The vendor's own guidance is that an index's write capacity should be equal to or greater than the base table's. 'Just one more index' is never just one more index."
+      ],
+      "operational_notes": [
+        "Backup and point-in-time recovery are managed features; restoring produces a new table, so the application cutover is part of the restore drill and should be rehearsed."
+      ],
+      "scale_to_zero": "On-demand throughput costs nothing when idle, but storage is always billed — so throughput scales to zero and total cost does not.",
+      "exit_cost": "High. A proprietary API and a data model shaped for it. Leaving means re-modelling the data and rewriting every access path.",
+      "citations": [
+        { "claim": "On-demand capacity bills per request unit consumed, so idle throughput cost is zero while storage continues to be billed", "url": "https://aws.amazon.com/dynamodb/pricing/on-demand/", "accessed": "2026-08-07" },
+        { "claim": "DynamoDB limits each item to 400 KB; exceeding the maximum item size results in failed writes", "url": "https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-use-s3-too.html", "accessed": "2026-08-07" },
+        { "claim": "Global secondary index updates consume write capacity from the index rather than the base table; insufficient index write capacity throttles write activity on the base table; AWS recommends index write capacity equal to or greater than the base table's", "url": "https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html", "accessed": "2026-08-07" }
+      ]
+    },
+    {
+      "id": "firestore",
+      "name": "Firestore",
+      "family": "document",
+      "summary": "A managed document store with realtime synchronisation and offline client support, where authorisation is expressed as declarative rules evaluated per request. Extremely fast to start with; the cost model is the thing to understand before you commit.",
+      "handles": ["document", "key_value"],
+      "fits": [
+        "Client-driven mobile and web applications that want realtime updates and offline behaviour without building a synchronisation layer.",
+        "Small teams with no backend, where clients talk to the store directly and rules carry authorisation.",
+        "Rapid prototyping — genuinely one of the fastest paths from nothing to a working multi-user application."
+      ],
+      "wrong_for": [
+        "Anything analytical. Billing is documented as per document read, write and delete, and you are charged for documents *and index entries* read to satisfy a query. A query that examines many documents costs in proportion to how many it touched, so counting and dashboard-style aggregation are exactly the operations this model punishes. Aggregation queries are cheaper than reading every row but are still billed on index entries read.",
+        "Complex queries. Query capability is deliberately limited so that queries scale with result size rather than dataset size; joins do not exist, and multi-field filtering requires composite indexes declared in advance.",
+        "Workloads where authorisation logic is complicated. Rules are a real language with real limits, and expressing intricate multi-tenant policy in them is harder than expressing it in row-level security or in server code.",
+        "Teams that will need to leave. The data model and the API are proprietary, and there is no drop-in equivalent."
+      ],
+      "edition_traps": [
+        "The isolation mechanism is the security rules — and the documented asymmetry is the trap. Every request from a mobile or web client library is evaluated against your rules; the *server* client libraries bypass all security rules entirely and authenticate through application default credentials instead. So the boundary you tested from the client does not exist on the server path, where IAM is the only control. If you are choosing this for its authorisation model, know which of your code paths the rules actually govern.",
+        "Rules are code, and untested rules are the whole boundary. Write tests against them with the vendor's emulator before launch; an open rule that survives from development into production is a public database.",
+        "Only one database per project qualifies for the free quota — a second database is billed from the first operation."
+      ],
+      "operational_notes": [
+        "Export and import are managed operations to and from object storage. Run one, and re-import it into a scratch project — that is your restore drill."
+      ],
+      "scale_to_zero": "Effectively — billing follows operations, with storage billed continuously.",
+      "exit_cost": "High. Proprietary model and API; a migration is a rewrite of the data layer.",
+      "citations": [
+        { "claim": "Billing is per document read, write and delete; you are charged for documents and index entries read to satisfy a query; aggregation queries are charged on index entries read with a one-read minimum; free quota is 50,000 reads / 20,000 writes / 20,000 deletes per day and 1 GiB stored, for one database per project", "url": "https://firebase.google.com/docs/firestore/pricing", "accessed": "2026-08-07" },
+        { "claim": "Every request from mobile and web client libraries is evaluated against security rules, but the server client libraries bypass all security rules and authenticate via Google Application Default Credentials", "url": "https://firebase.google.com/docs/firestore/security/get-started", "accessed": "2026-08-07" }
+      ]
+    },
+    {
+      "id": "redis_valkey",
+      "name": "Redis / Valkey",
+      "family": "cache",
+      "summary": "An in-memory data structure server. Excellent as a cache, a rate limiter, a lock, a queue, or an ephemeral session store. It is a supporting component, not a primary store, and treating it as one is where teams get hurt.",
+      "handles": ["key_value"],
+      "fits": [
+        "Caching expensive query results in front of a real database.",
+        "Rate limiting, counters, and leaderboards, where the data structures do the work.",
+        "Ephemeral session state that can be regenerated by asking the user to sign in again.",
+        "Queues and pub/sub for background work, at modest durability requirements.",
+        "Anything where the data can be rebuilt from a source of truth held elsewhere."
+      ],
+      "wrong_for": [
+        "Being the system of record — and this is the vendor's own position, not an outside opinion. The persistence documentation states that snapshotting is not very durable and that you should be prepared to lose the latest minutes of data on an unclean shutdown; the default append-only flush policy is documented as losing up to one second. The documentation's own guidance is to use both persistence methods together if you want durability comparable to what a relational database provides. If losing the last few seconds of writes is unacceptable, this is not the home for that data.",
+        "Datasets larger than memory. Cost scales with RAM, and RAM is the expensive resource; a large dataset here is dramatically more expensive than the same data on disk.",
+        "Complex queries. There is no query planner and no ad-hoc querying — you retrieve by key or by the structure's own operations.",
+        "Teams that add it 'for performance' before measuring. A cache in front of an unmeasured problem adds an invalidation bug and a second failure domain, and is one of the most common forms of premature complexity."
+      ],
+      "edition_traps": [
+        "Licensing is the live issue rather than a feature gate, and the history matters if you redistribute or offer a service. Redis left the BSD licence in March 2024 for a dual source-available model (RSALv2 / SSPLv1) starting with version 7.4, explicitly acknowledging it was no longer open source by the OSI definition; the change was not retroactive. Valkey was launched under the Linux Foundation later that month as a BSD-licensed fork continuing from Redis 7.2.4. In May 2025 Redis added AGPLv3 as an *additional* option starting with Redis 8 — a tri-license, not a return to BSD. The two projects are wire-compatible, which makes it easy to be unclear about which one you are actually shipping. Confirm the project and the licence.",
+        "Managed offerings differ substantially in which persistence and high-availability features they enable. Confirm the durability configuration of the specific tier you are buying rather than assuming the documentation's defaults."
+      ],
+      "operational_notes": [
+        "The restore drill for a cache is a cold-start drill: kill it and confirm the application still works, slower. If it does not, it was never a cache, and you have an undeclared system of record."
+      ],
+      "scale_to_zero": "No — memory is held while running.",
+      "exit_cost": "Low as a cache, because caches are disposable. High if you allowed it to become the system of record, which is a reason not to.",
+      "citations": [
+        { "claim": "Snapshotting is not very durable — expect to lose the latest minutes of data on an unclean shutdown; the default append-only fsync policy may lose 1 second of data; the documentation advises using both persistence methods for durability comparable to PostgreSQL", "url": "https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/", "accessed": "2026-08-07" },
+        { "claim": "From March 2024, starting with Redis 7.4, Redis moved from BSD-3 to dual RSALv2/SSPLv1 source-available licensing, acknowledging it is no longer open source under the OSI definition; the change was not retroactive", "url": "https://redis.io/blog/redis-adopts-dual-source-available-licensing/", "accessed": "2026-08-07" },
+        { "claim": "In May 2025 Redis added AGPLv3 as an additional licensing option starting with Redis 8", "url": "https://redis.io/blog/agplv3/", "accessed": "2026-08-07" },
+        { "claim": "Valkey was launched by the Linux Foundation in March 2024, continuing development from Redis 7.2.4 under the BSD 3-clause licence with open governance", "url": "https://www.linuxfoundation.org/press/linux-foundation-launches-open-source-valkey-community", "accessed": "2026-08-07" }
+      ]
+    },
+    {
+      "id": "graph_db",
+      "name": "A real graph database",
+      "family": "graph",
+      "summary": "Purpose-built for traversal, where relationships are first-class and following one is a pointer hop rather than an index lookup. Genuinely superior for the workloads it targets, and routinely chosen for workloads it does not.",
+      "handles": ["graph"],
+      "fits": [
+        "Variable-depth or unbounded traversal — shortest path, reachability, ancestry, blast-radius analysis — where the relational cost compounds per hop and this does not.",
+        "Dense connectivity, where nodes have many edges and the interesting questions are about the structure of the connections rather than the contents of the nodes.",
+        "Named graph algorithms in production: centrality, community detection, recommendation over a connection graph, cycle and fraud-ring detection.",
+        "Domains where the relationship types themselves change often, and modelling each as a table would mean constant schema churn.",
+        "Knowledge graphs and ontologies with heterogeneous, evolving relationship types."
+      ],
+      "wrong_for": [
+        "Sparse data. If your edge-to-node ratio is around one or below, you do not have a graph in the sense that matters — you have entities with a foreign key, and a relational database will be faster, cheaper, better understood, and easier to hire for.",
+        "Single-hop queries. 'Fetch the things attached to this thing' is a join. A graph engine adds no traversal advantage at depth one, and you pay its full cost anyway.",
+        "Running no graph algorithms. If you cannot name the algorithm you need, you are buying an engine for a capability you never invoke.",
+        "Aggregation and reporting across the whole dataset, which relational engines and columnar stores do far better.",
+        "Being chosen for a non-workload reason — an isolation property, a tenancy model, a compliance story, or because the domain is described with the word 'graph' in conversation. The workload should decide the engine; if something else is deciding it, verify that the something else is real before committing. See the edition trap below: this is where the mistake is most expensive.",
+        "Small teams without graph query experience. The query languages are genuinely different, the operational literature is thinner, and the hiring pool is smaller."
+      ],
+      "edition_traps": [
+        "This family is where the edition gap bites hardest, because the properties teams most often choose a graph engine for are commonly the ones the free edition does not have. A concrete, checkable example: Neo4j's own operations manual states that Community Edition installations can have exactly one standard database while Enterprise Edition can have any number; role-based access control and fine-grained security are documented under an Enterprise Edition banner, with only a limited set of user-management functions in Community; and online (hot) backup is Enterprise, with Community limited to backing up an offline database. Community Edition is GPLv3, Enterprise is commercial.",
+        "Read that list again as a decision, not a feature table. If you select a graph engine because it will separate tenants into distinct databases with role-based access control, and then deploy the free Community build — which is the build people install to evaluate and then quietly keep — you get one database, no roles, and no hot backup. The isolation you designed around does not exist in what you shipped.",
+        "The failure is silent. Nothing in normal operation reveals the gap: queries work, the application behaves, tests pass. It surfaces in a security audit, long after the schema and every query have been written around the assumption. The verification is five minutes: name the exact edition and version you will run in production, open that edition's own feature matrix, and confirm the property is listed for it — before writing code."
+      ],
+      "operational_notes": [
+        "Check whether online or hot backup is available in your edition. If backup requires stopping the database, your backup strategy and your uptime target are in direct conflict, and you should know that before you depend on both.",
+        "Managed graph offerings exist and remove the edition question in exchange for a different cost model. Note that managed does not automatically mean elastic: one major cloud's serverless graph offering documents a minimum capacity floor above zero, so it does not scale to nothing."
+      ],
+      "scale_to_zero": "Generally no; managed offerings commonly document a minimum capacity floor above zero.",
+      "exit_cost": "High. A distinct query language and data model. Leaving means re-modelling and rewriting every query.",
+      "citations": [
+        { "claim": "Neo4j Community Edition installations can have exactly one standard database; Enterprise Edition can have any number", "url": "https://neo4j.com/docs/operations-manual/current/database-administration/", "accessed": "2026-08-07" },
+        { "claim": "Authorization via role-based access control is documented under an Enterprise Edition banner; only a limited set of user-management functions is available in Community Edition", "url": "https://neo4j.com/docs/operations-manual/current/authentication-authorization/", "accessed": "2026-08-07" },
+        { "claim": "Community Edition supports backing up an offline database; online (hot) backup is an Enterprise Edition capability", "url": "https://neo4j.com/docs/operations-manual/current/backup-restore/", "accessed": "2026-08-07" },
+        { "claim": "Neo4j Community Edition is licensed under GPLv3; Enterprise Edition is commercially licensed", "url": "https://neo4j.com/licensing/", "accessed": "2026-08-07" },
+        { "claim": "Amazon Neptune Serverless has a minimum capacity of 1.0 NCU and scales compute only — it does not scale to zero", "url": "https://docs.aws.amazon.com/neptune/latest/userguide/neptune-serverless-capacity-scaling.html", "accessed": "2026-08-07" }
+      ]
+    }
+  ]
+}

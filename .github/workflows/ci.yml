@@ -187,6 +187,35 @@ jobs:
           test ! -e "$OUT/off-by-default/local-ollama"
           echo "✓ local ollama client verified; off by default"
 
+      - name: Verify the datastore-advisor add-on contract
+        run: |
+          set -euo pipefail
+          # Off by default, every-stack stamp, and the behaviour that makes it an
+          # advisor rather than a quiz (boring default, sparse-graph disqualified,
+          # unconditional edition + restore-drill verifications).
+          python3 -B -m unittest -v tests.test_datastore_advisor_contract
+
+          OUT="$(mktemp -d)"
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" \
+              --set include_datastore_advisor=yes \
+              --output "$OUT/$ex"
+            test -f "$OUT/$ex/tools/datastore_advisor/advisor.py"
+            test -f "$OUT/$ex/docs/DATASTORE_ADVISOR.md"
+            # The stamped tool parses and passes its offline self-test.
+            python3 -m py_compile "$OUT/$ex/tools/datastore_advisor/advisor.py"
+            (cd "$OUT/$ex" && python3 -B tools/datastore_advisor/selftest.py)
+          done
+          if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::token leak in datastore-advisor add-on output"; exit 1
+          fi
+
+          python3 bin/generate.py --defaults --output "$OUT/off-by-default"
+          test ! -e "$OUT/off-by-default/tools/datastore_advisor"
+          echo "✓ datastore advisor verified; off by default"
+
       - name: Stamp the optional k8s add-on for server-backed stacks
         run: |
           set -euo pipefail

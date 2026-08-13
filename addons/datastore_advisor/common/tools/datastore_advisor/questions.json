@@ -1,0 +1,193 @@
+{
+  "_comment": "Elicitation axes for the datastore advisor, in deliberate order. This is NOT a quiz: the order matters, 'unknown' is a first-class answer on every axis, and several axes only fire when an earlier answer makes them relevant (see `asked_when`). The advisor never scores these into a verdict — it uses them to disqualify, to argue, and to name what it still does not know.",
+  "version": "1.0.0",
+  "axes": [
+    {
+      "id": "hold_data",
+      "order": 10,
+      "title": "Do you want to hold this data at all?",
+      "why_it_matters": "This is asked first because it changes every answer below it. If the operator never holds readable user data, an entire class of liability stops existing rather than being managed: no breach of records you do not have, no subject-access export to build, no retention policy to enforce on a server, no key custody. Most teams skip this question and inherit the liability by default. It is cheapest to answer before any code exists.",
+      "unknown_ok": true,
+      "options": [
+        {
+          "id": "must_hold",
+          "label": "Yes — the server has to read this data",
+          "implies": "Server-side query, aggregation, search, sharing between users, or server-issued reports. Continue down the normal path."
+        },
+        {
+          "id": "could_avoid",
+          "label": "Maybe not — it is really one user's own data",
+          "implies": "Single-user data with no cross-user query and no server-side analytics is a strong candidate for device-local or client-encrypted storage, where the operator holds ciphertext or nothing at all."
+        },
+        {
+          "id": "must_not_hold",
+          "label": "No — holding it readable is unacceptable",
+          "implies": "A policy or regulatory constraint already decided this. The datastore choice is now about what stores opaque blobs and sync state, not about query power."
+        }
+      ]
+    },
+    {
+      "id": "workload_shape",
+      "order": 20,
+      "title": "What shape is the data actually in?",
+      "why_it_matters": "Pick the shape from what your queries do, not from what the domain sounds like. Almost every domain can be described as a graph or as documents in conversation; the question is what the running queries need.",
+      "unknown_ok": true,
+      "multi": true,
+      "options": [
+        { "id": "relational", "label": "Entities with relationships, queried with filters and joins" },
+        { "id": "document", "label": "Self-contained documents with varying fields, fetched whole" },
+        { "id": "key_value", "label": "Look up an opaque value by a known key, very fast" },
+        { "id": "graph", "label": "Genuinely graph-shaped — see the follow-up questions" },
+        { "id": "vector", "label": "Semantic or similarity search over embeddings" },
+        { "id": "timeseries", "label": "Append-mostly measurements queried by time window" },
+        { "id": "blob", "label": "Large files — images, audio, video, archives" }
+      ]
+    },
+    {
+      "id": "graph_edge_density",
+      "order": 21,
+      "asked_when": { "workload_shape": ["graph"] },
+      "title": "Roughly how many edges per node?",
+      "why_it_matters": "This is the single number that separates a graph workload from a relational one with a join table. A graph engine earns its cost through dense connectivity. A sparse, near-tree structure is a foreign key. Estimate it honestly from your real data, not your diagram — count edges, count nodes, divide.",
+      "unknown_ok": true,
+      "measure_hint": "Count rows in your relationship set, divide by rows in your entity set. If you cannot measure it yet, say so — that is a real answer and the advisor will tell you to measure before committing.",
+      "options": [
+        { "id": "under_1", "label": "Under 1 — most nodes have no edge or one edge" },
+        { "id": "1_to_5", "label": "Between 1 and 5" },
+        { "id": "5_to_20", "label": "Between 5 and 20" },
+        { "id": "over_20", "label": "Over 20 — densely connected" }
+      ]
+    },
+    {
+      "id": "graph_traversal_depth",
+      "order": 22,
+      "asked_when": { "workload_shape": ["graph"] },
+      "title": "How many hops does your deepest routine query traverse?",
+      "why_it_matters": "One hop is a join. Two hops is a join. Variable-depth or unbounded traversal is where a graph engine's index-free adjacency actually beats a relational plan, because the relational cost compounds per hop and the graph cost does not.",
+      "unknown_ok": true,
+      "options": [
+        { "id": "one_hop", "label": "One hop — 'things directly attached to this thing'" },
+        { "id": "two_hop", "label": "Two hops, fixed depth" },
+        { "id": "deep_fixed", "label": "Three or more hops, but a known fixed depth" },
+        { "id": "variable", "label": "Variable or unbounded depth — shortest path, reachability, ancestry" }
+      ]
+    },
+    {
+      "id": "graph_algorithms",
+      "order": 23,
+      "asked_when": { "workload_shape": ["graph"] },
+      "title": "Name the graph algorithms you will actually run.",
+      "why_it_matters": "If you can name them — PageRank, community detection, shortest path, centrality, cycle detection — a graph engine is doing work nothing else does well. If the honest answer is 'none, we just follow links', the graph engine is carrying cost for a capability you never call.",
+      "unknown_ok": true,
+      "options": [
+        { "id": "none", "label": "None — we fetch neighbours and render them" },
+        { "id": "pathfinding", "label": "Shortest path / reachability / cycle detection" },
+        { "id": "analytics", "label": "PageRank, centrality, community detection, recommendations" },
+        { "id": "both", "label": "Both pathfinding and analytics" }
+      ]
+    },
+    {
+      "id": "scale",
+      "order": 30,
+      "title": "How many rows, honestly, in the biggest table twelve months out?",
+      "why_it_matters": "This axis exists to stop over-engineering, which is the most common and most expensive mistake in this decision. Thousands of rows is not millions, and millions is not billions. A single well-indexed relational database handles far more than most teams assume. Distributed-systems complexity bought for a workload one node handles is pure cost with no benefit, and it is paid every day thereafter.",
+      "unknown_ok": true,
+      "measure_hint": "Estimate from your actual growth, not your pitch deck. If you genuinely do not know, that is the answer — and it means you should pick the option that is easiest to leave.",
+      "options": [
+        { "id": "thousands", "label": "Thousands" },
+        { "id": "hundreds_of_thousands", "label": "Hundreds of thousands" },
+        { "id": "millions", "label": "Low millions" },
+        { "id": "hundreds_of_millions", "label": "Hundreds of millions or more" }
+      ]
+    },
+    {
+      "id": "traffic_profile",
+      "order": 40,
+      "title": "What does traffic look like across a day?",
+      "why_it_matters": "This is the axis that decides whether scale-to-zero is a real saving or an irrelevance. A database that is idle twenty-two hours a day is paying for twenty-two hours of nothing on a always-on plan. A database under steady load never scales to zero and gains nothing from the feature, while inheriting cold-start latency on the paths that do go idle.",
+      "unknown_ok": true,
+      "options": [
+        { "id": "steady", "label": "Steady — always some traffic" },
+        { "id": "bursty", "label": "Bursty peaks over a quiet baseline" },
+        { "id": "mostly_idle", "label": "Idle most of the time — dev, internal, pre-launch, or seasonal" },
+        { "id": "spiky_unpredictable", "label": "Unpredictable spikes from near zero" }
+      ]
+    },
+    {
+      "id": "isolation_model",
+      "order": 50,
+      "title": "How are tenants or users isolated from each other?",
+      "why_it_matters": "Name the mechanism, not the intention. 'Each customer is separate' is not a mechanism; a row filter, a schema, a database, or a cluster is.",
+      "unknown_ok": true,
+      "options": [
+        { "id": "single_tenant", "label": "Single tenant — one customer, or only our own data" },
+        { "id": "row_level", "label": "Multi-tenant, separated by a tenant column and a row filter" },
+        { "id": "schema_or_db", "label": "Multi-tenant, separated by a schema or a database per tenant" },
+        { "id": "instance", "label": "Multi-tenant, separated by a whole instance per tenant" }
+      ]
+    },
+    {
+      "id": "isolation_is_the_reason",
+      "order": 51,
+      "title": "Is an isolation, security, or compliance property a reason you are choosing this engine?",
+      "why_it_matters": "If yes, this is the highest-risk part of the whole decision, and the advisor will refuse to confirm the choice on the strength of the engine's name alone. Engines routinely gate exactly these properties — separate databases, role-based access control, online backup, audit logging, encryption at rest — behind a paid edition. The free or community edition you install to try it out, and then quietly keep running, may not have the property you picked the engine for. Verifying this takes five minutes before you write code and a full security audit afterwards.",
+      "unknown_ok": true,
+      "options": [
+        { "id": "yes", "label": "Yes — isolation or compliance is part of why" },
+        { "id": "no", "label": "No — chosen purely on workload fit" }
+      ]
+    },
+    {
+      "id": "regulated",
+      "order": 52,
+      "title": "Is this data subject to a regulatory regime?",
+      "why_it_matters": "A regime constrains the provider list before it constrains the engine. Some managed offerings sign the necessary agreements only on specific plans, and some not at all. Check the provider's own compliance page for the plan you will actually buy.",
+      "unknown_ok": true,
+      "multi": true,
+      "options": [
+        { "id": "none", "label": "None that we know of" },
+        { "id": "health", "label": "Health data with a formal processor agreement requirement" },
+        { "id": "privacy", "label": "Broad privacy regime with deletion and export rights" },
+        { "id": "payments", "label": "Cardholder data" },
+        { "id": "residency", "label": "Data must stay in a named jurisdiction" }
+      ]
+    },
+    {
+      "id": "team",
+      "order": 60,
+      "title": "Who operates this at 3am?",
+      "why_it_matters": "Operational capacity is a hard constraint, not a preference. A self-hosted cluster is a reasonable choice for a team with an on-call rota and an unreasonable one for a solo founder, regardless of which is technically superior.",
+      "unknown_ok": false,
+      "options": [
+        { "id": "solo", "label": "One person, who also writes the product" },
+        { "id": "small_team", "label": "A small team, no dedicated operations" },
+        { "id": "has_ops", "label": "A team with real operational capacity or on-call" }
+      ]
+    },
+    {
+      "id": "backup_restore",
+      "order": 61,
+      "title": "Can you take a backup — and have you ever restored one?",
+      "why_it_matters": "A backup nobody has restored is not a backup; it is an untested assumption with a filename. The restore is the part that fails: wrong version, missing extension, absent encryption key, incomplete dump, a permissions model that does not come back with the data. This is a product requirement, not a nicety, and the advisor treats a recommendation as operationally incomplete until a restore has actually been performed once.",
+      "unknown_ok": false,
+      "options": [
+        { "id": "restored", "label": "Yes — we have restored a backup into a working system" },
+        { "id": "backup_only", "label": "We take backups but have never restored one" },
+        { "id": "provider_default", "label": "We assume the provider handles it" },
+        { "id": "none", "label": "No backup story yet" }
+      ]
+    },
+    {
+      "id": "exit_tolerance",
+      "order": 70,
+      "title": "How much does it matter that you can leave later?",
+      "why_it_matters": "Exit cost is paid at the worst possible moment — during a pricing change, an acquisition, an outage, or a compliance demand. A portable engine with a standard wire protocol and a plain dump format can be moved in an afternoon. A proprietary API with a bespoke data model and no equivalent elsewhere is a rewrite of every query you have written.",
+      "unknown_ok": true,
+      "options": [
+        { "id": "critical", "label": "Critical — we must be able to move providers" },
+        { "id": "prefer", "label": "Prefer portability, would accept some lock-in for real benefit" },
+        { "id": "dont_care", "label": "Not a concern for this project" }
+      ]
+    }
+  ]
+}

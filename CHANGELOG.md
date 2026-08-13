@@ -6,6 +6,26 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- `datastore_advisor` add-on (opt-in, default `no`): turns the datastore choice
+  into an explicit AI-plus-user decision rather than whatever the scaffold
+  happened to ship. Ships `docs/DATASTORE_ADVISOR.md` (the guide),
+  `docs/DATASTORE_DECISION.md` (the committed decision record) and a stdlib-only
+  `tools/datastore_advisor/` elicitation tool. It is not a quiz: no weighted
+  score, disqualifications carry the rule and the answers that fired them, every
+  recommendation carries its own case against and an explicit "what would change
+  this answer", and "unknown" is a measurement task rather than a silent default.
+  Axis zero is whether to hold the user's data at all. Two verifications are
+  unconditional — confirm the **edition/plan you will actually run** has the
+  feature you are choosing the engine for (free/community editions routinely omit
+  the isolation, RBAC and online-backup properties an engine gets picked for, and
+  the gap stays silent until an audit), and **restore a backup into a working
+  system** at least once. Catalog covers Postgres (+pgvector), SQLite/embedded,
+  device-local/client-encrypted, Neon, Supabase, Cloud SQL/RDS-class, DynamoDB,
+  Firestore, Redis/Valkey and real graph databases, each with a `wrong_for` list
+  and citations carrying URL + date read. Biased toward boring: for ordinary
+  workloads it recommends a single Postgres instance and says so plainly.
+  Contract test + CI step assert off-by-default, clean stamping on every stack,
+  and the behaviours above.
 - ORC truthful local closure and decision routing: control bundle `1.4.2` and
   PM-proxy plugin `0.4.2` add exact local-only/local-artifact handbacks,
   content-verified privacy-safe SHA-256 manifests, receipt-fenced schema holds,

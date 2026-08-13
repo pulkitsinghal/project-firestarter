@@ -206,6 +206,7 @@ def main() -> int:
         "browser_automation_policy",
         "local_ollama",
         "encrypted_local_areas",
+        "datastore_advisor",
     ):
         if values.get(f"include_{addon}") == "yes":
             overlaid = False
