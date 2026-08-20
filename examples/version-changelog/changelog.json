@@ -1,0 +1,23 @@
+{
+  "title": "Firestarter demo",
+  "stampLabel": "build {id} · {date}",
+  "releases": [
+    {
+      "id": "a1b2c3d4",
+      "title": "Rollback control",
+      "date": "2026-08-20",
+      "highlights": [
+        "Click the build stamp to see what changed",
+        "Reopen an earlier version when one is archived"
+      ],
+      "rollback": { "available": false, "reason": "This is the version you are viewing." }
+    },
+    {
+      "id": "9f8e7d6c",
+      "title": "First release",
+      "date": "2026-08-14",
+      "highlights": ["Initial public build"],
+      "rollback": { "available": true, "url": "https://example.com/deploy/9f8e7d6c/" }
+    }
+  ]
+}
