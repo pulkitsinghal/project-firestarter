@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>version-changelog — states</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 3rem 1.5rem 12rem; background: #f4f6f5; color: #131b1a;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #0e1413; color: #e3eae8; } }
+  .wrap { max-width: 42rem; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+  h1 { font-size: 1.5rem; margin: 0; }
+  p { margin: 0; color: #5d6b68; }
+  @media (prefers-color-scheme: dark) { p { color: #a3b0ad; } }
+  .case {
+    border: 1px solid #dde4e2; border-radius: 6px; padding: 1rem 1.15rem;
+    display: flex; flex-direction: column; gap: .6rem; background: #fff;
+  }
+  @media (prefers-color-scheme: dark) { .case { background: #161d1c; border-color: #2a3533; } }
+  .case h2 { font-size: .95rem; margin: 0; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .85em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>version-changelog</h1>
+  <p>Three states worth looking at: a fetched manifest, an inline manifest for
+  strict-CSP pages, and a release that cannot be restored. Click any stamp.</p>
+
+  <div class="case">
+    <h2>1 — fetched manifest, panel opens upward (default)</h2>
+    <p>Reads <code>changelog.json</code> over the network.</p>
+    <version-changelog src="changelog.json"></version-changelog>
+  </div>
+
+  <div class="case">
+    <h2>2 — inline manifest, panel opens downward</h2>
+    <p>No fetch, so it works inside a Claude artifact. Note the disabled restore
+    on the release with a database migration behind it.</p>
+    <version-changelog drop="down">{
+      "title": "Acme API",
+      "stampLabel": "v{id} · {date}",
+      "releases": [
+        {
+          "id": "2.1.0", "title": "Saved views", "date": "2026-08-18",
+          "highlights": ["Save a filter set and come back to it", "Faster first paint on the dashboard"],
+          "rollback": { "available": false, "reason": "This is the version you are viewing." }
+        },
+        {
+          "id": "2.0.0", "title": "New dashboard", "date": "2026-07-30",
+          "highlights": ["Rebuilt dashboard", "Keyboard navigation throughout"],
+          "rollback": { "available": false, "reason": "Restoring 2.0.0 would need the pre-migration database schema, so it cannot be reopened from here." }
+        },
+        {
+          "id": "1.9.2", "title": "Export fixes", "date": "2026-07-11",
+          "highlights": ["CSV export keeps column order", "Long report titles no longer truncate"],
+          "rollback": { "available": true, "url": "https://example.com/deploy/1-9-2/" }
+        }
+      ]
+    }</version-changelog>
+  </div>
+
+  <div class="case">
+    <h2>3 — host intercepts the restore</h2>
+    <p>Listens for <code>changelog:rollback</code> and calls
+    <code>preventDefault()</code>, so nothing navigates. Watch the console.</p>
+    <version-changelog id="guarded" drop="down">{
+      "title": "Guarded",
+      "releases": [
+        { "id": "3.0.0", "title": "Current", "date": "2026-08-20", "highlights": ["You are here"],
+          "rollback": { "available": false, "reason": "This is the version you are viewing." } },
+        { "id": "2.9.0", "title": "Previous", "date": "2026-08-01", "highlights": ["The one before"],
+          "rollback": { "available": true, "url": "https://example.com/deploy/2-9-0/" } }
+      ]
+    }</version-changelog>
+  </div>
+
+  <div class="case">
+    <h2>4 — placement: float (a support-launcher pill, bottom-right)</h2>
+    <p>Pins itself to the viewport. Look at the bottom-right corner of this page.</p>
+  </div>
+</div>
+
+<version-changelog placement="float" src="changelog.json"></version-changelog>
+
+<script type="module" src="../../addons/version_changelog/common/assets/version-changelog.js"></script>
+<script>
+  document.getElementById("guarded").addEventListener("changelog:rollback", (e) => {
+    e.preventDefault();
+    console.log("host intercepted rollback to", e.detail.release.id, "— navigation suppressed");
+    alert(`Host intercepted: would restore ${e.detail.release.id} after confirming unsaved work.`);
+  });
+</script>
+</body>
+</html>

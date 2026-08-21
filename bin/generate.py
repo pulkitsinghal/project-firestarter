@@ -207,6 +207,7 @@ def main() -> int:
         "local_ollama",
         "encrypted_local_areas",
         "convergent_deploy",
+        "version_changelog",
     ):
         if values.get(f"include_{addon}") == "yes":
             overlaid = False
