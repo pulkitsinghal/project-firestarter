@@ -124,6 +124,33 @@ class CurationGate(unittest.TestCase):
         self.assertNotIn("_default_reason", by_id)
 
 
+class Placement(unittest.TestCase):
+    """A pinned stamp must open its panel away from the edge it is pinned to, or the
+    panel runs off-screen — the failure mode you only notice on someone else's laptop."""
+
+    def setUp(self):
+        self.src = (ADDON / "assets" / "version-changelog.js").read_text()
+
+    def test_all_modes_present(self):
+        for mode in ("float", "header", "footer", "side"):
+            self.assertIn(f'placement="{mode}"', self.src, f"{mode} placement missing")
+
+    def test_pinned_modes_position_themselves(self):
+        self.assertRegex(self.src, r':host\(\[placement="float"\]\)[^{]*,?[\s\S]{0,200}?position:\s*fixed')
+
+    def test_panel_opens_away_from_the_pinned_edge(self):
+        # top-pinned opens downward
+        self.assertIn(':host([placement="header"]) .panel { bottom: auto; top:', self.src)
+        # right-pinned aligns right so it cannot overflow the viewport
+        self.assertIn("left: auto; right: 0;", self.src)
+        # side opens leftward
+        self.assertIn(':host([placement="side"]) .panel { right: calc(100% + .5rem)', self.src)
+
+    def test_placement_is_observed_at_runtime(self):
+        self.assertIn('"placement"', self.src)
+        self.assertIn('"corner"', self.src)
+
+
 class ComponentSurface(unittest.TestCase):
     def test_escapes_and_never_mutates(self):
         src = (ADDON / "assets" / "version-changelog.js").read_text()

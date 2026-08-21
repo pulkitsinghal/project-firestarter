@@ -70,6 +70,31 @@ document.addEventListener("changelog:rollback", (e) => {
 <version-changelog>{"title":"Version history","releases":[…]}</version-changelog>
 ```
 
+### Placement
+
+The stamp can sit wherever the page wants it. `placement` decides whether the component
+positions itself or leaves that to the host:
+
+| `placement` | behaviour |
+|---|---|
+| `inline` *(default)* | sits in normal flow, wherever you mount it — a footer, a header, a sidebar |
+| `float` | pins itself like a support launcher; a rounded pill reading "What's new" (override with `floatLabel` in the manifest). `corner` takes `bottom-right` *(default)*, `bottom-left`, `top-right`, `top-left` |
+| `header` | pinned top-right |
+| `footer` | pinned bottom-right |
+| `side` | pinned to the right edge, vertically centred, text running vertically |
+
+Header **and** footer at once is just two mounts — the component is cheap and both read
+the same manifest:
+
+```html
+<header>… <version-changelog src="changelog.json"></version-changelog></header>
+<footer>… <version-changelog src="changelog.json"></version-changelog></footer>
+```
+
+Pinned placements open their panel away from the edge they are pinned to, so it never
+runs off-screen: bottom-pinned opens upward, top-pinned downward, right-pinned aligns
+its right edge, and `side` opens to the left.
+
 Attributes: `src`, `current` (pin which release is "current"; defaults to the first),
 `drop="down"` (panel opens downward), `theme="light|dark"`, `target` (window target for
 the restore link).

@@ -87,6 +87,50 @@ TEMPLATE.innerHTML = `
     padding: .25rem 0;
   }
   :host([drop="down"]) .panel { bottom: auto; top: calc(100% + .5rem); }
+
+  /* Placement. inline (default) sits wherever the host puts it; the rest pin
+     themselves so a page can carry the stamp without reserving layout for it. */
+  :host([placement="float"]),
+  :host([placement="header"]),
+  :host([placement="footer"]),
+  :host([placement="side"]) { position: fixed; z-index: 60; }
+
+  :host([placement="float"]) { bottom: 1.25rem; right: 1.25rem; }
+  :host([placement="float"][corner="bottom-left"])  { right: auto; left: 1.25rem; }
+  :host([placement="float"][corner="top-right"])    { bottom: auto; top: 1.25rem; }
+  :host([placement="float"][corner="top-left"])     { bottom: auto; top: 1.25rem; right: auto; left: 1.25rem; }
+  :host([placement="float"]) .stamp {
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-bottom-color: var(--vc-rule);
+    border-radius: 999px;
+    padding: .45rem .85rem;
+    box-shadow: 0 4px 14px rgba(0,0,0,.16);
+    color: var(--vc-ink-2);
+  }
+  :host([placement="float"]) .stamp:hover { color: var(--vc-accent); border-color: var(--vc-accent); }
+
+  :host([placement="header"]) { top: .6rem; right: 1rem; }
+  :host([placement="footer"]) { bottom: .6rem; right: 1rem; }
+  :host([placement="side"])   { top: 50%; right: 0; transform: translateY(-50%); }
+  :host([placement="side"]) .stamp {
+    writing-mode: vertical-rl;
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-radius: 6px 0 0 6px;
+    padding: .8rem .4rem;
+  }
+
+  /* A pinned stamp near the bottom must open upward, near the top downward. */
+  :host([placement="header"]) .panel { bottom: auto; top: calc(100% + .5rem); }
+  :host([placement="float"][corner^="top"]) .panel { bottom: auto; top: calc(100% + .5rem); }
+  /* Right-pinned placements would overflow the viewport if the panel grew rightward. */
+  :host([placement="float"]) .panel,
+  :host([placement="header"]) .panel,
+  :host([placement="footer"]) .panel { left: auto; right: 0; }
+  :host([placement="side"]) .panel { right: calc(100% + .5rem); top: 50%; bottom: auto; transform: translateY(-50%); }
+
+  @media (prefers-reduced-motion: reduce) { .stamp, .ch, .rel-top { transition: none; } }
   .panel[hidden] { display: none; }
 
   .head {
@@ -137,7 +181,7 @@ TEMPLATE.innerHTML = `
 `;
 
 class VersionChangelog extends HTMLElement {
-  static get observedAttributes() { return ["src", "current"]; }
+  static get observedAttributes() { return ["src", "current", "placement", "corner"]; }
 
   constructor() {
     super();
@@ -197,9 +241,13 @@ class VersionChangelog extends HTMLElement {
       this._stamp.textContent = "no versions";
       return;
     }
-    this._stamp.textContent = this._data.stampLabel
-      ? interpolate(this._data.stampLabel, cur)
-      : `build ${cur.id}${cur.runtime ? " · " + cur.runtime : ""}`;
+    const floating = this.getAttribute("placement") === "float";
+    const short = this._data.floatLabel || "What's new";
+    this._stamp.textContent = floating
+      ? short
+      : (this._data.stampLabel
+          ? interpolate(this._data.stampLabel, cur)
+          : `build ${cur.id}${cur.runtime ? " · " + cur.runtime : ""}`);
     this._stamp.title = "What changed, and how to go back";
 
     const head = `<div class="head"><b>${escapeHtml(this._data.title || "Version history")}</b>` +
