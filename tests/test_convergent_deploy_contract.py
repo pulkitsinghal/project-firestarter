@@ -218,6 +218,23 @@ class Additive(unittest.TestCase):
         self._orig = converge._fetch_file
         self.addCleanup(lambda: setattr(converge, "_fetch_file", self._orig))
 
+    def test_remote_manifest_cannot_escape_the_deploy_root(self):
+        for entry in (
+            {"id": "../outside", "files": ["index.html"]},
+            {"id": "safe", "files": ["../../outside.txt"]},
+            {"id": "safe", "files": ["nested\\outside.txt"]},
+        ):
+            with self.subTest(entry=entry), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "deploy"
+                root.mkdir()
+                with self.assertRaises(converge.Unreadable):
+                    converge.heal(
+                        root,
+                        {converge.COLLECTION: [entry]},
+                        "https://example.test",
+                        Path(tmp) / "backups",
+                    )
+
     def test_live_site_beats_a_stale_local_backup(self):
         """The regression a fresh clone actually hit on 21 Aug 2026.
 

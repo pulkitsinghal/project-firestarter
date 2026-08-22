@@ -164,6 +164,18 @@ def file_list(entry_dir: pathlib.Path) -> list[str]:
     return sorted(str(f.relative_to(entry_dir)) for f in entry_dir.rglob("*") if f.is_file())
 
 
+def _safe_manifest_path(value: str, *, field: str, nested: bool) -> pathlib.PurePosixPath:
+    """Validate a remote manifest path before using it as a URL or filesystem path."""
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise Unreadable(f"remote manifest has an unsafe {field}")
+    path = pathlib.PurePosixPath(value)
+    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        raise Unreadable(f"remote manifest has an unsafe {field}")
+    if not nested and len(path.parts) != 1:
+        raise Unreadable(f"remote manifest has an unsafe {field}")
+    return path
+
+
 def merge_manifests(local: dict, remote: dict | None) -> tuple[dict, list[str]]:
     """Union by slug. Never drops an entry; newer `added` wins a genuine conflict.
 
@@ -201,18 +213,28 @@ def heal(root: pathlib.Path, merged: dict, base_url: str,
     healed, unhealable = [], []
     for entry in merged[COLLECTION]:
         slug = entry[ID]
-        dest = (root / SUBDIR / slug) if SUBDIR else (root / slug)
+        safe_slug = _safe_manifest_path(slug, field=ID, nested=False)
+        dest = (root / SUBDIR / safe_slug) if SUBDIR else (root / safe_slug)
         if dest.exists():
             continue
         files = entry.get("files") or []
-        if files and all(_fetch_file(f"{base_url.rstrip('/')}/{SUBDIR + '/' if SUBDIR else ''}{slug}/{f}", dest / f)
-                         for f in files):
+        safe_files = [_safe_manifest_path(f, field="file path", nested=True) for f in files]
+        prefix = f"{SUBDIR.strip('/')}/" if SUBDIR else ""
+        if safe_files and all(
+            _fetch_file(
+                f"{base_url.rstrip('/')}/{prefix}"
+                f"{urllib.parse.quote(str(safe_slug), safe='')}/"
+                f"{urllib.parse.quote(str(f), safe='/')}",
+                dest.joinpath(*f.parts),
+            )
+            for f in safe_files
+        ):
             healed.append(f"{slug} (from live site, {len(files)} files)")
             continue
         if dest.exists():
             import shutil
             shutil.rmtree(dest)          # a half-downloaded share is worse than none
-        bak = sorted(backups.glob(f"*{slug}*"), reverse=True) if backups.exists() else []
+        bak = sorted(backups.glob(f"*{safe_slug}*"), reverse=True) if backups.exists() else []
         if bak and any(bak[0].rglob("index.html")):
             import shutil
             shutil.copytree(bak[0], dest, dirs_exist_ok=True)
