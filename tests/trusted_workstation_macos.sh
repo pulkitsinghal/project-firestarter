@@ -8,12 +8,45 @@ if [ "$(uname -s)" != Darwin ]; then
 fi
 
 REPO_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)"
-FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/firestarter-trusted-workstation.XXXXXX")"
+verify_no_link_components() {
+  candidate=$1
+  [ -d "$candidate" ] || return 1
+  logical=$(CDPATH= cd -- "$candidate" && pwd -L) || return 1
+  physical=$(CDPATH= cd -- "$candidate" && pwd -P) || return 1
+  [ "$logical" = "$physical" ] || return 1
+  cursor=$logical
+  while [ "$cursor" != / ]; do
+    [ ! -L "$cursor" ] || return 1
+    cursor=${cursor%/*}; [ -n "$cursor" ] || cursor=/
+  done
+}
+
+if [ -n "${RUNNER_TEMP:-}" ]; then
+  FIXTURE_PARENT="$RUNNER_TEMP"
+else
+  HOME_PHYSICAL=$(CDPATH= cd -- "$HOME" && pwd -P)
+  FIXTURE_PARENT="$HOME_PHYSICAL/.firestarter-test-tmp"
+  mkdir -p "$FIXTURE_PARENT"
+fi
+if ! verify_no_link_components "$FIXTURE_PARENT"; then
+  printf 'fixture parent must be a canonical non-link path\n' >&2
+  exit 2
+fi
+FIXTURE_ROOT="$(mktemp -d "$FIXTURE_PARENT/firestarter-trusted-workstation.XXXXXX")"
+if ! verify_no_link_components "$FIXTURE_ROOT"; then
+  printf 'fixture root must be a canonical non-link path\n' >&2
+  exit 2
+fi
 RUNTIME="$FIXTURE_ROOT/runtime"
 REPOSITORY='Example-Org/sample-repo'
 PASSED=0
 
-cleanup() { rm -rf -- "$FIXTURE_ROOT"; }
+cleanup() {
+  case "$FIXTURE_ROOT" in
+    "$FIXTURE_PARENT"/firestarter-trusted-workstation.*) rm -rf -- "$FIXTURE_ROOT" ;;
+    *) printf 'refusing unsafe fixture cleanup\n' >&2 ;;
+  esac
+}
 trap cleanup EXIT HUP INT TERM
 
 cp -R "$REPO_ROOT/addons/trusted_workstation/common" "$RUNTIME"

@@ -90,6 +90,23 @@ class TrustedWorkstationContractTests(unittest.TestCase):
         self.assertNotIn("python3 -m pip install", job)
         self.assertNotIn("--break-system-packages", workflow)
 
+    def test_macos_harness_reaches_repo_cases_from_a_verified_fixture_root(self) -> None:
+        harness = (ROOT / "tests" / "trusted_workstation_macos.sh").read_text()
+        repository_case = harness.index(
+            "assert_repository_accepted 'repository without newline'"
+        )
+        for setup in (
+            'FIXTURE_PARENT="$RUNNER_TEMP"',
+            'HOME_PHYSICAL=$(CDPATH= cd -- "$HOME" && pwd -P)',
+            'verify_no_link_components "$FIXTURE_PARENT"',
+            'mktemp -d "$FIXTURE_PARENT/firestarter-trusted-workstation.XXXXXX"',
+            'verify_no_link_components "$FIXTURE_ROOT"',
+        ):
+            self.assertIn(setup, harness)
+            self.assertLess(harness.index(setup), repository_case)
+        self.assertIn('ln -s "$target" "$FIXTURE_ROOT/linked-parent"', harness)
+        self.assertIn("symlink parent was not rejected", harness)
+
     def test_default_off_and_registered(self) -> None:
         config = json.loads((ROOT / "firestarter.config.json").read_text())
         self.assertEqual(config["include_trusted_workstation"], ["no", "yes"])
