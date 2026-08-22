@@ -2,7 +2,11 @@
 [CmdletBinding()]
 param([string]$Ledger)
 $ErrorActionPreference = 'Stop'
-$expectedRepo = '{{ trusted_workstation_repo }}'
+$repositoryFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'trusted-workstation\repository.txt'
+if (-not (Test-Path -LiteralPath $repositoryFile -PathType Leaf)) { 'BLOCKED repository configuration is missing'; exit 2 }
+$expectedRepo = [IO.File]::ReadAllText($repositoryFile, [Text.Encoding]::ASCII).TrimEnd("`r", "`n")
+if ($expectedRepo -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$') { 'BLOCKED repository configuration is invalid'; exit 2 }
+if (($expectedRepo -split '/', 2)[1] -in @('.', '..')) { 'BLOCKED repository configuration is invalid'; exit 2 }
 function Has-Control([string]$Value) { $Value -match '[\x00-\x1f\x7f-\x9f]' }
 function Has-ReparseComponent([string]$Path) {
   $full = [IO.Path]::GetFullPath($Path); $rootPart = [IO.Path]::GetPathRoot($full)
@@ -15,7 +19,7 @@ function Has-ReparseComponent([string]$Path) {
   return $false
 }
 if (-not $Ledger) { $Ledger = $env:TRUSTED_WORKSTATION_LEDGER }
-if (-not $Ledger) { $Ledger = Join-Path $env:LOCALAPPDATA '{{ project_name }}\trusted-workstation-ledger.json' }
+if (-not $Ledger) { $Ledger = Join-Path $env:LOCALAPPDATA (Join-Path 'Firestarter\trusted-workstation' (($expectedRepo -replace '/', '--') + '\ledger.json')) }
 if (Has-Control $Ledger -or $Ledger.Length -gt 2048) { 'BLOCKED ledger path is malformed'; exit 1 }
 if (-not (Test-Path -LiteralPath $Ledger -PathType Leaf)) { 'NOT_ENROLLED ledger is missing'; exit 1 }
 if (Has-ReparseComponent $Ledger) { 'BLOCKED ledger path must not contain a link or reparse point'; exit 1 }

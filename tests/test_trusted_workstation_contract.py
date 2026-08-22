@@ -16,9 +16,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "bin" / "generate.py"
 ADDON = ROOT / "addons" / "trusted_workstation" / "common"
+FIXTURES = ROOT / "tests" / "fixtures" / "trusted_workstation_ledgers"
+FIXTURE_REPOSITORY = "Example-Org/sample-repo"
 EXPECTED = (
     "trusted-workstation/policy.json",
     "trusted-workstation/enrollment-ledger.schema.json",
+    "trusted-workstation/repository.txt",
     "scripts/trusted-workstation-doctor.sh",
     "scripts/trusted-workstation-status.sh",
     "scripts/trusted-workstation-doctor.ps1",
@@ -87,11 +90,138 @@ class TrustedWorkstationContractTests(unittest.TestCase):
                         self.assertNotIn("{{", path.read_text(), f"token leak {stack}:{rel}")
                     policy = json.loads((output / EXPECTED[0]).read_text())
                     schema = json.loads((output / EXPECTED[1]).read_text())
-                    self.assertEqual(policy["repository"], "Auggie-Health-Inc/Auggie-Home")
+                    self.assertEqual(policy["repositorySource"], "repository.txt")
                     self.assertEqual(
                         schema["properties"]["repository"]["const"],
                         "Auggie-Health-Inc/Auggie-Home",
                     )
+                    self.assertEqual(
+                        (output / "trusted-workstation" / "repository.txt").read_text(encoding="ascii"),
+                        "Auggie-Health-Inc/Auggie-Home\n",
+                    )
+
+    def test_security_sensitive_repository_syntax_is_strict(self) -> None:
+        invalid = (
+            "owner",
+            "/repo",
+            "owner/",
+            "owner/.",
+            "-owner/repo",
+            "owner-/repo",
+            "owner/..",
+            "owner/repo;touch-pwned",
+            "owner/repo'quoted",
+            'owner/repo"quoted',
+            "owner/$()",
+            "owner/`id`",
+            "owner/repo\rnext",
+            "owner/repo\nnext",
+            "owner/répo",
+            "owner/repo\x1b",
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            for index, repository in enumerate(invalid):
+                with self.subTest(repository=repr(repository)):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        stamp(
+                            Path(temp) / str(index),
+                            "include_trusted_workstation=yes",
+                            f"trusted_workstation_repo={repository}",
+                        )
+
+    def test_adversarial_project_names_never_enter_executable_addon_source(self) -> None:
+        names = (
+            "quote\"name",
+            "apostrophe'name",
+            "dollar$(touch pwned)",
+            "backtick`id`",
+            "semi;colon",
+            "line\rbreak",
+            "line\nbreak",
+            "snowman-☃",
+            "escape-\x1b",
+            r"replacement\1",
+        )
+        executable_names = (
+            "trusted-workstation-doctor.sh",
+            "trusted-workstation-status.sh",
+            "trusted-workstation-doctor.ps1",
+            "trusted-workstation-status.ps1",
+            "trusted-workstation-ledger-validator.js",
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            for index, name in enumerate(names):
+                with self.subTest(name=repr(name)):
+                    output = Path(temp) / str(index)
+                    stamp(
+                        output,
+                        "include_trusted_workstation=yes",
+                        f"project_name={name}",
+                        f"project_tagline={name}",
+                        "github_owner=Example-Org",
+                        "github_repo=sample-repo",
+                    )
+                    for script_name in executable_names:
+                        text = (output / "scripts" / script_name).read_text(encoding="utf-8")
+                        self.assertNotIn(name, text)
+                        self.assertNotIn("{{", text)
+
+    def test_shared_fixture_corpus_matches_draft_2020_12_schema(self) -> None:
+        try:
+            from jsonschema import Draft202012Validator
+        except ImportError as error:
+            self.fail(f"jsonschema is required for the contract gate: {error}")
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "stamped"
+            stamp(
+                output,
+                "include_trusted_workstation=yes",
+                f"trusted_workstation_repo={FIXTURE_REPOSITORY}",
+            )
+            schema = json.loads(
+                (output / "trusted-workstation" / "enrollment-ledger.schema.json").read_text()
+            )
+            Draft202012Validator.check_schema(schema)
+            validator = Draft202012Validator(schema)
+
+            def strict_object(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError("duplicate key")
+                    result[key] = value
+                return result
+
+            for path in sorted((FIXTURES / "accepted").glob("*.json")):
+                with self.subTest(fixture=path.name):
+                    instance = json.loads(path.read_text(), object_pairs_hook=strict_object)
+                    self.assertEqual(list(validator.iter_errors(instance)), [])
+            for path in sorted((FIXTURES / "rejected").glob("*.json")):
+                with self.subTest(fixture=path.name):
+                    try:
+                        instance = json.loads(path.read_text(), object_pairs_hook=strict_object)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    self.assertTrue(list(validator.iter_errors(instance)), path.name)
+
+    def test_platform_validator_matches_shared_fixture_corpus(self) -> None:
+        if os.name == "nt":
+            runtime = shutil.which("cscript")
+            command = lambda validator, ledger: [runtime, "//nologo", str(validator), str(ledger), FIXTURE_REPOSITORY]
+        elif sys.platform == "darwin":
+            runtime = "/usr/bin/osascript"
+            command = lambda validator, ledger: [runtime, "-l", "JavaScript", str(validator), str(ledger), FIXTURE_REPOSITORY]
+        else:
+            self.skipTest("platform validator is available on Windows and macOS")
+        self.assertTrue(runtime and Path(runtime).exists(), "platform JavaScript runtime is unavailable")
+        validator = ADDON / "scripts" / "trusted-workstation-ledger-validator.js"
+        for accept, directory in ((True, "accepted"), (False, "rejected")):
+            for ledger in sorted((FIXTURES / directory).glob("*.json")):
+                with self.subTest(fixture=ledger.name):
+                    before = ledger.read_bytes()
+                    result = subprocess.run(command(validator, ledger), capture_output=True, text=True, timeout=20)
+                    self.assertEqual(result.returncode == 0, accept, result.stdout + result.stderr)
+                    self.assertEqual(ledger.read_bytes(), before)
 
     def test_phase_one_authority_is_read_only(self) -> None:
         policy = json.loads((ADDON / "trusted-workstation" / "policy.json").read_text())
@@ -184,6 +314,13 @@ class TrustedWorkstationContractTests(unittest.TestCase):
             )
             self.assertNotEqual(rejected.returncode, 0)
             self.assertIn("linked, external, or shared", rejected.stdout)
+            repository_file = stamped / "trusted-workstation" / "repository.txt"
+            repository_file.write_text("Example-Org/.\n", encoding="ascii")
+            invalid_repository = subprocess.run(
+                [bash, str(doctor)], cwd=repo, env=env, capture_output=True, text=True
+            )
+            self.assertEqual(invalid_repository.returncode, 2)
+            self.assertIn("repository configuration is invalid", invalid_repository.stderr)
 
     def test_powershell_scripts_parse(self) -> None:
         pwsh = shutil.which("pwsh") or shutil.which("powershell")

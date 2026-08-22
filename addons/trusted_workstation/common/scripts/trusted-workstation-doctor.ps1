@@ -2,7 +2,11 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
-$expectedRepo = '{{ trusted_workstation_repo }}'
+$repositoryFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'trusted-workstation\repository.txt'
+if (-not (Test-Path -LiteralPath $repositoryFile -PathType Leaf)) { 'BLOCKED repository configuration is missing'; exit 2 }
+$expectedRepo = [IO.File]::ReadAllText($repositoryFile, [Text.Encoding]::ASCII).TrimEnd("`r", "`n")
+if ($expectedRepo -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$') { 'BLOCKED repository configuration is invalid'; exit 2 }
+if (($expectedRepo -split '/', 2)[1] -in @('.', '..')) { 'BLOCKED repository configuration is invalid'; exit 2 }
 $failed = $false
 function Report([string]$State, [string]$Message) { '{0,-12} {1}' -f $State, $Message }
 function Has-Command([string]$Name) { $null -ne (Get-Command $Name -ErrorAction SilentlyContinue) }

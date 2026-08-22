@@ -3,9 +3,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$scripts = Join-Path $repoRoot 'addons\trusted_workstation\common\scripts'
-$status = Join-Path $scripts 'trusted-workstation-status.ps1'
-$doctor = Join-Path $scripts 'trusted-workstation-doctor.ps1'
+$sourceCommon = Join-Path $repoRoot 'addons\trusted_workstation\common'
 $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ("firestarter-trusted-workstation-" + [guid]::NewGuid().ToString('N'))
 $utf8 = New-Object Text.UTF8Encoding($false)
 $passed = 0
@@ -36,7 +34,7 @@ function Assert-Case([string]$Name, [string]$Json, [bool]$Accept) {
   $script:passed += 1
 }
 
-$repo = '{{ trusted_workstation_repo }}'
+$repo = 'Example-Org/sample-repo'
 $base = '"schemaVersion":"1.0","repository":"' + $repo + '","clonePath":"C:\\synthetic\\clone","state":"blocked","checks":{},"updatedAt":"2026-08-22T00:00:00Z"'
 $allChecks = '"cloneOwned":"pass","remoteMatch":"pass","hooksInstalled":"pass","canaryCiphertext":"pass","canaryPlaintext":"pass"'
 $machine = '"platform":"windows","tailscaleNodeId":"node-synthetic","tailscaleDnsName":"synthetic.tailnet.ts.net"'
@@ -44,6 +42,12 @@ $fingerprint = ('a' * 64); $revision = ('b' * 40)
 
 New-Item -ItemType Directory -Path $fixtureRoot | Out-Null
 try {
+  $runtime = Join-Path $fixtureRoot 'runtime'
+  Copy-Item -LiteralPath $sourceCommon -Destination $runtime -Recurse
+  [IO.File]::WriteAllText((Join-Path $runtime 'trusted-workstation\repository.txt'), "$repo`n", $utf8)
+  $scripts = Join-Path $runtime 'scripts'
+  $status = Join-Path $scripts 'trusted-workstation-status.ps1'
+  $doctor = Join-Path $scripts 'trusted-workstation-doctor.ps1'
   Assert-Case valid_blocked ("{" + $base + "}") $true
   Assert-Case malformed '{"schemaVersion":' $false
   Assert-Case duplicate ("{" + $base + ',"state":"cloned"}') $false
@@ -55,6 +59,21 @@ try {
   Assert-Case sync_missing_mutagen ('{"schemaVersion":"1.0","repository":"' + $repo + '","clonePath":"C:\\synthetic","state":"sync-enabled","checks":{' + $allChecks + '},"machine":{' + $machine + '},"revision":"' + $revision + '","keyFingerprint":"' + $fingerprint + '","updatedAt":"2026-08-22T00:00:00Z"}') $false
   Assert-Case sync_valid ('{"schemaVersion":"1.0","repository":"' + $repo + '","clonePath":"C:\\synthetic","state":"sync-enabled","checks":{' + $allChecks + '},"machine":{' + $machine + '},"revision":"' + $revision + '","keyFingerprint":"' + $fingerprint + '","mutagen":{"enabled":true,"sessionName":"synthetic","mode":"one-way-safe","exclusions":[".git",".git/**",".git-crypt/**","*.key","*.git-crypt.key"]},"updatedAt":"2026-08-22T00:00:00Z"}') $true
 
+  $corpus = Join-Path $repoRoot 'tests\fixtures\trusted_workstation_ledgers'
+  foreach ($entry in @(@{ Directory = 'accepted'; Accept = $true }, @{ Directory = 'rejected'; Accept = $false })) {
+    Get-ChildItem -LiteralPath (Join-Path $corpus $entry.Directory) -Filter '*.json' | ForEach-Object {
+      Assert-Case ("corpus_" + $entry.Directory + "_" + $_.BaseName) ([IO.File]::ReadAllText($_.FullName, [Text.Encoding]::UTF8)) $entry.Accept
+    }
+  }
+  $repositoryFile = Join-Path $runtime 'trusted-workstation\repository.txt'
+  [IO.File]::WriteAllText($repositoryFile, "Example-Org/.`n", $utf8)
+  $invalidRepository = Invoke-Status (Write-Fixture 'invalid-repository-ledger.json' ("{" + $base + "}"))
+  if ($invalidRepository.Code -ne 2 -or $invalidRepository.Output -notmatch 'repository configuration is invalid') {
+    throw "special repository segment was not rejected: $($invalidRepository.Output)"
+  }
+  [IO.File]::WriteAllText($repositoryFile, "$repo`n", $utf8)
+  $passed += 1
+
   $targetDir = Join-Path $fixtureRoot 'target'; New-Item -ItemType Directory -Path $targetDir | Out-Null
   $targetLedger = Join-Path $targetDir 'ledger.json'; [IO.File]::WriteAllText($targetLedger, "{" + $base + "}", $utf8)
   $junction = Join-Path $fixtureRoot 'linked-parent'
@@ -65,7 +84,7 @@ try {
 
   $clone = Join-Path $fixtureRoot 'clone'; New-Item -ItemType Directory -Path $clone | Out-Null
   & git init $clone 2>&1 | Out-Null
-  & git -C $clone remote add origin 'https://github.com/{{ trusted_workstation_repo }}.git'
+  & git -C $clone remote add origin "https://github.com/$repo.git"
   $fakeBin = Join-Path $fixtureRoot 'fake-bin'; New-Item -ItemType Directory -Path $fakeBin | Out-Null
   foreach ($tool in @('git-crypt', 'op', 'tailscale')) { [IO.File]::WriteAllText((Join-Path $fakeBin "$tool.cmd"), "@exit /b 99`r`n", $utf8) }
   $savedPath = $env:PATH; $env:PATH = "$fakeBin;$savedPath"

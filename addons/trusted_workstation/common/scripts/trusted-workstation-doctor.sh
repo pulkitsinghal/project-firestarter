@@ -2,7 +2,18 @@
 # Read-only preflight. It never invokes op, tailscale, git-crypt, or mutagen.
 set -u
 
-EXPECTED_REPO='{{ trusted_workstation_repo }}'
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+REPOSITORY_FILE="$SCRIPT_DIR/../trusted-workstation/repository.txt"
+if [ ! -f "$REPOSITORY_FILE" ]; then printf 'BLOCKED repository configuration is missing\n' >&2; exit 2; fi
+EXPECTED_REPO=$(LC_ALL=C tr -d '\r\n' < "$REPOSITORY_FILE")
+case "$EXPECTED_REPO" in
+  ?*/*) ;;
+  *) printf 'BLOCKED repository configuration is invalid\n' >&2; exit 2 ;;
+esac
+if printf '%s' "$EXPECTED_REPO" | LC_ALL=C grep -qvE '^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$'; then
+  printf 'BLOCKED repository configuration is invalid\n' >&2; exit 2
+fi
+case "${EXPECTED_REPO#*/}" in .|..) printf 'BLOCKED repository configuration is invalid\n' >&2; exit 2;; esac
 fail=0
 report() { printf '%-12s %s\n' "$1" "$2"; }
 has_command() { command -v "$1" >/dev/null 2>&1; }

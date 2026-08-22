@@ -116,6 +116,8 @@ function validate(data) {
   var checkNames = ["cloneOwned", "remoteMatch", "hooksInstalled", "canaryCiphertext", "canaryPlaintext"];
   var i, key;
   safeString(EXPECTED_REPO, "expected repository", 200);
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\/[A-Za-z0-9._-]{1,100}$/.test(EXPECTED_REPO)) { fail("expected repository is invalid"); }
+  if (/\/(?:\.|\.\.)$/.test(EXPECTED_REPO)) { fail("expected repository is invalid"); }
   if (!isObject(data)) { fail("ledger must be an object"); }
   rejectUnknown(data, ["schemaVersion", "repository", "clonePath", "state", "machine", "revision", "keyFingerprint", "checks", "mutagen", "updatedAt"], "ledger");
   requireFields(data, ["schemaVersion", "repository", "clonePath", "state", "checks", "updatedAt"], "ledger");

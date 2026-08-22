@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "repository", "clonePath", "state", "checks", "updatedAt"],
   "properties": {
     "schemaVersion": { "const": "1.0" },
-    "repository": { "const": "{{ trusted_workstation_repo }}", "maxLength": 200, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" },
+    "repository": { "type": "string", "maxLength": 140, "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/(?!\\.{1,2}$)[A-Za-z0-9._-]{1,100}$" },
     "clonePath": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" },
     "state": { "enum": ["discovered", "cloned", "unlocked", "verified", "enrolled", "sync-enabled", "blocked"] },
     "machine": {

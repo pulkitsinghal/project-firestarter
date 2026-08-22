@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "phase": "doctor-only",
-  "repository": "{{ trusted_workstation_repo }}",
+  "repositorySource": "repository.txt",
   "authority": {
     "mayInspectClone": true,
     "mayReadLedger": true,
