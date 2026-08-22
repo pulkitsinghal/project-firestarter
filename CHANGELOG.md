@@ -6,6 +6,9 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Supabase Security Advisor watcher for the `supabase-flutter` stack: opt-in
+  daily/manual live scan, strict fail-closed classification, exact reviewed
+  cache-key exceptions, and deduplicated findings/unhealthy issues.
 - Public/unlisted/authenticated-review publishing posture: copy-ready noindex
   headers + `robots.txt`, deployed-response verification, and a Cloudflare Access
   example that narrows email OTP to an explicit audience and separates human
