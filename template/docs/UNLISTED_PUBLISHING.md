@@ -60,9 +60,14 @@ provider URL available defeats the protected custom domain.
 
 For a Cloudflare Access example:
 
+- Make the policy deny-by-default: place narrow Allow/Service Auth rules ahead of a
+  catch-all Block rule, and test both an approved and an unapproved identity.
 - Human reviewers may use email one-time PIN, but the **Allow policy must explicitly
   name approved emails or approved domains**. A rule that merely includes the
   `One-time PIN` login method admits any user with a valid email address.
+- Email OTP proves mailbox control, not phishing-resistant identity. For high-impact
+  or regulated material, require an organization identity provider with MFA (and,
+  where available, device posture) instead of relying on email OTP alone.
 - Keep the reviewer list in the access provider, not in the repository. Commit only
   the policy shape and setup checklist—never addresses, account IDs, application IDs,
   session cookies, or access tokens.
@@ -75,6 +80,9 @@ For a Cloudflare Access example:
 - The live-state reader must fail closed on a redirect/login page, rejected token,
   timeout, malformed body, or server error. See `docs/CONVERGENT_DEPLOY.md` when that
   add-on is enabled.
+- Keep `X-Robots-Tag: noindex, nofollow, noarchive` and `Cache-Control: no-store` on
+  authenticated review responses too; authentication does not prevent browser,
+  intermediary, or link-preview retention after a reviewer receives the content.
 
 Email OTP proves control of an approved mailbox; it is not a content-submission
 webhook. The source projects used managed access policies and local/copy-back review,
@@ -88,6 +96,7 @@ authorization, input limits, audit trail, and retention policy.
 - [ ] Examples and tests contain only synthetic data—no unpublished findings, real
       reviewer identities, client data, production URLs, account IDs, or secrets.
 - [ ] Every hostname and provider origin has the intended access posture.
+- [ ] An unapproved identity is denied, and policy ordering cannot bypass the block.
 - [ ] Human and machine credentials are separate and least-privileged.
 - [ ] The deployed response headers and access challenge were verified live.
 - [ ] Revocation is rehearsed: remove a reviewer, rotate the machine credential, and

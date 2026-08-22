@@ -32,6 +32,9 @@ class PublishingPosture(unittest.TestCase):
         self.assertIn("approved emails or approved domains", text)
         self.assertIn("admits any user with a valid email address", text)
         self.assertIn("Service Auth", text)
+        self.assertIn("deny-by-default", text)
+        self.assertIn("identity provider with MFA", text)
+        self.assertIn("authenticated review responses too", text)
 
     def test_template_contains_no_source_specific_or_secret_material(self):
         text = "\n".join(
