@@ -53,9 +53,11 @@ docs/CONVERGENT_DEPLOY.md.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 STATE_FILE = "_deploy-state.json"
@@ -68,29 +70,91 @@ ID = "id"                # the field that identifies an entry
 STAMP = "added"          # ISO-8601; newer wins a same-id conflict
 SUBDIR = ""              # path under the deploy root, e.g. "s" for /s/<id>/
 UA = {"User-Agent": "Mozilla/5.0 (convergent-deploy)"}
+ACCESS_CLIENT_ID_ENV = "CF_ACCESS_CLIENT_ID"
+ACCESS_CLIENT_SECRET_ENV = "CF_ACCESS_CLIENT_SECRET"
+
+
+class Unreadable(RuntimeError):
+    """Live state may exist, but it could not be read safely.
+
+    This is deliberately distinct from a 404. Treating blindness as absence lets a
+    deploy reset the fence and erase peer artefacts while reporting success.
+    """
+
+
+def _safe_url(url: str) -> str:
+    """Name a URL in an error without leaking query credentials or fragments."""
+    parsed = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
+def _access_headers() -> dict[str, str]:
+    """Return Cloudflare Access service-token headers when configured.
+
+    Human reviewers may enter through an email OTP, but unattended reconciliation
+    needs a machine credential. The upload API token is not that credential. Never
+    send half a service token: it is neither anonymous nor authenticated and produces
+    a misleading access-gate failure.
+    """
+    client_id = os.environ.get(ACCESS_CLIENT_ID_ENV, "").strip()
+    client_secret = os.environ.get(ACCESS_CLIENT_SECRET_ENV, "").strip()
+    if bool(client_id) != bool(client_secret):
+        raise Unreadable(
+            f"set both {ACCESS_CLIENT_ID_ENV} and {ACCESS_CLIENT_SECRET_ENV}, or neither"
+        )
+    if not client_id:
+        return {}
+    return {
+        "CF-Access-Client-Id": client_id,
+        "CF-Access-Client-Secret": client_secret,
+    }
 
 
 def _fetch_json(base: str, name: str):
-    """Read a JSON file published by the live site. Absent is normal on first deploy."""
+    """Read a live JSON object; only a genuine 404 means "not published yet"."""
+    url = f"{base.rstrip('/')}/{name}"
     try:
-        req = urllib.request.Request(f"{base.rstrip('/')}/{name}", headers=UA)
+        req = urllib.request.Request(url, headers={**UA, **_access_headers()})
         with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read().decode())
-    except (urllib.error.HTTPError, urllib.error.URLError, ValueError, TimeoutError):
-        return None
+            final_url = r.geturl()
+            if final_url != url:
+                raise Unreadable(
+                    f"{_safe_url(url)} redirected to {_safe_url(final_url)}; "
+                    "the live state may be behind an access gate"
+                )
+            try:
+                payload = json.loads(r.read().decode("utf-8"))
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise Unreadable(
+                    f"{_safe_url(url)} did not return a JSON object; "
+                    "an access/WAF interstitial may have answered instead"
+                ) from exc
+            if not isinstance(payload, dict):
+                raise Unreadable(f"{_safe_url(url)} returned JSON, but not an object")
+            return payload
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise Unreadable(f"{_safe_url(url)} returned HTTP {exc.code}") from exc
+    except Unreadable:
+        raise
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise Unreadable(f"{_safe_url(url)} is unreachable: {exc}") from exc
 
 
 def _fetch_file(url: str, dest: pathlib.Path) -> bool:
     try:
-        req = urllib.request.Request(url, headers=UA)
+        req = urllib.request.Request(url, headers={**UA, **_access_headers()})
         with urllib.request.urlopen(req, timeout=600) as r:
-            if r.status != 200:
+            if r.status != 200 or r.geturl() != url:
                 return False
             dest.parent.mkdir(parents=True, exist_ok=True)
             with open(dest, "wb") as fh:
                 while chunk := r.read(1 << 20):
                     fh.write(chunk)
         return True
+    except Unreadable:
+        raise
     except Exception:
         return False
 
@@ -98,6 +162,18 @@ def _fetch_file(url: str, dest: pathlib.Path) -> bool:
 def file_list(entry_dir: pathlib.Path) -> list[str]:
     """Relative paths of everything in a staged artefact, so a peer can restore it."""
     return sorted(str(f.relative_to(entry_dir)) for f in entry_dir.rglob("*") if f.is_file())
+
+
+def _safe_manifest_path(value: str, *, field: str, nested: bool) -> pathlib.PurePosixPath:
+    """Validate a remote manifest path before using it as a URL or filesystem path."""
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise Unreadable(f"remote manifest has an unsafe {field}")
+    path = pathlib.PurePosixPath(value)
+    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        raise Unreadable(f"remote manifest has an unsafe {field}")
+    if not nested and len(path.parts) != 1:
+        raise Unreadable(f"remote manifest has an unsafe {field}")
+    return path
 
 
 def merge_manifests(local: dict, remote: dict | None) -> tuple[dict, list[str]]:
@@ -137,18 +213,28 @@ def heal(root: pathlib.Path, merged: dict, base_url: str,
     healed, unhealable = [], []
     for entry in merged[COLLECTION]:
         slug = entry[ID]
-        dest = (root / SUBDIR / slug) if SUBDIR else (root / slug)
+        safe_slug = _safe_manifest_path(slug, field=ID, nested=False)
+        dest = (root / SUBDIR / safe_slug) if SUBDIR else (root / safe_slug)
         if dest.exists():
             continue
         files = entry.get("files") or []
-        if files and all(_fetch_file(f"{base_url.rstrip('/')}/{SUBDIR + '/' if SUBDIR else ''}{slug}/{f}", dest / f)
-                         for f in files):
+        safe_files = [_safe_manifest_path(f, field="file path", nested=True) for f in files]
+        prefix = f"{SUBDIR.strip('/')}/" if SUBDIR else ""
+        if safe_files and all(
+            _fetch_file(
+                f"{base_url.rstrip('/')}/{prefix}"
+                f"{urllib.parse.quote(str(safe_slug), safe='')}/"
+                f"{urllib.parse.quote(str(f), safe='/')}",
+                dest.joinpath(*f.parts),
+            )
+            for f in safe_files
+        ):
             healed.append(f"{slug} (from live site, {len(files)} files)")
             continue
         if dest.exists():
             import shutil
             shutil.rmtree(dest)          # a half-downloaded share is worse than none
-        bak = sorted(backups.glob(f"*{slug}*"), reverse=True) if backups.exists() else []
+        bak = sorted(backups.glob(f"*{safe_slug}*"), reverse=True) if backups.exists() else []
         if bak and any(bak[0].rglob("index.html")):
             import shutil
             shutil.copytree(bak[0], dest, dirs_exist_ok=True)
