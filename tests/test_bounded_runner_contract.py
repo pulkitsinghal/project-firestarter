@@ -549,6 +549,8 @@ class BoundedRunnerStaticContract(unittest.TestCase):
             self.assertFalse((root / "ran").exists())
 
     def test_every_stack_stamps_exact_addon_and_default_stays_clean(self) -> None:
+        for attributes in (ROOT / ".gitattributes", ROOT / "template" / ".gitattributes"):
+            self.assertIn(".bounded-runner-root text eol=lf", attributes.read_text())
         polluted = [
             path for path in ADDON.rglob("*")
             if path.name == "__pycache__" or path.suffix in {".pyc", ".pyo"}
@@ -577,7 +579,14 @@ class BoundedRunnerStaticContract(unittest.TestCase):
                         if source.is_file():
                             stamped = enabled / source.relative_to(ADDON)
                             self.assertTrue(stamped.is_file(), stamped)
-                            self.assertEqual(stamped.read_bytes(), source.read_bytes(), stamped)
+                            # The generator intentionally reads/writes text, so a
+                            # Windows checkout's CRLF source normalizes to LF in
+                            # stamped output. Compare semantic text, not host EOL.
+                            self.assertEqual(
+                                stamped.read_text(encoding="utf-8"),
+                                source.read_text(encoding="utf-8"),
+                                stamped,
+                            )
                     self.assertEqual(list(enabled.rglob("__pycache__")), [])
                     compiled = subprocess.run(
                         [sys.executable, "-B", "-m", "py_compile",
