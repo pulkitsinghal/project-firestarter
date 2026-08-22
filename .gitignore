@@ -14,3 +14,7 @@ answers.json
 # untracked working files (ops notes naming live infra, personal working sets)
 # that must never be swept in by a stray `git add -A`.
 scratchpad/
+
+# Firestarter's own Python contract runs must never dirty add-on source trees.
+__pycache__/
+*.py[cod]

@@ -203,6 +203,7 @@ def main() -> int:
         "secret_vault",
         "orchestrator_session",
         "service_supervisor",
+        "bounded_runner",
         "browser_automation_policy",
         "local_ollama",
         "encrypted_local_areas",

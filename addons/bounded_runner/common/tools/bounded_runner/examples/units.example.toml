@@ -1,0 +1,31 @@
+[run]
+name = "bounded-example"
+# This file stamps at tools/bounded_runner/examples/, so ../../.. is the project root.
+root = "../../.."
+state = ".bounded-runner"
+worker_budget = 4
+poll_interval_s = 0.1
+
+[defaults]
+grace_s = 5
+required = true
+
+[[unit]]
+id = "asset-build"
+cmd = ["python3", "scripts/build_assets.py"]
+cwd = "."
+write_paths = ["build/assets"]
+deadline_s = 900
+heartbeat_stall_s = 120
+checkpoint = "build/assets/checkpoint.json"
+verify = ["python3", "scripts/verify_assets.py"]
+verify_deadline_s = 60
+workers = 2
+
+[[unit]]
+id = "read-only-probe"
+cmd = ["python3", "-c", "print('replace with a genuinely read-only command')"]
+cwd = "."
+readonly = true
+deadline_s = 30
+workers = 2

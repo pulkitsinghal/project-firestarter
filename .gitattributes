@@ -1,0 +1,5 @@
+# Firestarter's own host-run shell entrypoints need the same LF guarantee that
+# the generated template already ships. Keep the scope narrow to avoid a broad
+# repository renormalization.
+*.sh        text eol=lf
+.githooks/* text eol=lf

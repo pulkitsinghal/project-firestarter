@@ -19,6 +19,7 @@
   "include_secret_vault": ["no", "yes"],
   "include_orchestrator_session": ["no", "yes"],
   "include_service_supervisor": ["no", "yes"],
+  "include_bounded_runner": ["no", "yes"],
   "include_browser_automation_policy": ["no", "yes"],
   "include_local_ollama": ["no", "yes"],
   "include_encrypted_local_areas": ["no", "yes"],

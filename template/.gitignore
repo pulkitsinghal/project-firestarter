@@ -45,6 +45,10 @@ build/
 # ── Docker volume scratch ────────────────────────────────────────────────────
 .docker-data/
 
+# ── Bounded runner local records / cross-run admission locks ────────────────
+.bounded-runner/
+.bounded-runner-locks/
+
 # ── Storyboard output (generated screenshots) ────────────────────────────────
 storyboard/output/*.png
 storyboard/output/*.mp4
