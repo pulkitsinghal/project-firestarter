@@ -151,6 +151,14 @@ tamper before trusting any copy.
 To re-establish full redundancy after a lost store, just store the recovered
 secret again — `secret-store` re-populates every store and re-verifies.
 
+For git-crypt, linked worktrees have a separate gitdir and do not inherit an
+unlocked checkout's key. A key restored inside one is deleted when that worktree
+is removed. Prefer a separate clone; otherwise restore with `git-crypt-key`
+inside the worktree, verify the checkout with `git-crypt-guard.sh --status`, and
+verify the vault's durable copies again before worktree cleanup. When the
+`encrypted_local_areas` add-on is also enabled, see its
+`docs/ENCRYPTED_LOCAL_AREAS.md` worktree section.
+
 ## Rotation
 
 1. Mint or obtain the new value (e.g. `--generate`, or from the provider).

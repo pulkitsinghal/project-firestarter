@@ -124,6 +124,10 @@ Then sanity-check generated shell (`bash -n .../migrate.sh`), and that
   (`git worktree add ../firestarter-<slug> -b <branch> origin/master`;
   `git worktree remove` when done). The `.git` is shared, so it costs ~one extra
   checkout — worth it when you have the disk space, skip it when you don't.
+  **Exception:** do not use a linked worktree as the normal workspace for a repo
+  with git-crypt areas. The active key is worktree-local and is deleted with that
+  worktree. Prefer a separate clone; if unavoidable, restore/unlock and verify the
+  checkout before work, and verify a durable key copy before cleanup.
 - This repo runs the same CI it ships: `ci.yml` (Tests + Lint & Typecheck),
   `commit-lint.yml`, `ai-pr-review.yml`, `auto-merge.yml`. Label a PR
   `auto-merge` and it squash-merges once checks are green and the AI verdict

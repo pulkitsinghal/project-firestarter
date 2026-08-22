@@ -6,6 +6,9 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- git-crypt/worktree safety for encrypted local areas: linked-worktree key
+  lifetime guidance plus a fail-closed `git-crypt-guard.sh --status` check that
+  requires both a valid worktree-local key and decrypted tracked content.
 - Supabase Security Advisor watcher for the `supabase-flutter` stack: opt-in
   daily/manual live scan, strict fail-closed classification, exact reviewed
   cache-key exceptions, and deduplicated findings/unhealthy issues.
