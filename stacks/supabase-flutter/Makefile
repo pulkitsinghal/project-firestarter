@@ -96,6 +96,19 @@ deploy: ## Expose a service on a public URL (run `make up` first). See DEPLOY.md
 deploy-down: ## Stop the tunnel
 	$(DC) --profile deploy rm -sf cloudflared
 
+.PHONY: verify-live
+verify-live: ## Verify deployed build (BASE=... EXPECT=...; optional BASE_ALT/LIVE_PATH/LIVE_FIELD/LIVE_CONTAINS=1/RANGE)
+	@test -n "$(BASE)" || { echo "BASE is required" >&2; exit 2; }
+	@test -n "$(EXPECT)" || { echo "EXPECT is required" >&2; exit 2; }
+	@set -- --expect "$(EXPECT)"; \
+	  [ -z "$(LIVE_PATH)" ] || set -- "$$@" --path "$(LIVE_PATH)"; \
+	  [ -z "$(LIVE_FIELD)" ] || set -- "$$@" --field "$(LIVE_FIELD)"; \
+	  [ "$(LIVE_CONTAINS)" != "1" ] || set -- "$$@" --contains; \
+	  [ -z "$(RANGE)" ] || set -- "$$@" --range "$(RANGE)"; \
+	  set -- "$$@" "$(BASE)"; \
+	  [ -z "$(BASE_ALT)" ] || set -- "$$@" "$(BASE_ALT)"; \
+	  bash scripts/verify-live.sh "$$@"
+
 # ── Security ─────────────────────────────────────────────────────────────────
 .PHONY: secret-scan
 secret-scan: ## Scan the repo for committed secrets (gitleaks in Docker)

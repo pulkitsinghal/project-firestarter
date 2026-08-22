@@ -72,6 +72,9 @@ jobs:
           print("✓ generated workflow YAML parses")
           PY
 
+      - name: Verify the deployed-artifact contract
+        run: python3 -B -m unittest -v tests.test_verify_live_contract
+
       - name: Verify the orchestrator-session add-on contract
         run: |
           python3 -B -m unittest -v \

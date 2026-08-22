@@ -82,6 +82,7 @@ docs/                     this map, plus how-to guides
 | `.env.example` | Env-var manifest for `make verify-env` — value `__REPLACE_ME__` (or a `# required` tag) marks a var required; committed (un-ignored) | a sibling project |
 | `scripts/smoke.sh` | Syntax-checks the project's own shipped shell/hooks/python (`bash -n`/`sh -n`/`py_compile`; python3 optional, no host SDK). Wired into each stack's Tests job + `make smoke`/`precommit` | a sibling project |
 | `scripts/verify-env.sh` | Preflight that fails fast when a required env var is unset or still a placeholder; hardened line-by-line loader | a sibling project |
+| `scripts/verify-live.sh` + `make verify-live` | Time/byte-bounded post-deploy probe across every reachable hostname: exact JSON build-provenance match (or explicit static-content mode), browser-like/no-cache requests, redirects fail closed, and optional `206` + `Content-Range` verification for seekable assets. Response bodies and unlisted paths are never logged | sibling deployed-artifact pipelines |
 
 ### Why these are universal
 They encode *process*, not *stack*: conventional commits, forward-only

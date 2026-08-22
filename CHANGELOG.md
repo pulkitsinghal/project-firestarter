@@ -6,6 +6,9 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Deployed-artifact verification: bounded multi-host build propagation, exact
+  provenance checks, browser-like/no-cache requests, fail-closed redirects, and
+  optional byte-range proof through `scripts/verify-live.sh` / `make verify-live`.
 - git-crypt/worktree safety for encrypted local areas: linked-worktree key
   lifetime guidance plus a fail-closed `git-crypt-guard.sh --status` check that
   requires both a valid worktree-local key and decrypted tracked content.
