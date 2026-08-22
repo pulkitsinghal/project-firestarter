@@ -3,3 +3,4 @@
 # repository renormalization.
 *.sh        text eol=lf
 .githooks/* text eol=lf
+.bounded-runner-root text eol=lf
