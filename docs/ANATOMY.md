@@ -119,11 +119,13 @@ project wants all of it regardless of language.
 | `.github/workflows/ci.yml` | Jobs **Tests** (Dart) + **Lint & Typecheck** (flutter analyze + format) |
 | `.github/workflows/anon-execute-guard.yml` | Path-gated guard: applies migrations to a throwaway stack, fails if a function is `anon`-executable but not in `backend/security/anon_execute_allowlist.txt` (continuous backstop to `001_init`'s deny-by-default) |
 | `.github/workflows/rls-guard.yml` | Path-gated guard (table-level sibling of the anon-execute guard): applies migrations to a throwaway stack, fails if a public app table has Row-Level Security off but isn't in `backend/security/rls_disabled_allowlist.txt` (Supabase advisor `rls_disabled_in_public`) |
+| `.github/workflows/supabase-security-watch.yml` + `.github/scripts/supabase-security-watch.mjs` | Opt-in daily hosted Security Advisor watcher: strict classifier, exact cache-key baseline, and deduplicated findings/unhealthy issues; self-skips until the project ref is configured |
 | `.github/workflows/splash-ci.yml` | Path-gated **Build** for the splash page (Docker, no host Node) |
 | `backend/` | PostGIS `001_init.sql` (+ `anon` role/grant pattern), `scripts/migrate.sh` |
 | `app/` | Flutter skeleton + a widget smoke test (`app/test/smoke_test.dart`) so `flutter test` runs in the **Tests** job |
 | `services/` | Dart service-layer package + smoke test (the domain source of truth) |
 | `docs/rpc-catalog.md` | Contract for PostgREST RPCs (grants + signatures); seeds the deny-by-default convention with an entry template |
+| `docs/SUPABASE_SECURITY_WATCH.md` | Setup, least-privilege token, fail-closed API-drift behavior, exact exception policy, and per-channel delivery-proof semantics |
 | `backend/security/` | Two continuous guards over the anon surface: `check_anon_execute.sh` + `anon_execute_allowlist.txt` (function EXECUTE) and `check_rls_enabled.sh` + `rls_disabled_allowlist.txt` (table RLS) — the reviewed anon surfaces the guard workflows enforce |
 | `splash/` | Minimal Vite + React + TS landing page that actually builds |
 | `storyboard/` | Playwright runner + manifest renderer pointed at the splash service |
