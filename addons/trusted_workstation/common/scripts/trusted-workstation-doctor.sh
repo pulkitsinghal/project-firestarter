@@ -1,16 +1,29 @@
 #!/usr/bin/env bash
 # Read-only preflight. It never invokes op, tailscale, git-crypt, or mutagen.
 set -u
+export LC_ALL=C
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 REPOSITORY_FILE="$SCRIPT_DIR/../trusted-workstation/repository.txt"
 if [ ! -f "$REPOSITORY_FILE" ]; then printf 'BLOCKED repository configuration is missing\n' >&2; exit 2; fi
-EXPECTED_REPO=$(LC_ALL=C tr -d '\r\n' < "$REPOSITORY_FILE")
+load_repository() {
+  repository_bytes=$(wc -c < "$REPOSITORY_FILE" | tr -d ' ')
+  repository_lines=$(awk 'END { print NR + 0 }' "$REPOSITORY_FILE")
+  [ "$repository_bytes" -le 142 ] && [ "$repository_lines" -eq 1 ] || return 1
+  repository_lf=0
+  if IFS= read -r EXPECTED_REPO < "$REPOSITORY_FILE"; then repository_lf=1; fi
+  repository_cr=0; carriage_return=$(printf '\r')
+  if [ "$repository_lf" -eq 1 ]; then
+    case "$EXPECTED_REPO" in *"$carriage_return") EXPECTED_REPO=${EXPECTED_REPO%"$carriage_return"}; repository_cr=1;; esac
+  fi
+  [ "$repository_bytes" -eq $((${#EXPECTED_REPO} + repository_lf + repository_cr)) ] || return 1
+}
+if ! load_repository; then printf 'BLOCKED repository configuration is invalid\n' >&2; exit 2; fi
 case "$EXPECTED_REPO" in
   ?*/*) ;;
   *) printf 'BLOCKED repository configuration is invalid\n' >&2; exit 2 ;;
 esac
-if printf '%s' "$EXPECTED_REPO" | LC_ALL=C grep -qvE '^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$'; then
+if printf '%s' "$EXPECTED_REPO" | grep -qvE '^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$'; then
   printf 'BLOCKED repository configuration is invalid\n' >&2; exit 2
 fi
 case "${EXPECTED_REPO#*/}" in .|..) printf 'BLOCKED repository configuration is invalid\n' >&2; exit 2;; esac

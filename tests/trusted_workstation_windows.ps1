@@ -72,6 +72,25 @@ try {
     }
   }
   $repositoryFile = Join-Path $runtime 'trusted-workstation\repository.txt'
+  $ascii = [Text.Encoding]::ASCII
+  $repositoryCases = @(
+    @{ Name = 'repo_no_newline'; Bytes = [byte[]]$ascii.GetBytes($repo); Accept = $true },
+    @{ Name = 'repo_lf'; Bytes = [byte[]]($ascii.GetBytes($repo) + @(10)); Accept = $true },
+    @{ Name = 'repo_crlf'; Bytes = [byte[]]($ascii.GetBytes($repo) + @(13, 10)); Accept = $true },
+    @{ Name = 'repo_embedded_lf'; Bytes = [byte[]]($ascii.GetBytes('Example-Org/sample') + @(10) + $ascii.GetBytes('repo')); Accept = $false },
+    @{ Name = 'repo_embedded_cr'; Bytes = [byte[]]($ascii.GetBytes('Example-Org/sample') + @(13) + $ascii.GetBytes('repo')); Accept = $false },
+    @{ Name = 'repo_multiple_lf'; Bytes = [byte[]]($ascii.GetBytes($repo) + @(10, 10)); Accept = $false },
+    @{ Name = 'repo_tab'; Bytes = [byte[]]($ascii.GetBytes('Example-Org/sample') + @(9) + $ascii.GetBytes('repo')); Accept = $false },
+    @{ Name = 'repo_escape'; Bytes = [byte[]]($ascii.GetBytes('Example-Org/sample') + @(27) + $ascii.GetBytes('repo')); Accept = $false }
+  )
+  $repositoryLedger = Write-Fixture 'repository-format-ledger.json' ("{" + $base + "}")
+  foreach ($case in $repositoryCases) {
+    [IO.File]::WriteAllBytes($repositoryFile, $case.Bytes)
+    $repositoryResult = Invoke-Status $repositoryLedger
+    if (($repositoryResult.Code -eq 0) -ne $case.Accept) { throw "$($case.Name) unexpected exit $($repositoryResult.Code): $($repositoryResult.Output)" }
+    if (-not $case.Accept -and $repositoryResult.Code -ne 2) { throw "$($case.Name) did not fail as repository configuration" }
+    $passed += 1
+  }
   [IO.File]::WriteAllText($repositoryFile, "Example-Org/.`n", $utf8)
   $invalidRepository = Invoke-Status (Write-Fixture 'invalid-repository-ledger.json' ("{" + $base + "}"))
   if ($invalidRepository.Code -ne 2 -or $invalidRepository.Output -notmatch 'repository configuration is invalid') {

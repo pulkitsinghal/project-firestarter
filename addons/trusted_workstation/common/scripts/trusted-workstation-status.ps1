@@ -4,7 +4,17 @@ param([string]$Ledger)
 $ErrorActionPreference = 'Stop'
 $repositoryFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'trusted-workstation\repository.txt'
 if (-not (Test-Path -LiteralPath $repositoryFile -PathType Leaf)) { 'BLOCKED repository configuration is missing'; exit 2 }
-$expectedRepo = [IO.File]::ReadAllText($repositoryFile, [Text.Encoding]::ASCII).TrimEnd("`r", "`n")
+$repositoryBytes = [IO.File]::ReadAllBytes($repositoryFile)
+if ($repositoryBytes.Length -gt 142) { 'BLOCKED repository configuration is invalid'; exit 2 }
+$contentLength = $repositoryBytes.Length
+if ($contentLength -gt 0 -and $repositoryBytes[$contentLength - 1] -eq 10) {
+  $contentLength -= 1
+  if ($contentLength -gt 0 -and $repositoryBytes[$contentLength - 1] -eq 13) { $contentLength -= 1 }
+}
+for ($index = 0; $index -lt $contentLength; $index++) {
+  if ($repositoryBytes[$index] -lt 32 -or $repositoryBytes[$index] -gt 126) { 'BLOCKED repository configuration is invalid'; exit 2 }
+}
+$expectedRepo = [Text.Encoding]::ASCII.GetString($repositoryBytes, 0, $contentLength)
 if ($expectedRepo -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$') { 'BLOCKED repository configuration is invalid'; exit 2 }
 if (($expectedRepo -split '/', 2)[1] -in @('.', '..')) { 'BLOCKED repository configuration is invalid'; exit 2 }
 function Has-Control([string]$Value) { $Value -match '[\x00-\x1f\x7f-\x9f]' }
