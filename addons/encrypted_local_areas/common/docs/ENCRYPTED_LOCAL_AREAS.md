@@ -85,7 +85,41 @@ Confirm what is protected:
 
 ```
 git-crypt status -e                     # list the encrypted files
+./scripts/git-crypt-guard.sh --status   # unlocked / locked / unknown (fail-closed)
 ```
+
+## Worktrees can strand or destroy the key
+
+git-crypt stores its active symmetric key under the path returned by
+`git rev-parse --git-dir`, at `git-crypt/keys/default`. In a linked worktree that
+gitdir is `.git/worktrees/<name>`, not the main checkout's `.git`. Therefore:
+
+1. A worktree made from an unlocked checkout does **not** inherit the active key.
+   With `filter.git-crypt.required=true`, checkout/smudge can fail instead of
+   silently leaving a usable plaintext tree.
+2. A key installed by `git-crypt init` or `git-crypt unlock` inside that worktree
+   lives in the worktree gitdir. `git worktree remove` deletes that gitdir and the
+   installed copy of the key with it.
+
+Prefer a separate plain clone for work on an encrypted repository. A clone has its
+own durable gitdir and avoids coupling key lifetime to worktree cleanup. If a linked
+worktree is unavoidable:
+
+1. Verify the key already has durable, fingerprint-checked copies in the secret
+   vault. Never make the worktree gitdir the only copy.
+2. Restore and unlock in that worktree (`./scripts/git-crypt-key.sh restore --unlock`
+   when `secret_vault` is enabled, or `git-crypt unlock /secure/keyfile`). Do not
+   paste, log, or commit the key.
+3. Run `./scripts/git-crypt-guard.sh --status`. Exit `0` means tracked encrypted
+   files are plaintext in this checkout; `1` means locked; `2` means unknown and
+   must not be treated as unlocked.
+4. Before `git worktree remove`, confirm the durable vault copies still verify.
+   Removing the worktree intentionally removes its installed key copy.
+
+Copying a raw key directly into `.git/worktrees/<name>/git-crypt/keys/default` is
+a last-resort recovery technique, not the normal workflow. If used, create parent
+directories privately, restrict the key to the current user, verify its fingerprint,
+and still assume worktree removal will destroy that copy.
 
 ## The pre-commit guard (fail-closed)
 

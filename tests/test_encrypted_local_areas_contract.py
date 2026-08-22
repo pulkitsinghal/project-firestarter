@@ -112,14 +112,25 @@ class EncryptedLocalAreasGeneratorTests(unittest.TestCase):
                     ["bash", "git-crypt-guard.sh"], cwd=repo, capture_output=True, text=True
                 ).returncode
 
+            def status() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["bash", "git-crypt-guard.sh", "--status"],
+                    cwd=repo, capture_output=True, text=True,
+                )
+
             git("init")
             git("config", "user.email", "t@e.st")
             git("config", "user.name", "test")
+
+            # No encrypted tracked content cannot prove unlock.
+            git("add", "private/.gitattributes")
+            self.assertEqual(status().returncode, 2)
 
             # 1) A plaintext file inside the encrypted area is REFUSED.
             (repo / "private" / "secret.txt").write_text("TOP SECRET PLAINTEXT\n")
             git("add", "private/.gitattributes", "private/secret.txt")
             self.assertEqual(run_guard(), 1, "guard must block plaintext in an encrypted area")
+            self.assertEqual(status().returncode, 1, "plaintext alone must not prove unlock without a key")
 
             # 2) The same path staged as a git-crypt blob (magic header) PASSES,
             #    and the excluded pointer README is never flagged.
@@ -129,6 +140,18 @@ class EncryptedLocalAreasGeneratorTests(unittest.TestCase):
             (repo / "private" / "README.md").write_text("plaintext pointer, stays readable\n")
             git("add", "private/secret.txt", "private/README.md")
             self.assertEqual(run_guard(), 0, "guard must pass an encrypted blob + excluded pointer")
+            self.assertEqual(status().returncode, 1, "ciphertext with no worktree-local key is locked")
+
+            # A valid worktree-local key plus decrypted working content proves unlocked.
+            gitdir = Path(subprocess.run(
+                ["git", "rev-parse", "--absolute-git-dir"], cwd=repo,
+                check=True, capture_output=True, text=True,
+            ).stdout.strip())
+            key = gitdir / "git-crypt" / "keys" / "default"
+            key.parent.mkdir(parents=True)
+            key.write_bytes(b"\x00GITCRYPTKEY\x00" + b"synthetic-test-key")
+            (repo / "private" / "secret.txt").write_text("decrypted working content\n")
+            self.assertEqual(status().returncode, 0)
 
             # 3) A plaintext file OUTSIDE any encrypted area is not the guard's
             #    business.

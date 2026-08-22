@@ -58,6 +58,7 @@ common/
 - `bash -n common/scripts/git-crypt-guard.sh`; `sh -n common/.githooks/pre-commit`.
 - `tests/test_encrypted_local_areas_contract.py`: default-off, every stack stamps
   the exact files, the guard blocks a plaintext staged file and passes an
-  encrypted (magic-prefixed) one, and the superset hook keeps the base gate.
+  encrypted (magic-prefixed) one, status distinguishes unknown/locked/unlocked
+  using worktree-local key evidence, and the superset hook keeps the base gate.
 - Stamped-output leak grep is covered by the repo's `Verify before you commit`
   step in `AGENTS.md`.

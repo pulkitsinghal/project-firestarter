@@ -120,6 +120,12 @@ carry the full contract and the tooling.
   costs ~one extra checkout per worktree. Prefer this whenever you expect
   parallel work **and have the disk space**; on a tight disk, fall back to
   sequential branches in a single checkout.
+  **Encrypted-area exception:** a linked worktree does not inherit git-crypt's
+  active key, and removing it deletes any key installed in its worktree gitdir.
+  Prefer a separate clone for encrypted repos. If unavoidable and the
+  `encrypted_local_areas` add-on is enabled, follow its
+  `docs/ENCRYPTED_LOCAL_AREAS.md`, verify unlock status, and verify a durable key
+  copy before removing the worktree.
 - **Stage explicit paths; never blanket-add on a shared checkout.** `git add -A`
   / `git add .` / `git commit -a` sweep *everything* in the tree — including a
   concurrent session's uncommitted work — into your commit. Stage the exact
