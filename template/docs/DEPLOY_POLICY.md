@@ -28,6 +28,11 @@ ships without waiting on the owner.
    reports the new commit, and the specific feature is spot-checked on the live
    URL.
 
+Before sharing any deploy URL, classify it as public, unlisted, or authenticated
+review. `noindex` plus an unguessable link is **not** privacy; unpublished, client,
+reviewer, or competitively sensitive material requires a real access boundary. See
+[`UNLISTED_PUBLISHING.md`](UNLISTED_PUBLISHING.md).
+
 When 1–3 hold, the deploy is complete — rollback is **not** a precondition, and
 none is expected. If the post-deploy check *fails*, redeploy the previous good
 commit.

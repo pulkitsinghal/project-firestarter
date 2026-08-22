@@ -34,6 +34,11 @@ You'll get an acknowledgement and a coordinated disclosure timeline.
   configure routes and let the CA service issue short-lived certificates.
   Never persist a TLS verification bypass. Trust-store changes and CA rotation
   require explicit owner approval and exact-fingerprint verification.
+- **Unlisted is not private.** `noindex`, `robots.txt`, and a random URL reduce
+  discovery but do not authorize a viewer. Use an identity-aware access policy for
+  unpublished, reviewer, client, internal, or competitively sensitive material, and
+  keep human login separate from machine deploy credentials. See
+  [docs/UNLISTED_PUBLISHING.md](docs/UNLISTED_PUBLISHING.md).
 
 ## Scope
 
