@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -58,7 +59,49 @@ def usable_bash() -> Optional[str]:
     return bash if probe.returncode == 0 and "bash" in probe.stdout.lower() else None
 
 
+def canonical_temp_parent() -> Path:
+    """Return a physical temp parent whose path contains no link component."""
+    configured = os.environ.get("RUNNER_TEMP")
+    candidate = Path(configured) if configured else Path(tempfile.gettempdir())
+    parent = candidate.resolve(strict=True)
+    cursor = parent
+    while cursor != cursor.parent:
+        if cursor.is_symlink():
+            raise RuntimeError(f"temporary fixture parent contains a link: {cursor}")
+        cursor = cursor.parent
+    if cursor.is_symlink():
+        raise RuntimeError(f"temporary fixture root is a link: {cursor}")
+    return parent
+
+
+@contextmanager
+def canonical_temporary_directory():
+    """Create and clean one bounded child beneath the verified physical parent."""
+    parent = canonical_temp_parent()
+    with tempfile.TemporaryDirectory(
+        dir=parent, prefix="firestarter-trusted-workstation-"
+    ) as temp:
+        root = Path(temp)
+        if root.resolve(strict=True) != root or root.parent != parent or root.is_symlink():
+            raise RuntimeError("temporary fixture root is not canonical and clone-owned")
+        yield root
+
+
 class TrustedWorkstationContractTests(unittest.TestCase):
+    def test_canonical_fixture_parent_and_bounded_child_are_non_links(self) -> None:
+        parent = canonical_temp_parent()
+        self.assertEqual(parent, parent.resolve(strict=True))
+        cursor = parent
+        while True:
+            self.assertFalse(cursor.is_symlink(), cursor)
+            if cursor == cursor.parent:
+                break
+            cursor = cursor.parent
+        with canonical_temporary_directory() as root:
+            self.assertEqual(root.parent, parent)
+            self.assertTrue(root.name.startswith("firestarter-trusted-workstation-"))
+            self.assertFalse(root.is_symlink())
+
     def test_custom_auto_merge_requires_exact_macos_behavior_check(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "auto-merge.yml").read_text()
         match = re.search(r"const alwaysRequired = \[(.*?)\];", workflow, re.DOTALL)
@@ -319,8 +362,7 @@ class TrustedWorkstationContractTests(unittest.TestCase):
         bash = usable_bash()
         if not bash:
             self.skipTest("bash unavailable")
-        with tempfile.TemporaryDirectory() as temp:
-            base = Path(temp)
+        with canonical_temporary_directory() as base:
             stamped = base / "stamped"
             stamp(
                 stamped,
