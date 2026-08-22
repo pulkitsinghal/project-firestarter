@@ -6,6 +6,11 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Opt-in stack-agnostic bounded runner for trusted one-shot argv units: strict
+  path-partitioned admission across concurrent specs, worker budgets, deadlines,
+  heartbeat stalls, proven POSIX process-group cleanup, fingerprint-bound
+  checkpoint resume, allowlisted environments, private fail-closed state, and
+  complete coverage where silence is never success.
 - Deployed-artifact verification: bounded multi-host build propagation, exact
   provenance checks, browser-like/no-cache requests, fail-closed redirects, and
   optional byte-range proof through `scripts/verify-live.sh` / `make verify-live`.
