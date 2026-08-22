@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0",
+  "phase": "doctor-only",
+  "repository": "{{ trusted_workstation_repo }}",
+  "authority": {
+    "mayInspectClone": true,
+    "mayReadLedger": true,
+    "mayRetrieveSecrets": false,
+    "mayWriteEnrollmentState": false,
+    "mayConfigureGit": false,
+    "mayInstallHooks": false,
+    "mayInvokeTailscale": false,
+    "mayMutateSshFirewallOrServices": false,
+    "mayCreateMutagenSession": false
+  },
+  "requiredCommands": ["git", "git-crypt", "op", "tailscale"],
+  "optionalCommands": ["mutagen"],
+  "clone": {
+    "mustBeIndependent": true,
+    "worktreesAllowed": false,
+    "gitDirectoryMustBeInsideClone": true
+  },
+  "futureEnrollment": {
+    "transport": "tailscale-ssh",
+    "secretProvider": "1password",
+    "ciphertextCanary": "required-before-enrollment",
+    "mutagen": "optional-disabled-by-default",
+    "mutagenMode": "one-way-safe",
+    "mutagenMandatoryExclusions": [
+      ".git", ".git/**", ".git-crypt/**", "*.key", "*.git-crypt.key",
+      ".env", ".env.*", ".mutagen-data/**", "enrollment-ledger*.json"
+    ]
+  }
+}

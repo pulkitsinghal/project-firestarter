@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.local/schemas/trusted-workstation-ledger-1.0.json",
+  "title": "Trusted workstation enrollment ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "repository", "clonePath", "state", "checks", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "repository": { "const": "{{ trusted_workstation_repo }}", "maxLength": 200, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" },
+    "clonePath": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" },
+    "state": { "enum": ["discovered", "cloned", "unlocked", "verified", "enrolled", "sync-enabled", "blocked"] },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "platform": { "enum": ["windows", "macos"] },
+        "tailscaleNodeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" },
+        "tailscaleDnsName": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" }
+      }
+    },
+    "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "keyFingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cloneOwned": { "enum": ["pass", "fail", "not-run"] },
+        "remoteMatch": { "enum": ["pass", "fail", "not-run"] },
+        "hooksInstalled": { "enum": ["pass", "fail", "not-run"] },
+        "canaryCiphertext": { "enum": ["pass", "fail", "not-run"] },
+        "canaryPlaintext": { "enum": ["pass", "fail", "not-run"] }
+      }
+    },
+    "mutagen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "sessionName": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" },
+        "mode": { "const": "one-way-safe" },
+        "exclusions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" }
+        }
+      }
+    },
+    "updatedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$", "maxLength": 64 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "cloned" } }, "required": ["state"] },
+      "then": { "properties": { "checks": { "required": ["cloneOwned", "remoteMatch"], "properties": { "cloneOwned": { "const": "pass" }, "remoteMatch": { "const": "pass" } } } } }
+    },
+    {
+      "if": { "properties": { "state": { "enum": ["unlocked", "verified", "enrolled", "sync-enabled"] } }, "required": ["state"] },
+      "then": { "required": ["keyFingerprint"], "properties": { "checks": { "required": ["cloneOwned", "remoteMatch", "canaryCiphertext", "canaryPlaintext"], "properties": { "cloneOwned": { "const": "pass" }, "remoteMatch": { "const": "pass" }, "canaryCiphertext": { "const": "pass" }, "canaryPlaintext": { "const": "pass" } } } } }
+    },
+    {
+      "if": { "properties": { "state": { "enum": ["verified", "enrolled", "sync-enabled"] } }, "required": ["state"] },
+      "then": { "required": ["machine", "revision"], "properties": { "checks": { "required": ["cloneOwned", "remoteMatch", "hooksInstalled", "canaryCiphertext", "canaryPlaintext"], "properties": { "hooksInstalled": { "const": "pass" } } }, "machine": { "required": ["platform", "tailscaleNodeId", "tailscaleDnsName"] } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "sync-enabled" } }, "required": ["state"] },
+      "then": { "required": ["mutagen"], "properties": { "mutagen": { "required": ["enabled", "sessionName", "mode", "exclusions"], "properties": { "enabled": { "const": true }, "mode": { "const": "one-way-safe" }, "exclusions": { "allOf": [{ "contains": { "const": ".git" } }, { "contains": { "const": ".git/**" } }, { "contains": { "const": ".git-crypt/**" } }, { "contains": { "const": "*.key" } }, { "contains": { "const": "*.git-crypt.key" } }] } } } } }
+    }
+  ]
+}
