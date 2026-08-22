@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -58,6 +59,18 @@ def usable_bash() -> Optional[str]:
 
 
 class TrustedWorkstationContractTests(unittest.TestCase):
+    def test_custom_auto_merge_requires_exact_macos_behavior_check(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "auto-merge.yml").read_text()
+        match = re.search(r"const alwaysRequired = \[(.*?)\];", workflow, re.DOTALL)
+        self.assertIsNotNone(match, "custom auto-merge required-check list is missing")
+        required = re.findall(r"'([^']+)'", match.group(1))
+        self.assertIn("Trusted Workstation macOS Behavior", required)
+        self.assertEqual(required.count("Trusted Workstation macOS Behavior"), 1)
+        self.assertIn(
+            "name: Trusted Workstation macOS Behavior",
+            (ROOT / ".github" / "workflows" / "ci.yml").read_text(),
+        )
+
     def test_default_off_and_registered(self) -> None:
         config = json.loads((ROOT / "firestarter.config.json").read_text())
         self.assertEqual(config["include_trusted_workstation"], ["no", "yes"])
@@ -341,6 +354,16 @@ class TrustedWorkstationContractTests(unittest.TestCase):
             self.fail("Windows PowerShell is unavailable")
         subprocess.run(
             [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "tests" / "trusted_workstation_windows.ps1")],
+            cwd=ROOT,
+            check=True,
+            timeout=60,
+        )
+
+    def test_macos_native_behavior_harness(self) -> None:
+        if sys.platform != "darwin":
+            self.skipTest("macOS-only behavior harness")
+        subprocess.run(
+            ["/bin/bash", str(ROOT / "tests" / "trusted_workstation_macos.sh")],
             cwd=ROOT,
             check=True,
             timeout=60,

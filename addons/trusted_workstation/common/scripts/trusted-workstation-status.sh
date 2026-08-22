@@ -16,9 +16,15 @@ if [ "${BASH_VERSINFO[0]}" -lt 3 ]; then printf 'BLOCKED Bash 3.2 or newer is re
 if [ "$(uname -s 2>/dev/null || true)" != 'Darwin' ]; then printf 'BLOCKED shell status is supported on macOS only\n' >&2; exit 2; fi
 if [ ! -x /usr/bin/osascript ]; then printf 'BLOCKED macOS JavaScript runtime is unavailable\n' >&2; exit 2; fi
 
-if [ "${1:-}" = '--ledger' ] && [ -n "${2:-}" ]; then ledger=$2
-elif [ -n "${TRUSTED_WORKSTATION_LEDGER:-}" ]; then ledger=$TRUSTED_WORKSTATION_LEDGER
-else ledger="$HOME/Library/Application Support/Firestarter/trusted-workstation/${EXPECTED_REPO%/*}--${EXPECTED_REPO#*/}/ledger.json"; fi
+if [ "$#" -eq 2 ] && [ "$1" = '--ledger' ] && [ -n "$2" ]; then
+  ledger=$2
+elif [ "$#" -ne 0 ]; then
+  printf 'BLOCKED usage: trusted-workstation-status.sh [--ledger PATH]\n' >&2; exit 2
+elif [ -n "${TRUSTED_WORKSTATION_LEDGER:-}" ]; then
+  ledger=$TRUSTED_WORKSTATION_LEDGER
+else
+  ledger="$HOME/Library/Application Support/Firestarter/trusted-workstation/${EXPECTED_REPO%/*}--${EXPECTED_REPO#*/}/ledger.json"
+fi
 
 if [ "${#ledger}" -gt 2048 ] || printf '%s' "$ledger" | LC_ALL=C grep -q '[[:cntrl:]]'; then
   printf 'BLOCKED ledger path is malformed\n' >&2; exit 1

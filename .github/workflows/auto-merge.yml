@@ -3,14 +3,15 @@ name: Auto-merge
 # Auto-merges PRs that have:
 #   1. The `auto-merge` label applied
 #   2. All required status checks green (Tests, Lint & Typecheck, Conventional
-#      Commits, and Build when it runs)
+#      Commits, Trusted Workstation macOS Behavior, and Build when it runs)
 #   3. No sustained "BLOCKING" verdict from the AI reviewer comment
 #
 # To opt a PR into auto-merge: add the `auto-merge` label. Remove it to cancel.
 # Requires branch protection on master with the same checks as required.
 #
 # Check names below MUST match the job display names in ci.yml. All shipped
-# stacks use: "Tests", "Lint & Typecheck", and (conditionally) "Build".
+# Firestarter also requires "Trusted Workstation macOS Behavior"; generated
+# stacks use "Tests", "Lint & Typecheck", and (conditionally) "Build".
 
 on:
   pull_request:
@@ -115,7 +116,12 @@ jobs:
           script: |
             const sha = '${{ steps.pr.outputs.head_sha }}';
             // Always-required checks — must be green on every PR.
-            const alwaysRequired = ['Tests', 'Lint & Typecheck', 'Conventional Commits'];
+            const alwaysRequired = [
+              'Tests',
+              'Lint & Typecheck',
+              'Conventional Commits',
+              'Trusted Workstation macOS Behavior',
+            ];
             // Path-gated check — only required when the job actually ran for this commit.
             const conditionalRequired = ['Build'];
             const { data } = await github.rest.checks.listForRef({

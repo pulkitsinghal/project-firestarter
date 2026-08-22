@@ -1,7 +1,7 @@
 name: CI
 
-# Self-CI for the firestarter generator. Job display names (Tests, Lint &
-# Typecheck) match the contract auto-merge.yml gates on.
+# Self-CI for the firestarter generator. Required job display names match the
+# exact contract in auto-merge.yml, including the native macOS behavior gate.
 
 on:
   push:
@@ -265,4 +265,5 @@ jobs:
       - name: Run schema and native JXA behavior contracts
         run: |
           python3 -m pip install --quiet 'jsonschema>=4.18,<5'
+          /bin/bash tests/trusted_workstation_macos.sh
           python3 -B -m unittest -v tests.test_trusted_workstation_contract

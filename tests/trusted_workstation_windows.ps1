@@ -13,6 +13,12 @@ function Write-Fixture([string]$Name, [string]$Content) {
   [IO.File]::WriteAllText($path, $Content, $utf8)
   return $path
 }
+function Get-Sha256([string]$Path) {
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  $stream = [IO.File]::OpenRead($Path)
+  try { return ([BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '') }
+  finally { $stream.Dispose(); $algorithm.Dispose() }
+}
 function Invoke-Status([string]$Path) {
   $savedPreference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
@@ -23,9 +29,9 @@ function Invoke-Status([string]$Path) {
 }
 function Assert-Case([string]$Name, [string]$Json, [bool]$Accept) {
   $path = Write-Fixture "$Name.json" $Json
-  $before = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash
+  $before = Get-Sha256 $path
   $result = Invoke-Status $path
-  $after = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash
+  $after = Get-Sha256 $path
   if (($result.Code -eq 0) -ne $Accept) { throw "$Name unexpected exit $($result.Code): $($result.Output)" }
   if ($before -ne $after) { throw "$Name mutated its ledger fixture" }
   if ($result.Output.Length -gt 512 -or $result.Output -match '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]') {
