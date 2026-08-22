@@ -248,6 +248,11 @@ All notable changes to the firestarter template. See
   Next.js/PostCSS versions with a zero-finding production audit. (#10)
 
 ### Fixed
+- `convergent_deploy` now treats only a genuine live-state 404 as absent. Access
+  redirects, WAF/login interstitials, malformed JSON, timeouts and server errors
+  fail closed as `Unreadable`; optional Cloudflare Access service-token headers
+  authenticate both manifest reads and artifact healing without exposing an
+  anonymous origin.
 - Made the documented and self-CI token-leak gate ignore binary storyboard
   assets so image bytes cannot produce a false token-leak failure.
 

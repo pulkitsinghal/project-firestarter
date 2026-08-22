@@ -26,6 +26,11 @@ thing we are trying to get rid of. Instead the deploy reconciles: it reads the l
 manifest, restores what it is missing, merges by id in an order-independent way, and
 fences its write with a monotonic token published by the site itself.
 
+Only a genuine 404 means no live state exists. Redirects, access/WAF interstitials,
+timeouts, malformed responses and server errors raise `Unreadable`; the deploy never
+continues blind. Access-protected sites may provide a Cloudflare service token through
+`CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET` without exposing an anonymous origin.
+
 ## Relationship to the other concurrency add-ons
 
 | add-on | answers | mechanism |

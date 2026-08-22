@@ -53,9 +53,11 @@ docs/CONVERGENT_DEPLOY.md.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 STATE_FILE = "_deploy-state.json"
@@ -68,29 +70,91 @@ ID = "id"                # the field that identifies an entry
 STAMP = "added"          # ISO-8601; newer wins a same-id conflict
 SUBDIR = ""              # path under the deploy root, e.g. "s" for /s/<id>/
 UA = {"User-Agent": "Mozilla/5.0 (convergent-deploy)"}
+ACCESS_CLIENT_ID_ENV = "CF_ACCESS_CLIENT_ID"
+ACCESS_CLIENT_SECRET_ENV = "CF_ACCESS_CLIENT_SECRET"
+
+
+class Unreadable(RuntimeError):
+    """Live state may exist, but it could not be read safely.
+
+    This is deliberately distinct from a 404. Treating blindness as absence lets a
+    deploy reset the fence and erase peer artefacts while reporting success.
+    """
+
+
+def _safe_url(url: str) -> str:
+    """Name a URL in an error without leaking query credentials or fragments."""
+    parsed = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
+def _access_headers() -> dict[str, str]:
+    """Return Cloudflare Access service-token headers when configured.
+
+    Human reviewers may enter through an email OTP, but unattended reconciliation
+    needs a machine credential. The upload API token is not that credential. Never
+    send half a service token: it is neither anonymous nor authenticated and produces
+    a misleading access-gate failure.
+    """
+    client_id = os.environ.get(ACCESS_CLIENT_ID_ENV, "").strip()
+    client_secret = os.environ.get(ACCESS_CLIENT_SECRET_ENV, "").strip()
+    if bool(client_id) != bool(client_secret):
+        raise Unreadable(
+            f"set both {ACCESS_CLIENT_ID_ENV} and {ACCESS_CLIENT_SECRET_ENV}, or neither"
+        )
+    if not client_id:
+        return {}
+    return {
+        "CF-Access-Client-Id": client_id,
+        "CF-Access-Client-Secret": client_secret,
+    }
 
 
 def _fetch_json(base: str, name: str):
-    """Read a JSON file published by the live site. Absent is normal on first deploy."""
+    """Read a live JSON object; only a genuine 404 means "not published yet"."""
+    url = f"{base.rstrip('/')}/{name}"
     try:
-        req = urllib.request.Request(f"{base.rstrip('/')}/{name}", headers=UA)
+        req = urllib.request.Request(url, headers={**UA, **_access_headers()})
         with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read().decode())
-    except (urllib.error.HTTPError, urllib.error.URLError, ValueError, TimeoutError):
-        return None
+            final_url = r.geturl()
+            if final_url != url:
+                raise Unreadable(
+                    f"{_safe_url(url)} redirected to {_safe_url(final_url)}; "
+                    "the live state may be behind an access gate"
+                )
+            try:
+                payload = json.loads(r.read().decode("utf-8"))
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise Unreadable(
+                    f"{_safe_url(url)} did not return a JSON object; "
+                    "an access/WAF interstitial may have answered instead"
+                ) from exc
+            if not isinstance(payload, dict):
+                raise Unreadable(f"{_safe_url(url)} returned JSON, but not an object")
+            return payload
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise Unreadable(f"{_safe_url(url)} returned HTTP {exc.code}") from exc
+    except Unreadable:
+        raise
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise Unreadable(f"{_safe_url(url)} is unreachable: {exc}") from exc
 
 
 def _fetch_file(url: str, dest: pathlib.Path) -> bool:
     try:
-        req = urllib.request.Request(url, headers=UA)
+        req = urllib.request.Request(url, headers={**UA, **_access_headers()})
         with urllib.request.urlopen(req, timeout=600) as r:
-            if r.status != 200:
+            if r.status != 200 or r.geturl() != url:
                 return False
             dest.parent.mkdir(parents=True, exist_ok=True)
             with open(dest, "wb") as fh:
                 while chunk := r.read(1 << 20):
                     fh.write(chunk)
         return True
+    except Unreadable:
+        raise
     except Exception:
         return False
 

@@ -70,6 +70,19 @@ converge.COLLECTION, converge.ID, converge.STAMP, converge.SUBDIR = "shares", "s
 
 ## Two rules learned the hard way
 
+**Unreadable is not absent.** A genuine 404 is normal before the first deploy. A
+redirect, login/WAF page, timeout, malformed JSON or server error means the safety
+mechanism is blind, so reconciliation stops. Never catch `converge.Unreadable` and
+continue with an empty manifest: that resets the fence and can delete every peer's
+artefact while reporting success.
+
+If the site is protected by Cloudflare Access, human reviewers can use an approved
+identity policy while unattended reconciliation uses a separate service token. Put
+both halves in the runtime environment as `CF_ACCESS_CLIENT_ID` and
+`CF_ACCESS_CLIENT_SECRET`; never commit them. The upload API token is a different
+credential and cannot read through Access. Protect the provider origin too—an
+anonymous alternate origin defeats the access policy.
+
 **The live site beats a local backup.** Backups often get committed, so a fresh clone
 carries whatever was backed up whenever it was committed. Restoring from one republished
 a 47 KB page over the current 105 KB build — the same clobber this module exists to

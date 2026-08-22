@@ -10,10 +10,13 @@ agent which loses a race finds out.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.error
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,6 +94,121 @@ class Fencing(unittest.TestCase):
     def test_our_own_token_landing_is_silence(self):
         converge._fetch_json = lambda base, name: {"token": 8}
         self.assertIsNone(converge.verify_not_superseded("https://example.invalid", 8))
+
+
+class UnreadableIsNotAbsent(unittest.TestCase):
+    """A blinded safety mechanism must stop, never invent an empty live state."""
+
+    def setUp(self):
+        self._urlopen = converge.urllib.request.urlopen
+        self._env = {
+            key: os.environ.get(key)
+            for key in (converge.ACCESS_CLIENT_ID_ENV, converge.ACCESS_CLIENT_SECRET_ENV)
+        }
+        os.environ.pop(converge.ACCESS_CLIENT_ID_ENV, None)
+        os.environ.pop(converge.ACCESS_CLIENT_SECRET_ENV, None)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        converge.urllib.request.urlopen = self._urlopen
+        for key, value in self._env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    @staticmethod
+    def _response(body=b'{"token": 4}', url="https://example.test/_deploy-state.json"):
+        class Response(io.BytesIO):
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def geturl(self):
+                return url
+
+        return Response(body)
+
+    def test_a_real_404_is_first_deploy_absence(self):
+        def missing(*args, **kwargs):
+            raise urllib.error.HTTPError("https://example.test/x", 404, "missing", {}, None)
+
+        converge.urllib.request.urlopen = missing
+        self.assertIsNone(converge._fetch_json("https://example.test", "x"))
+
+    def test_500_is_unreadable(self):
+        def failed(*args, **kwargs):
+            raise urllib.error.HTTPError("https://example.test/x", 500, "failed", {}, None)
+
+        converge.urllib.request.urlopen = failed
+        with self.assertRaises(converge.Unreadable):
+            converge._fetch_json("https://example.test", "x")
+
+    def test_timeout_is_unreadable(self):
+        converge.urllib.request.urlopen = lambda *args, **kwargs: (_ for _ in ()).throw(
+            TimeoutError("timed out")
+        )
+        with self.assertRaises(converge.Unreadable):
+            converge._fetch_json("https://example.test", "x")
+
+    def test_redirect_to_access_login_is_unreadable(self):
+        converge.urllib.request.urlopen = lambda *args, **kwargs: self._response(
+            b"<html>sign in</html>",
+            "https://account.cloudflareaccess.com/cdn-cgi/access/login/x",
+        )
+        with self.assertRaises(converge.Unreadable):
+            converge._fetch_json("https://example.test", converge.STATE_FILE)
+
+    def test_html_200_is_unreadable(self):
+        converge.urllib.request.urlopen = lambda *args, **kwargs: self._response(
+            b"<html>challenge</html>"
+        )
+        with self.assertRaises(converge.Unreadable):
+            converge._fetch_json("https://example.test", converge.STATE_FILE)
+
+    def test_json_array_is_unreadable(self):
+        converge.urllib.request.urlopen = lambda *args, **kwargs: self._response(b"[]")
+        with self.assertRaises(converge.Unreadable):
+            converge._fetch_json("https://example.test", converge.STATE_FILE)
+
+    def test_service_token_requires_both_halves_and_is_sent(self):
+        os.environ[converge.ACCESS_CLIENT_ID_ENV] = "client-id"
+        with self.assertRaises(converge.Unreadable):
+            converge._access_headers()
+
+        os.environ[converge.ACCESS_CLIENT_SECRET_ENV] = "client-secret"
+        seen = {}
+
+        def capture(request, **kwargs):
+            seen.update({key.lower(): value for key, value in request.header_items()})
+            return self._response()
+
+        converge.urllib.request.urlopen = capture
+        self.assertEqual(
+            converge._fetch_json("https://example.test", converge.STATE_FILE),
+            {"token": 4},
+        )
+        self.assertEqual(seen["cf-access-client-id"], "client-id")
+        self.assertEqual(seen["cf-access-client-secret"], "client-secret")
+
+    def test_access_login_is_never_written_as_a_healed_file(self):
+        converge.urllib.request.urlopen = lambda *args, **kwargs: self._response(
+            b"<html>sign in</html>",
+            "https://account.cloudflareaccess.com/cdn-cgi/access/login/x",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "video.mp4"
+            self.assertFalse(converge._fetch_file("https://example.test/video.mp4", dest))
+            self.assertFalse(dest.exists())
+
+    def test_partial_access_credentials_fail_closed_for_file_fetch(self):
+        os.environ[converge.ACCESS_CLIENT_ID_ENV] = "client-id"
+        with self.assertRaises(converge.Unreadable):
+            converge._fetch_file("https://example.test/video.mp4", Path("unused"))
 
 
 class Additive(unittest.TestCase):
