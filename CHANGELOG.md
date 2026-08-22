@@ -6,6 +6,11 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Public/unlisted/authenticated-review publishing posture: copy-ready noindex
+  headers + `robots.txt`, deployed-response verification, and a Cloudflare Access
+  example that narrows email OTP to an explicit audience and separates human
+  login from machine Service Auth credentials. Source-specific domains,
+  reviewers, findings, identifiers and secrets are excluded by contract.
 - ORC truthful local closure and decision routing: control bundle `1.4.2` and
   PM-proxy plugin `0.4.2` add exact local-only/local-artifact handbacks,
   content-verified privacy-safe SHA-256 manifests, receipt-fenced schema holds,
