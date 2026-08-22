@@ -71,6 +71,25 @@ class TrustedWorkstationContractTests(unittest.TestCase):
             (ROOT / ".github" / "workflows" / "ci.yml").read_text(),
         )
 
+    def test_macos_workflow_uses_an_isolated_pinned_python_environment(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        match = re.search(r"^  trusted-workstation-macos:\n(.*)\Z", workflow, re.DOTALL | re.MULTILINE)
+        self.assertIsNotNone(match, "macOS trusted-workstation job is missing")
+        job = match.group(1)
+        self.assertIn('VENV="$RUNNER_TEMP/trusted-workstation-venv"', job)
+        self.assertIn('python3 -m venv "$VENV"', job)
+        self.assertIn(
+            '"$VENV/bin/python" -m pip install --quiet \'jsonschema==4.25.1\'',
+            job,
+        )
+        self.assertIn('/bin/bash tests/trusted_workstation_macos.sh', job)
+        self.assertIn(
+            '"$VENV/bin/python" -B -m unittest -v tests.test_trusted_workstation_contract',
+            job,
+        )
+        self.assertNotIn("python3 -m pip install", job)
+        self.assertNotIn("--break-system-packages", workflow)
+
     def test_default_off_and_registered(self) -> None:
         config = json.loads((ROOT / "firestarter.config.json").read_text())
         self.assertEqual(config["include_trusted_workstation"], ["no", "yes"])
