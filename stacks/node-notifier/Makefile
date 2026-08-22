@@ -80,6 +80,19 @@ secret-scan: ## Scan the repository for committed secrets
 verify-env: ## Validate required variables declared in .env.example
 	bash scripts/verify-env.sh
 
+.PHONY: verify-live
+verify-live: ## Verify deployed build (BASE=... EXPECT=...; optional BASE_ALT/LIVE_PATH/LIVE_FIELD/LIVE_CONTAINS=1/RANGE)
+	@test -n "$(BASE)" || { echo "BASE is required" >&2; exit 2; }
+	@test -n "$(EXPECT)" || { echo "EXPECT is required" >&2; exit 2; }
+	@set -- --expect "$(EXPECT)"; \
+	  [ -z "$(LIVE_PATH)" ] || set -- "$$@" --path "$(LIVE_PATH)"; \
+	  [ -z "$(LIVE_FIELD)" ] || set -- "$$@" --field "$(LIVE_FIELD)"; \
+	  [ "$(LIVE_CONTAINS)" != "1" ] || set -- "$$@" --contains; \
+	  [ -z "$(RANGE)" ] || set -- "$$@" --range "$(RANGE)"; \
+	  set -- "$$@" "$(BASE)"; \
+	  [ -z "$(BASE_ALT)" ] || set -- "$$@" "$(BASE_ALT)"; \
+	  bash scripts/verify-live.sh "$$@"
+
 .PHONY: version-sync
 version-sync: ## Propagate /VERSION into package manifests
 	bash scripts/sync_version.sh

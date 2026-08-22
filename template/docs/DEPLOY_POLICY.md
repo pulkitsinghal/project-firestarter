@@ -26,7 +26,21 @@ ships without waiting on the owner.
 3. **Post-deploy sanity check.** Immediately after publishing, a live check
    confirms the change landed and nothing obvious regressed: the deployed build
    reports the new commit, and the specific feature is spot-checked on the live
-   URL.
+   URL. Run `make verify-live BASE=https://… EXPECT=<build-id>`; pass
+   `BASE_ALT=https://…` when a custom hostname and provider origin both reach the
+   artifact. Static pages can use `LIVE_PATH=/ LIVE_CONTAINS=1`, and a large
+   seekable asset can add `RANGE=/path/to/asset`. The check is bounded and fails
+   unless **every** hostname serves the expected build in the same polling pass.
+
+   The verifier deliberately sends a browser-like user agent and `Cache-Control:
+   no-cache`, waits for CDN propagation before asserting, does not follow an
+   access/login redirect, caps response bytes as well as time, and never logs the
+   response body or an unlisted path. Provenance mode also requires a JSON content
+   type. A range check must return `206` with `Content-Range`; a successful page
+   fetch cannot prove that a video or other large artifact is complete or seekable.
+   If a stack does not yet expose a build marker, add one before claiming this
+   gate—the expected text appearing somewhere else in a response is not deploy
+   provenance.
 
 Before sharing any deploy URL, classify it as public, unlisted, or authenticated
 review. `noindex` plus an unguessable link is **not** privacy; unpublished, client,

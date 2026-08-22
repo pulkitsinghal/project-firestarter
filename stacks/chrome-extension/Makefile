@@ -7,7 +7,7 @@ COMPOSE := docker compose
 RUN     := $(COMPOSE) --profile tools run --rm node-tools
 
 .DEFAULT_GOAL := help
-.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke verify-env hook-install
+.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke verify-env verify-live hook-install
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -41,6 +41,18 @@ smoke: ## Syntax-check shipped shell scripts and git hooks (fast, no SDK; runs o
 
 verify-env: ## Check .env has every required var set (reads the .env.example manifest)
 	bash scripts/verify-env.sh
+
+verify-live: ## Verify a hosted artifact (BASE=... EXPECT=...; optional BASE_ALT/LIVE_PATH/LIVE_FIELD/LIVE_CONTAINS=1/RANGE)
+	@test -n "$(BASE)" || { echo "BASE is required" >&2; exit 2; }
+	@test -n "$(EXPECT)" || { echo "EXPECT is required" >&2; exit 2; }
+	@set -- --expect "$(EXPECT)"; \
+	  [ -z "$(LIVE_PATH)" ] || set -- "$$@" --path "$(LIVE_PATH)"; \
+	  [ -z "$(LIVE_FIELD)" ] || set -- "$$@" --field "$(LIVE_FIELD)"; \
+	  [ "$(LIVE_CONTAINS)" != "1" ] || set -- "$$@" --contains; \
+	  [ -z "$(RANGE)" ] || set -- "$$@" --range "$(RANGE)"; \
+	  set -- "$$@" "$(BASE)"; \
+	  [ -z "$(BASE_ALT)" ] || set -- "$$@" "$(BASE_ALT)"; \
+	  bash scripts/verify-live.sh "$$@"
 
 up: build ## Build, then load extension/dist/ as an unpacked extension
 	@echo "Load it: chrome://extensions → Developer mode → Load unpacked → extension/dist/"
