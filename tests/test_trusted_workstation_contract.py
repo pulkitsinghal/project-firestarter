@@ -409,7 +409,7 @@ class TrustedWorkstationContractTests(unittest.TestCase):
                 "  'rev-parse --absolute-git-dir')\n"
                 "    if [ \"${FAKE_LINKED:-0}\" = 1 ]; then printf '%s\\n' \"$FAKE_ROOT/../external.git\"; else printf '%s\\n' \"$FAKE_ROOT/.git\"; fi ;;\n"
                 "  'rev-parse --git-common-dir') if [ \"${FAKE_LINKED:-0}\" = 1 ]; then printf '%s\\n' \"$FAKE_ROOT/../external.git\"; else printf '%s\\n' '.git'; fi ;;\n"
-                "  'remote get-url --all origin') printf '%s\\n' 'https://github.com/Example-Org/sample-repo.git' ;;\n"
+                "  'remote get-url --all origin') printf '%s\\n' \"${FAKE_FETCH_REMOTE:-https://github.com/Example-Org/sample-repo.git}\" ;;\n"
                 "  'remote get-url --push --all origin') printf '%s\\n' \"${FAKE_PUSH_REMOTE:-https://github.com/Example-Org/sample-repo.git}\" ;;\n"
                 "  'config --local --get core.hooksPath') printf '%s\\n' '.githooks' ;;\n"
                 "  *) exit 98 ;;\n"
@@ -426,8 +426,18 @@ class TrustedWorkstationContractTests(unittest.TestCase):
                 "FAKE_ROOT": str(repo),
             }
             doctor = stamped / "scripts" / "trusted-workstation-doctor.sh"
+            self.assertNotIn("git" + "@github.com:", doctor.read_text(encoding="utf-8"))
             accepted = subprocess.run([bash, str(doctor)], cwd=repo, env=env, capture_output=True, text=True)
             self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+            ssh_remote = "git" + "@github.com:Example-Org/sample-repo.git"
+            accepted_ssh = subprocess.run(
+                [bash, str(doctor)], cwd=repo,
+                env={**env, "FAKE_FETCH_REMOTE": ssh_remote, "FAKE_PUSH_REMOTE": ssh_remote},
+                capture_output=True, text=True,
+            )
+            self.assertEqual(
+                accepted_ssh.returncode, 0, accepted_ssh.stdout + accepted_ssh.stderr
+            )
             mismatched_push = subprocess.run(
                 [bash, str(doctor)], cwd=repo,
                 env={**env, "FAKE_PUSH_REMOTE": "https://github.com/attacker/collector.git"},
