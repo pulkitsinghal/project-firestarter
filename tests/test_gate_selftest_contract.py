@@ -102,6 +102,19 @@ EXPECTED_COMPOSE_MOUNTS = {
 }
 
 HOSTED_GUARD_COMMAND = "MAKE=make MAKEFLAGS= MFLAGS= GNUMAKEFLAGS= make gate-selftest"
+RELEASE_PARITY_RAW_VARIABLES = frozenset({
+    "RELEASE_PARITY_PAIRS",
+    "RELEASE_VENDOR_MANIFEST",
+    "RELEASE_VENDOR_SOURCE",
+    "RELEASE_VENDOR_RELEASE",
+})
+RELEASE_PARITY_VARIABLE_PATTERN = (
+    r"RELEASE_(?:PARITY_PAIRS|VENDOR_MANIFEST|VENDOR_SOURCE|VENDOR_RELEASE)"
+)
+RELEASE_PARITY_EXPORT = (
+    "export RELEASE_PARITY_PAIRS RELEASE_VENDOR_MANIFEST "
+    "RELEASE_VENDOR_SOURCE RELEASE_VENDOR_RELEASE"
+)
 
 
 def compose_service_block(compose: str, service: str) -> str:
@@ -134,9 +147,7 @@ def make_target(makefile: str, target: str) -> tuple[list[str], list[str]]:
         if candidate.startswith("\t"):
             recipe.append(candidate[1:])
             continue
-        if not candidate.strip():
-            if recipe:
-                break
+        if not candidate.strip() or candidate.lstrip().startswith("#"):
             continue
         break
     return prerequisites, recipe
@@ -152,13 +163,47 @@ def make_variable(makefile: str, name: str) -> str:
     return values[0]
 
 
+def is_release_parity_raw_self_freeze(line: str) -> bool:
+    """Allow only the exact self-freeze that preserves RELEASE_* input bytes."""
+    return line in {
+        f"override {variable} := $(value {variable})"
+        for variable in RELEASE_PARITY_RAW_VARIABLES
+    }
+
+
+def is_release_parity_control(line: str) -> bool:
+    modifiers = r"(?:(?:override|export|private)[ \t]+)*"
+    return bool(
+        re.match(rf"^{modifiers}{RELEASE_PARITY_VARIABLE_PATTERN}\b", line)
+        or re.match(
+            rf"^{modifiers}(?:undefine|unexport)[ \t]+"
+            rf"{RELEASE_PARITY_VARIABLE_PATTERN}\b",
+            line,
+        )
+    )
+
+
+def assert_release_parity_raw_self_freezes(stack: str, makefile: str) -> None:
+    lines = makefile.splitlines()
+    for variable in RELEASE_PARITY_RAW_VARIABLES:
+        expected = f"override {variable} := $(value {variable})"
+        if lines.count(expected) != 1:
+            raise AssertionError(
+                f"{stack} must contain exactly one canonical {variable} raw self-freeze"
+            )
+    if lines.count(RELEASE_PARITY_EXPORT) != 1:
+        raise AssertionError(f"{stack} must contain exactly one canonical RELEASE_* export")
+
+
 def assert_make_guard_wiring(stack: str, makefile: str) -> None:
     for line in makefile.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or line.startswith("\t"):
             continue
+        if line.endswith("\\"):
+            raise AssertionError(f"{stack} contains a continued top-level Make line")
         if re.match(
-            r"^(?:(?:override|export|private)[ \t]+)*(?:MAKE|MAKEFLAGS|MFLAGS|GNUMAKEFLAGS|SHELL|\.SHELLFLAGS|PATH|BASH_ENV|ENV)[ \t]*(?::=|\+=|\?=|!=|=)",
+            r"^(?:(?:override|export|private)[ \t]+)*(?:MAKE|MAKEFLAGS|MFLAGS|GNUMAKEFLAGS|SHELL|\.SHELLFLAGS|\.EXTRA_PREREQS|PATH|BASH_ENV|ENV)[ \t]*(?::=|\+=|\?=|!=|=)",
             stripped,
         ):
             raise AssertionError(f"{stack} contains a failure-altering Make control")
@@ -169,11 +214,17 @@ def assert_make_guard_wiring(stack: str, makefile: str) -> None:
             stripped,
         ):
             raise AssertionError(f"{stack} contains dynamic Make source")
+        if (
+            is_release_parity_control(stripped)
+            and not is_release_parity_raw_self_freeze(stripped)
+            and stripped != RELEASE_PARITY_EXPORT
+        ):
+            raise AssertionError(f"{stack} contains non-canonical RELEASE_* control")
         if stripped.startswith("$"):
             raise AssertionError(f"{stack} contains a top-level Make expansion directive")
         if re.search(r"\$(?:\(|\{)[ \t]*eval\b", stripped):
             raise AssertionError(f"{stack} contains dynamic Make evaluation")
-        if "$(" in stripped or "${" in stripped:
+        if "$" in stripped and not is_release_parity_raw_self_freeze(stripped):
             assignment = re.match(r"^([A-Za-z0-9_.-]+)[ \t]*:=[ \t]*(.*)$", stripped)
             if (
                 assignment is None
@@ -187,6 +238,7 @@ def assert_make_guard_wiring(stack: str, makefile: str) -> None:
                 raise AssertionError(f"{stack} contains a dynamic or failure-ignoring Make rule")
             if re.search(r"(?::=|\+=|\?=|!=|=)", rule_body.split("##", 1)[0]):
                 raise AssertionError(f"{stack} contains a target-specific variable assignment")
+    assert_release_parity_raw_self_freezes(stack, makefile)
     for variable, expected in EXPECTED_RUNNER_DEFINITIONS[stack].items():
         if make_variable(makefile, variable) != expected:
             raise AssertionError(f"{stack} has a drifted or unsafe {variable} runner definition")
@@ -197,6 +249,7 @@ def assert_make_guard_wiring(stack: str, makefile: str) -> None:
     required_phony = {
         "gate-selftest",
         "gate-selftest-run",
+        "release-parity",
         "test",
         "precommit",
         *EXPECTED_REAL_TARGET_RECIPES[stack],
@@ -216,6 +269,10 @@ def assert_make_guard_wiring(stack: str, makefile: str) -> None:
     expected_runner = "@bash scripts/gate-selftest.sh " + " ".join(EXPECTED_CASES[stack])
     if runner_prerequisites or runner != expected_runner:
         raise AssertionError(f"{stack} gate-selftest-run must execute the universal guard")
+    parity_prerequisites, parity_recipe = make_target(makefile, "release-parity")
+    expected_parity_recipe = "@bash scripts/verify-release-parity.sh --from-env"
+    if parity_prerequisites or parity_recipe != [expected_parity_recipe]:
+        raise AssertionError(f"{stack} release-parity must execute only the exact guard")
     for target, expected_recipe in EXPECTED_REAL_TARGET_RECIPES[stack].items():
         _, recipe = make_target(makefile, target)
         if recipe != [expected_recipe]:
@@ -550,6 +607,82 @@ class GateSelftestBehaviorTests(unittest.TestCase):
 
 
 class GateSelftestPlacementTests(unittest.TestCase):
+    def test_release_parity_raw_self_freeze_exception_is_exact(self) -> None:
+        valid = (
+            "override RELEASE_PARITY_PAIRS := "
+            "$(value RELEASE_PARITY_PAIRS)"
+        )
+        self.assertTrue(is_release_parity_raw_self_freeze(valid))
+        for unsafe in (
+            "RELEASE_PARITY_PAIRS := $(value RELEASE_PARITY_PAIRS)",
+            "override RELEASE_PARITY_PAIRS := $(RELEASE_PARITY_PAIRS)",
+            "override RELEASE_PARITY_PAIRS := $(value RELEASE_VENDOR_SOURCE)",
+            "override OTHER := $(value OTHER)",
+            f"{valid} $(shell true)",
+            "override RELEASE_PARITY_PAIRS := $x",
+            "override RELEASE_PARITY_PAIRS := $@",
+            "override RELEASE_PARITY_PAIRS := $$",
+        ):
+            with self.subTest(unsafe=unsafe):
+                self.assertFalse(is_release_parity_raw_self_freeze(unsafe))
+
+        makefile = (ROOT / "stacks" / "chrome-extension" / "Makefile").read_text(
+            encoding="utf-8"
+        )
+        for unsafe in (
+            "override RELEASE_PARITY_PAIRS := $(RELEASE_PARITY_PAIRS)",
+            "override RELEASE_PARITY_PAIRS := $(value RELEASE_VENDOR_SOURCE)",
+            f"{valid} $(shell true)",
+            "override RELEASE_PARITY_PAIRS := $x",
+            "override RELEASE_PARITY_PAIRS := $@",
+            "override RELEASE_PARITY_PAIRS := $$",
+        ):
+            with self.subTest(wiring=unsafe), self.assertRaises(AssertionError):
+                assert_make_guard_wiring(
+                    "chrome-extension",
+                    makefile.replace(valid, unsafe, 1),
+                )
+        for mutated in (
+            makefile.replace(f"{valid}\n", "", 1),
+            f"{makefile}\n{valid}\n",
+            f"{makefile}\noverride RELEASE_PARITY_PAIRS := bypass.tsv\n",
+            f"{makefile}\nRELEASE_PARITY_PAIRS += bypass.tsv\n",
+            f"{makefile}\noverride undefine RELEASE_PARITY_PAIRS\n",
+            f"{makefile}\nunexport RELEASE_PARITY_PAIRS\n",
+            makefile.replace(
+                RELEASE_PARITY_EXPORT,
+                "export RELEASE_PARITY_PAIRS",
+                1,
+            ),
+            makefile
+            + "\n_BYPASS := \\\n\t$(eval gate-selftest: ; @:)\n",
+            makefile.replace(
+                "\t@bash scripts/verify-release-parity.sh --from-env",
+                "\t@$(if $(RELEASE_PARITY_BYPASS),"
+                "$(eval override RELEASE_PARITY_PAIRS := bypass.tsv),:)\n"
+                "\t@bash scripts/verify-release-parity.sh --from-env",
+                1,
+            ),
+            makefile
+            + "\n.EXTRA_PREREQS := parity-prep\n"
+            + "parity-prep:\n\t@:\n",
+            makefile.replace(
+                "\t@bash scripts/verify-release-parity.sh --from-env",
+                "\t@bash scripts/verify-release-parity.sh --from-env\n\n"
+                "\t@$(eval override RELEASE_PARITY_PAIRS := bypass.tsv)",
+                1,
+            ),
+            makefile.replace(
+                "\t@bash scripts/verify-release-parity.sh --from-env",
+                "\t@bash scripts/verify-release-parity.sh --from-env\n"
+                "# hidden recipe follows\n"
+                "\t@$(eval override RELEASE_PARITY_PAIRS := bypass.tsv)",
+                1,
+            ),
+        ):
+            with self.subTest(canonical_count=True), self.assertRaises(AssertionError):
+                assert_make_guard_wiring("chrome-extension", mutated)
+
     def test_declared_stacks_are_exactly_the_guarded_stacks(self) -> None:
         config = json.loads((ROOT / "firestarter.config.json").read_text(encoding="utf-8"))
         self.assertEqual(set(config["stack"]), set(EXPECTED_CASES))
