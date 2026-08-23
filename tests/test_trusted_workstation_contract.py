@@ -384,6 +384,8 @@ class TrustedWorkstationContractTests(unittest.TestCase):
             subprocess.run([bash, "-n", str(path)], check=True)
 
     def test_doctor_accepts_clone_and_rejects_linked_worktree(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX doctor behavior is covered on Linux and macOS")
         bash = usable_bash()
         if not bash:
             self.skipTest("bash unavailable")
