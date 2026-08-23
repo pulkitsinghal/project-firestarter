@@ -123,3 +123,28 @@ Its boundary is equally explicit: external URL reachability, heading-anchor
 validity, multiline/full HTML, and full Markdown/Mermaid parsing are not claimed.
 Use a real renderer or browser evidence when render fidelity is an acceptance
 criterion.
+
+## 6. Pin workflow dependencies immutably
+
+Every remote GitHub Action `uses:` entry must name a full 40-hex commit SHA, with
+the intended major version retained as a trailing comment (for example,
+`owner/action@<commit> # v4`). A major tag is readable but mutable; a compromised
+or retargeted tag otherwise changes executable CI code without changing this
+repository. Local `./` actions and `docker://` actions follow their own pinning
+rules and are outside this specific check. Keep `uses` as a one-line block key;
+sequence-item flow mappings, flow-style `steps: [...]` lists, and flow-style
+`uses` keys are rejected. Explicit mapping keys and escaped double-quoted mapping
+keys are also rejected. Ordinary data flows such as `branches: [main]` remain
+valid. YAML anchors, aliases, and node tags are also disallowed because they
+hide action steps behind semantic indirection. The
+dependency-free scanner therefore fails closed without claiming to be a YAML
+parser.
+
+`make smoke` enforces the immutable-ref shape without a language SDK or printing
+the action target. Dependabot's `github-actions` ecosystem owns routine SHA
+refreshes in a stamped repository, so immutability does not become permanent
+staleness. Firestarter itself additionally keeps an inert root action catalog:
+Dependabot can see every action shipped from dormant source directories, and a
+parity contract blocks partial propagation. Self-CI also parses every source and
+generated workflow as YAML: a malformed workflow that never starts is a failed
+gate, never an absent green check.

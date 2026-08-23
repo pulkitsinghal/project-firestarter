@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Type-check and build (Docker, no host SDK)
         run: docker compose --profile splash run --rm splash sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm check && pnpm build"

@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: {{ project_slug }}-deploy
+  group: "{{ project_slug }}-deploy"
   cancel-in-progress: false
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
     runs-on: [self-hosted]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Bring the stack up
         run: make up
