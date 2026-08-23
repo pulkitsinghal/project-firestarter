@@ -386,6 +386,30 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                     normalized_go_live = " ".join(go_live.split())
                     self.assertEqual(
                         conventions.count(
+                            "## 8. Adopt canonical process code with a parity lock"
+                        ),
+                        1,
+                        answers.name,
+                    )
+                    for required in (
+                        "sanitized, synthetic fixture",
+                        "compare their observable output byte-for-byte",
+                        "Prove the assertion can fail with a deliberate mismatch",
+                        "Vendor a pinned canonical copy first",
+                        "change a single import/export seam",
+                        "Keep rollback one seam wide",
+                        "Separate **equivalence** from **improvement**",
+                        "source-of-truth comparison table",
+                        "digest manifest",
+                    ):
+                        self.assertIn(required, normalized_conventions, answers.name)
+                    for forbidden in (
+                        "production fixture",
+                        "copy the secret",
+                    ):
+                        self.assertNotIn(forbidden, conventions, answers.name)
+                    self.assertEqual(
+                        conventions.count(
                             "### CI integrity: unexecuted is not green"
                         ),
                         1,
@@ -487,6 +511,26 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         0,
                         f"{answers.name}: {result.stdout}{result.stderr}",
                     )
+
+    def test_lift_process_requires_reversible_parity_evidence(self) -> None:
+        lift_log = (ROOT / "docs" / "LIFT-LOG.md").read_text(encoding="utf-8")
+        anatomy = (ROOT / "docs" / "ANATOMY.md").read_text(encoding="utf-8")
+        normalized = " ".join(lift_log.split())
+
+        for required in (
+            "When a lift consolidates **executable process or infrastructure code**",
+            "sanitized, synthetic fixture",
+            "require byte-for-byte parity",
+            "Vendor an immutable source commit or a resolved package artifact locked by digest/integrity metadata behind a thin local shim",
+            "switch one import/export seam only after the parity test is green",
+            "source-of-truth comparison table",
+            "generalize and tokenize the lifted artifact **before** anything lands",
+        ):
+            self.assertIn(required, normalized)
+        self.assertIn(
+            "Eight reusable stack-neutral conventions",
+            anatomy,
+        )
 
     def test_every_optional_overlay_and_all_enabled_composition_stays_green(self) -> None:
         config = json.loads((ROOT / "firestarter.config.json").read_text())

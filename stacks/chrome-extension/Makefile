@@ -8,7 +8,7 @@ RUN_FLAGS :=
 RUN     := $(COMPOSE) --profile tools run --rm $(RUN_FLAGS) node-tools
 
 .DEFAULT_GOAL := help
-.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke docs-check repo-hygiene mutation-check gate-selftest gate-selftest-run verify-env verify-live hook-install
+.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke docs-check repo-hygiene mutation-check gate-selftest gate-selftest-run verify-env verify-live release-parity hook-install
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -70,6 +70,14 @@ verify-live: ## Verify a hosted artifact (BASE=... EXPECT=...; optional BASE_ALT
 	  set -- "$$@" "$(BASE)"; \
 	  [ -z "$(BASE_ALT)" ] || set -- "$$@" "$(BASE_ALT)"; \
 	  bash scripts/verify-live.sh "$$@"
+
+override RELEASE_PARITY_PAIRS := $(value RELEASE_PARITY_PAIRS)
+override RELEASE_VENDOR_MANIFEST := $(value RELEASE_VENDOR_MANIFEST)
+override RELEASE_VENDOR_SOURCE := $(value RELEASE_VENDOR_SOURCE)
+override RELEASE_VENDOR_RELEASE := $(value RELEASE_VENDOR_RELEASE)
+export RELEASE_PARITY_PAIRS RELEASE_VENDOR_MANIFEST RELEASE_VENDOR_SOURCE RELEASE_VENDOR_RELEASE
+release-parity: ## Verify deterministic release bytes (set structured RELEASE_* variables; see conventions)
+	@bash scripts/verify-release-parity.sh --from-env
 
 up: build ## Build, then load extension/dist/ as an unpacked extension
 	@echo "Load it: chrome://extensions → Developer mode → Load unpacked → extension/dist/"

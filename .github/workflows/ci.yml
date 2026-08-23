@@ -122,6 +122,9 @@ jobs:
       - name: Verify the documentation-integrity contract
         run: python3 -B -m unittest -v tests.test_doc_integrity_contract
 
+      - name: Verify deterministic release parity
+        run: python3 -B -m unittest -v tests.test_release_parity_contract
+
       - name: Verify the workflow supply-chain contract
         run: python3 -B -m unittest -v tests.test_workflow_supply_chain_contract
 
@@ -340,6 +343,8 @@ jobs:
             "$VENV/bin/python" -B -m unittest -v tests.test_mutation_check_contract
           DOC_CHECK_BASH=/bin/bash \
             "$VENV/bin/python" -B -m unittest -v tests.test_doc_integrity_contract
+          RELEASE_PARITY_BASH=/bin/bash \
+            "$VENV/bin/python" -B -m unittest -v tests.test_release_parity_contract
           GATE_SELFTEST_BASH=/bin/bash \
             "$VENV/bin/python" -B -m unittest -v tests.test_gate_selftest_contract
 

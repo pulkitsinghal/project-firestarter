@@ -207,3 +207,102 @@ The generated **Tests** job runs the guard before project gates, and
 `make precommit` lists it first. Do not duplicate a runner command inside the
 guard; route optional probe flags through the same Make variable so runner
 profile, service, mount/build, and future changes cannot drift.
+
+## 8. Adopt canonical process code with a parity lock
+
+Consolidating duplicated process or infrastructure code is a behavior change
+until evidence proves otherwise. **Adopt the canonical implementation; do not
+re-implement it from memory.** Use this sequence before retiring a working local
+copy:
+
+1. **Name the observable contract.** Build a sanitized, synthetic fixture that
+   contains no credentials, private records, production data, or proprietary
+   inputs. Make volatile values deterministic at their source. When a format
+   genuinely permits multiple byte encodings, define and review one narrow
+   canonicalizer before the comparison; never delete mismatches, strip unknown
+   fields, reorder output after the fact, or broadly normalize until a test
+   passes.
+2. **Land the golden parity lock before the switch.** Run the local and canonical
+   implementations against the same fixture and compare their observable output
+   byte-for-byte, including encoding, order, whitespace, and line endings. Prove
+   the assertion can fail with a deliberate mismatch. If raw byte parity is
+   impossible, compare the previously defined canonical bytes and record the
+   exact reason. If nondeterminism cannot be isolated safely, use explicit
+   semantic invariants and do **not** claim byte parity. "The tests look
+   equivalent" is not parity evidence, and fixture parity samples the declared
+   contract—it is not proof of exhaustive behavioral equivalence.
+3. **Vendor a pinned canonical copy first.** Record an immutable source commit,
+   or resolve a package version to an artifact locked by digest/integrity
+   metadata—a human-readable version alone is not immutable provenance. Vendored
+   binary assets also need a digest manifest and a release gate that verifies
+   shipped bytes against both their source copy and that manifest. An unversioned
+   copy-paste is a new fork, not adoption.
+4. **Route consumers through one thin local shim or re-export.** Keep the public
+   import stable. First make the shim expose the existing implementation; after
+   the parity lock is green, change a single import/export seam to the pinned
+   canonical copy. Do not scatter direct canonical imports through consumers.
+5. **Keep rollback one seam wide.** Retain the local implementation until its
+   original tests and every adopting consumer are green. Rolling back during the
+   transition means changing the shim back, not reconstructing deleted code.
+   Remove the old copy only after acceptance; a later registry/package swap stays
+   behind the same seam.
+
+For deterministic release assets, run the shipped content-suppressed guard in
+the release pipeline after building and before publishing:
+
+```bash
+scripts/verify-release-parity.sh --pairs config/release-pairs.tsv
+scripts/verify-release-parity.sh \
+  --vendor-manifest config/vendor.sha256.tsv \
+  --vendor-source vendor/source --vendor-release dist/vendor
+make release-parity \
+  RELEASE_PARITY_PAIRS='config/release pairs.tsv'
+```
+
+The pair manifest is `source/path<TAB>release/path`. The vendor manifest is
+`lowercase-sha256<TAB>path-relative-to-vendor-roots`; it must describe the exact
+regular-file inventory in both roots. Missing, extra, duplicate, malformed,
+case-drifted, absolute/traversing, symlinked, unreadable, hash-mismatched, and
+byte-mismatched entries fail closed; identical, nested, or hard-linked source and
+release boundaries are also rejected as false proof. Diagnostics print no paths,
+content, URLs, or hashes. A digest stored beside a blob proves reviewed-byte integrity, not
+independent publisher authenticity. Publish only asset names and inventories
+that are already safe and licensed to disclose.
+
+Run the guard from a trusted, quiescent checkout and keep the manifests stable
+for the duration of the check. Portable Bash validates each manifest before and
+after opening it, then consumes the retained descriptor, so removing the path
+after it is open does not change the bytes being checked. It does **not** claim
+protection from a concurrent same-user replacement between those checks; a FIFO
+substitution can also block at open. Do not mutate release inputs concurrently,
+and retain the pipeline's ordinary job timeout. A hostile shared workspace needs
+a separately reviewed platform sandbox or identity-verifying helper.
+
+Release parity proves the local artifact was assembled from declared bytes. It
+complements rather than replaces post-deploy `scripts/verify-live.sh`, which
+proves collaborators can fetch the intended build from every live hostname.
+The `make release-parity` target is an opt-in release-pipeline seam in every
+stack. It exports structured `RELEASE_PARITY_PAIRS` / `RELEASE_VENDOR_*`
+variables directly to the guard. Each Make value is frozen from its raw,
+unexpanded form before export, so Make expressions, shell syntax, spaces, and
+dollar signs inside a path remain data; the target fails until those variables
+name a real manifest rather than manufacturing an empty green check.
+
+Separate **equivalence** from **improvement**. First prove the canonical port
+matches the origin. Then make any intentional hardening or generalization in a
+separate reviewable change that updates the contract and fixture and names its
+improvement delta. Otherwise a desirable improvement can hide an accidental
+regression inside the extraction.
+
+Keep a source-of-truth comparison table while adoption is in flight:
+
+| Responsibility | Local path/ref | Canonical path/ref | Fixture + parity test | Consumer seam | Status + rollback |
+|---|---|---|---|---|---|
+| Example process step | legacy implementation | pinned shared implementation | synthetic golden fixture | thin local shim | local / canonical / retired; switch shim back |
+
+The table is a migration receipt, not permanent duplication. Delete it only
+after the canonical source, consumer seam, parity evidence, and rollback route
+are documented somewhere durable. In a public repository, use sanitized opaque
+references that reveal no private repository relationship or internal path; if
+that would erase useful provenance, keep the detailed table in the private
+origin and publish only a generic adoption status.
