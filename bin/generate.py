@@ -34,6 +34,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "firestarter.config.json"
+GITHUB_REPOSITORY_RE = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$"
+)
 
 
 def load_config() -> dict:
@@ -46,7 +49,14 @@ def render(text: str, values: dict) -> str:
     """Replace {{ key }} for each known key. Whitelist-only: unknown braces
     (including GitHub's ${{ ... }}) are left untouched."""
     for key, val in values.items():
-        text = re.sub(r"\{\{\s*" + re.escape(key) + r"\s*\}\}", str(val), text)
+        # A callback makes the value literal: backslashes and replacement-group
+        # syntax in user input are never interpreted by the regex engine.
+        replacement = str(val)
+        text = re.sub(
+            r"\{\{\s*" + re.escape(key) + r"\s*\}\}",
+            lambda _match, value=replacement: value,
+            text,
+        )
     return text
 
 
@@ -69,6 +79,20 @@ def derive(values: dict) -> dict:
         values["coauthor_policy"] = "No co-author footer is required on this project."
         values["coauthor_commit_footer"] = ""
     return values
+
+
+def validate_values(values: dict) -> None:
+    """Reject values whose syntax is security-sensitive in generated output."""
+    repository = values.get("trusted_workstation_repo")
+    if not isinstance(repository, str) or not GITHUB_REPOSITORY_RE.fullmatch(repository):
+        raise ValueError(
+            "trusted_workstation_repo must use GitHub owner/repository syntax"
+        )
+    owner, repo = repository.split("/", 1)
+    if owner.startswith("-") or owner.endswith("-") or repo in {".", ".."}:
+        raise ValueError(
+            "trusted_workstation_repo must use GitHub owner/repository syntax"
+        )
 
 
 def prompt(key: str, default, choices=None) -> str:
@@ -108,9 +132,12 @@ def collect(config: dict, args) -> dict:
             values[key] = default
 
         if not interactive:
-            print(f"  {key} = {values[key]}")
+            # JSON string encoding keeps terminal controls out of generator logs.
+            print(f"  {key} = {json.dumps(str(values[key]), ensure_ascii=True)}")
 
-    return derive(values)
+    values = derive(values)
+    validate_values(values)
+    return values
 
 
 def is_binary(path: Path) -> bool:
@@ -209,6 +236,7 @@ def main() -> int:
         "encrypted_local_areas",
         "convergent_deploy",
         "version_changelog",
+        "trusted_workstation",
     ):
         if values.get(f"include_{addon}") == "yes":
             overlaid = False
@@ -221,6 +249,23 @@ def main() -> int:
                 print(f"  + addon: {addon}")
             else:
                 print(f"  (addon '{addon}' has no profile for stack '{stack}', skipped)")
+
+    if values.get("include_trusted_workstation") == "yes":
+        # Runtime data is serialized here instead of interpolated into executable
+        # shell/PowerShell/JavaScript source or hand-escaped JSON templates.
+        repository_file = out_root / "trusted-workstation" / "repository.txt"
+        repository_file.write_text(
+            values["trusted_workstation_repo"] + "\n", encoding="ascii", newline="\n"
+        )
+        schema_file = out_root / "trusted-workstation" / "enrollment-ledger.schema.json"
+        schema = json.loads(schema_file.read_text(encoding="utf-8"))
+        schema["properties"]["repository"]["const"] = values["trusted_workstation_repo"]
+        schema_file.write_text(
+            json.dumps(schema, indent=2, ensure_ascii=True) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        n += 1
 
     print(f"\n✓ Wrote {n} files.\n")
     print("Next steps:")

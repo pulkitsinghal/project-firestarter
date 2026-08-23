@@ -25,6 +25,7 @@ addons/                   OPTIONAL modules, overlaid only when opted in
   service_supervisor/common/    synthetic allowlisted lifecycle catalog/planner (include_service_supervisor=yes)
   bounded_runner/common/        bounded one-shot process runner (include_bounded_runner=yes)
   browser_automation_policy/common/  semantic-first source policy and synthetic adapters (include_browser_automation_policy=yes)
+  trusted_workstation/common/  read-only trusted-workstation doctor + policy/ledger contracts (include_trusted_workstation=yes)
 prototypes/               OPT-IN reference implementations, not generator output
   operations-dashboard/   shared contract + offline sanitized publisher
   operations-dashboard-web/  static sanitized snapshot renderer

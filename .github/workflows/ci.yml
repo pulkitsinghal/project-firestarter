@@ -1,7 +1,7 @@
 name: CI
 
-# Self-CI for the firestarter generator. Job display names (Tests, Lint &
-# Typecheck) match the contract auto-merge.yml gates on.
+# Self-CI for the firestarter generator. Required job display names match the
+# exact contract in auto-merge.yml, including both native behavior gates.
 
 on:
   push:
@@ -167,6 +167,11 @@ jobs:
           test ! -e "$OUT/off-by-default/private"
           echo "✓ encrypted local areas verified; off by default"
 
+      - name: Verify the trusted-workstation security contract
+        run: |
+          python3 -m pip install --quiet 'jsonschema>=4.18,<5'
+          python3 -B -m unittest -v tests.test_trusted_workstation_contract
+
       - name: Verify the local-ollama add-on contract
         run: |
           set -euo pipefail
@@ -249,3 +254,32 @@ jobs:
               yaml.safe_load(open(f))
           print("✓ workflow YAML parses")
           PY
+
+  trusted-workstation-macos:
+    name: Trusted Workstation macOS Behavior
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run schema and native JXA behavior contracts
+        run: |
+          VENV="$RUNNER_TEMP/trusted-workstation-venv"
+          python3 -m venv "$VENV"
+          "$VENV/bin/python" -m pip install --quiet 'jsonschema==4.25.1'
+          /bin/bash tests/trusted_workstation_macos.sh
+          "$VENV/bin/python" -B -m unittest -v tests.test_trusted_workstation_contract
+
+  trusted-workstation-windows:
+    name: Trusted Workstation Windows Behavior
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run schema and native WSH/PowerShell behavior contracts
+        shell: powershell
+        run: |
+          python -m pip install --quiet 'jsonschema==4.25.1'
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\trusted_workstation_windows.ps1
+          python -B -m unittest -v tests.test_trusted_workstation_contract

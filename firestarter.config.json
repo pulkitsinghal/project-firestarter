@@ -25,12 +25,14 @@
   "include_encrypted_local_areas": ["no", "yes"],
   "include_convergent_deploy": ["no", "yes"],
   "include_version_changelog": ["no", "yes"],
+  "include_trusted_workstation": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",
 
   "encrypted_paths": "private",
   "password_manager": "1Password",
+  "trusted_workstation_repo": "{{ github_owner }}/{{ github_repo }}",
 
   "require_coauthor": ["no", "yes"],
   "coauthor_footer": "Co-Authored-By: Oz <oz@example.com>",
