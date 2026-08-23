@@ -19,8 +19,8 @@ make hook-install  # activate the opt-in git hooks
 make precommit
 ```
 
-runs every lint / type-check / test gate, all in Docker. A green run is a good
-predictor of green CI.
+runs every lint / type-check / test gate, all in Docker. A green run is local
+quality evidence; hosted CI remains a separate observed result.
 
 For a fast self-review before opening the PR, pipe your diff into a review chat:
 
@@ -44,8 +44,11 @@ Types: `feat fix refactor chore docs test ci build`. Scopes:
 ## Pull requests
 
 - Branch off `master`, one feature/fix per branch.
-- Open a PR; CI must be green. The AI reviewer posts a verdict; auto-merge
-  squash-merges when all checks pass.
+- Open a PR with green quality evidence. The AI reviewer posts a verdict;
+  auto-merge runs only when the repository host's checks actually pass. An
+  unavailable or unexecuted hosted check is not green; a documented equivalent
+  local gate may supply quality evidence without claiming hosted success or
+  bypassing merge policy. See [engineering conventions](docs/ENGINEERING_CONVENTIONS.md#ci-integrity-unexecuted-is-not-green).
 - Rebase (don't merge) when pulling `master` into your branch. Delete the branch
   after merge.
 

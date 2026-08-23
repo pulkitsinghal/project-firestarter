@@ -26,7 +26,9 @@ make test        # the test suite
 make storyboard  # Playwright screenshots → storyboard/output/ (visual check)
 ```
 
-Green locally ⇒ CI will be green (`make precommit` mirrors the CI gates exactly).
+Green locally is quality evidence (`make precommit` mirrors the CI gates), not a
+claim that hosted CI executed or passed. Report the local and hosted results
+separately; see [engineering conventions](ENGINEERING_CONVENTIONS.md#ci-integrity-unexecuted-is-not-green).
 
 ## 3. Before you go live
 
