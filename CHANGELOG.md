@@ -6,6 +6,13 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Fail-closed Docker gate source-visibility proof across every stack: a shared
+  `make gate-selftest` invokes the exact real runner definitions before local
+  and hosted gates, distinguishing current-source success, observed stale-source
+  blindness, and runner/build failure with unknown visibility. Unique per-run
+  markers, privacy-safe fixed error categories, signal-safe sentinel/private-log
+  cleanup, and dependency-light plus semantic runner mutations prevent silent
+  stale-image greens, false blindness diagnoses, and diagnostic data leaks.
 - Supply-chain-immutable GitHub Actions across Firestarter and every generated
   stack: remote `uses:` refs are full commit SHAs with readable major-version
   notes, dependency-free smoke rejects floating refs, a Dependabot-visible inert

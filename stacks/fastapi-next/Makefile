@@ -2,8 +2,12 @@
 # Every target dispatches to Docker; no host SDKs required. Run `make help`.
 
 DC      := docker compose
-TOOLS   := $(DC) --profile tools run --rm backend-tools
-NODE    := $(DC) --profile node run --rm frontend-tools
+# RUN_FLAGS is normally empty. gate-selftest re-enters this Makefile with
+# no-dependency/non-TTY flags so it exercises these exact runner definitions
+# without starting unrelated services or duplicating their command shape.
+RUN_FLAGS :=
+TOOLS   := $(DC) --profile tools run --rm $(RUN_FLAGS) backend-tools
+NODE    := $(DC) --profile node run --rm $(RUN_FLAGS) frontend-tools
 
 .DEFAULT_GOAL := help
 
@@ -71,7 +75,7 @@ frontend-lockcheck: ## Guard: package-lock.json must satisfy `npm ci` on npm 11 
 
 # ── Aggregate gates ──────────────────────────────────────────────────────────
 .PHONY: test
-test: repo-hygiene backend-test ## Run the test suite (CI "Tests" job)
+test: gate-selftest repo-hygiene backend-test ## Run the test suite (CI "Tests" job)
 
 .PHONY: lint
 lint: backend-lint frontend-typecheck ## All lint/type checks (CI "Lint & Typecheck" job)
@@ -91,8 +95,17 @@ repo-hygiene: ## Scan the immutable Git index for local output, credentials, and
 mutation-check: ## Prove configured focused tests fail under one exact source mutation
 	@bash scripts/mutation-check.sh
 
+.PHONY: gate-selftest gate-selftest-run
+gate-selftest: ## Prove Docker gates grade current source, never a stale image
+	@$(MAKE) --no-print-directory gate-selftest-run RUN_FLAGS="--no-deps -T"
+
+gate-selftest-run:
+	@bash scripts/gate-selftest.sh \
+	  --case backend-tools backend /app $(TOOLS) \
+	  --case frontend-tools frontend /app $(NODE)
+
 .PHONY: precommit
-precommit: repo-hygiene smoke backend-lint backend-test frontend-typecheck frontend-lockcheck ## Mirror CI gates locally
+precommit: gate-selftest repo-hygiene smoke backend-lint backend-test frontend-typecheck frontend-lockcheck ## Mirror CI gates locally
 	@echo "✓ precommit gates passed"
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────

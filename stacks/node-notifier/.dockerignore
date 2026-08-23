@@ -7,3 +7,7 @@ node_modules
 npm-debug.log*
 sequence diagram 1.png
 sequence diagram 2.png
+
+# gate-selftest plants this root sentinel before `docker compose run --build`.
+# Keep it in the test-stage build context even if broader ignore rules are added.
+!gate-selftest.*

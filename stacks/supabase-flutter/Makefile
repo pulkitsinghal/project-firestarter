@@ -2,6 +2,10 @@
 # Every target dispatches to Docker; no host SDKs required. Run `make help`.
 
 DC := docker compose
+RUN_FLAGS :=
+DART_RUN := $(DC) --profile dart run --rm $(RUN_FLAGS) dart
+FLUTTER_RUN := $(DC) --profile flutter run --rm $(RUN_FLAGS) flutter
+SPLASH_RUN := $(DC) --profile splash run --rm $(RUN_FLAGS) splash
 
 .DEFAULT_GOAL := help
 
@@ -34,37 +38,37 @@ pgrst-reload: ## Reload PostgREST schema cache (run after every migrate)
 # ── Dart services (in Docker) ────────────────────────────────────────────────
 .PHONY: dart-test
 dart-test: ## Run the Dart service-layer tests
-	$(DC) --profile dart run --rm dart sh -c "dart pub get && dart test"
+	$(DART_RUN) sh -c "dart pub get && dart test"
 
 # ── Flutter app (in Docker) ──────────────────────────────────────────────────
 .PHONY: flutter-analyze
 flutter-analyze: ## flutter analyze --fatal-infos
-	$(DC) --profile flutter run --rm flutter sh -c "flutter pub get && flutter analyze --fatal-infos"
+	$(FLUTTER_RUN) sh -c "flutter pub get && flutter analyze --fatal-infos"
 
 .PHONY: flutter-format-check
 flutter-format-check: ## dart format check (read-only; exits 1 if changes needed)
-	$(DC) --profile flutter run --rm flutter sh -c "dart format --output=none --set-exit-if-changed ."
+	$(FLUTTER_RUN) sh -c "dart format --output=none --set-exit-if-changed ."
 
 .PHONY: flutter-format
 flutter-format: ## Apply dart format in place
-	$(DC) --profile flutter run --rm flutter sh -c "flutter pub get && dart format ."
+	$(FLUTTER_RUN) sh -c "flutter pub get && dart format ."
 
 .PHONY: flutter-test
 flutter-test: ## flutter test
-	$(DC) --profile flutter run --rm flutter sh -c "flutter pub get && flutter test"
+	$(FLUTTER_RUN) sh -c "flutter pub get && flutter test"
 
 # ── Splash (React + Vite, in Docker) ─────────────────────────────────────────
 .PHONY: splash-check
 splash-check: ## Type-check the splash page
-	$(DC) --profile splash run --rm splash sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm check"
+	$(SPLASH_RUN) sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm check"
 
 .PHONY: splash-build
 splash-build: ## Production build of the splash page
-	$(DC) --profile splash run --rm splash sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build"
+	$(SPLASH_RUN) sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build"
 
 # ── Aggregate gates ──────────────────────────────────────────────────────────
 .PHONY: test
-test: repo-hygiene dart-test flutter-test ## Run the test suite (CI "Tests" job)
+test: gate-selftest repo-hygiene dart-test flutter-test ## Run the test suite (CI "Tests" job)
 
 .PHONY: lint
 lint: flutter-analyze flutter-format-check ## All lint/type checks (CI "Lint & Typecheck" job)
@@ -84,8 +88,18 @@ repo-hygiene: ## Scan the immutable Git index for local output, credentials, and
 mutation-check: ## Prove configured focused tests fail under one exact source mutation
 	@bash scripts/mutation-check.sh
 
+.PHONY: gate-selftest gate-selftest-run
+gate-selftest: ## Prove Docker gates grade current source, never a stale image
+	@$(MAKE) --no-print-directory gate-selftest-run RUN_FLAGS="--no-deps -T"
+
+gate-selftest-run:
+	@bash scripts/gate-selftest.sh \
+	  --case dart services /pkg $(DART_RUN) \
+	  --case flutter app /app $(FLUTTER_RUN) \
+	  --case splash splash /splash $(SPLASH_RUN)
+
 .PHONY: precommit
-precommit: repo-hygiene smoke flutter-analyze flutter-format-check dart-test flutter-test ## Mirror CI gates locally
+precommit: gate-selftest repo-hygiene smoke flutter-analyze flutter-format-check dart-test flutter-test ## Mirror CI gates locally
 	@echo "✓ precommit gates passed"
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────

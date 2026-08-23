@@ -21,6 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Prove Docker gates see current source
+        shell: bash
+        working-directory: .
+        run: MAKE=make MAKEFLAGS= MFLAGS= GNUMAKEFLAGS= make gate-selftest
+
       - name: Repository hygiene
         run: make repo-hygiene
 

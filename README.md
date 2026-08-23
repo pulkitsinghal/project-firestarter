@@ -35,7 +35,7 @@ process ([LIFT-LOG](docs/LIFT-LOG.md)) for folding new lessons back in.
 |-------|----------------------|
 | 🐳 **Zero host SDKs** | Everything runs in Docker. No "install Node/Python/Dart" — `make up` and go. New contributors are productive in one command. |
 | 🤖 **AI-reviewed, auto-merging PRs** | A workflow calls the Anthropic API, posts a verdict, and `auto-merge` squash-merges green PRs. No human-review bottleneck. |
-| ✅ **Green-before-push** | One `make precommit` mirrors every CI gate locally, in Docker. Stop pushing to "see if CI passes." |
+| ✅ **Green-before-push** | One `make precommit` first proves its Docker runners see current source, then mirrors every CI gate locally. Stop pushing to "see if CI passes"—or trusting a stale image that only looks green. |
 | 📐 **Conventions enforced, not hoped-for** | Conventional Commits + forward-only migrations enforced by git hooks *and* CI. |
 | 🔭 **It documents itself** | A storyboard harness renders a live *planned-vs-implemented* map with screenshots straight from the running app. |
 | 🎬 **Evidence-backed handoffs** | Every feature reaches review with exact acceptance, failure/rollback, and verification evidence. Visible work adds real storyboard frames and a state map; supported flows capture asserted E2E story beats at normal speed, then post-produce narration, captions, focus effects, and a 20–40s release cut. |

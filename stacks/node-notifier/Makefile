@@ -2,7 +2,8 @@
 # Node, npm, Redis, and Playwright run in Docker; no host SDK is required.
 
 DC := docker compose
-TEST_RUN := $(DC) --profile test run --build --rm test
+RUN_FLAGS :=
+TEST_RUN := $(DC) --profile test run --build --rm $(RUN_FLAGS) test
 
 .DEFAULT_GOAL := help
 
@@ -40,8 +41,10 @@ test-unit: ## Run hermetic Node unit tests
 test-integration: ## Run Redis-backed cross-instance and recovery tests
 	$(TEST_RUN) npm run test:integration
 
-.PHONY: test
-test: repo-hygiene ## Run unit and Redis integration suites (CI "Tests")
+.PHONY: test test-run
+test: gate-selftest repo-hygiene test-run ## Run unit and Redis integration suites (CI "Tests")
+
+test-run:
 	$(TEST_RUN) npm run test:all
 
 .PHONY: lint
@@ -67,8 +70,16 @@ repo-hygiene: ## Scan the immutable Git index for local output, credentials, and
 mutation-check: ## Prove configured focused tests fail under one exact source mutation
 	@bash scripts/mutation-check.sh
 
+.PHONY: gate-selftest gate-selftest-run
+gate-selftest: ## Prove Docker gates grade current source, never a stale image
+	@$(MAKE) --no-print-directory gate-selftest-run RUN_FLAGS="--no-deps -T"
+
+gate-selftest-run:
+	@bash scripts/gate-selftest.sh \
+	  --case test-image . /app $(TEST_RUN)
+
 .PHONY: precommit
-precommit: repo-hygiene smoke lint test build ## Mirror every required CI gate locally
+precommit: gate-selftest repo-hygiene smoke lint test build ## Mirror every required CI gate locally
 	@echo "✓ precommit gates passed"
 
 .PHONY: storyboard

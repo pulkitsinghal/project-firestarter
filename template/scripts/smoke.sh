@@ -629,6 +629,13 @@ if [ -d .github/workflows ]; then
   done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print)
 fi
 
+# 5) Docker gate guard → dependency-light classifier regression suite. This
+# does not start Docker: fake runners prove visible, blind, and broken modes stay
+# distinct, including cleanup and a removed-mount mutation.
+if [ -f scripts/tests/test-gate-selftest.sh ]; then
+  bash scripts/tests/test-gate-selftest.sh || fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
   echo "✓ script smoke: shipped shell / hooks / python parse; workflow action refs are immutable"
 fi
