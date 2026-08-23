@@ -21,7 +21,7 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Repository hygiene
         run: make repo-hygiene
       - name: Fast project preflight (docs, hooks, and scripts)
@@ -35,7 +35,7 @@ jobs:
     name: Lint & Typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install deps (in container)
         run: make install
       - name: Typecheck (tsc --noEmit)
@@ -45,7 +45,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install deps (in container)
         run: make install
       - name: Build extension

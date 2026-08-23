@@ -6,6 +6,11 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Supply-chain-immutable GitHub Actions across Firestarter and every generated
+  stack: remote `uses:` refs are full commit SHAs with readable major-version
+  notes, dependency-free smoke rejects floating refs, a Dependabot-visible inert
+  catalog plus parity contract keeps dormant sources current, and self-CI parses
+  every static plus generated workflow as YAML.
 - Dependency-free documentation integrity across all stacks: `make docs-check`
   verifies required house docs, calendar-valid VERSION/changelog alignment,
   private-diagnostic local Markdown/simple-HTML link resolution, balanced fences,

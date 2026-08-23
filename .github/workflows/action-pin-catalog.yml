@@ -1,0 +1,23 @@
+name: Action Pin Catalog
+
+# Dependabot only scans the active root .github/workflows directory for the
+# github-actions ecosystem. This never-run catalog exposes every action shipped
+# from template/, stacks/, and addons/ so update PRs are still raised here. The
+# workflow supply-chain contract then requires every source copy to match it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    name: Action Pin Catalog (never runs)
+    if: ${{ github.event_name == 'action-pin-catalog-never-run' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1
