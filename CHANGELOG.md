@@ -6,6 +6,12 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Dependency-free documentation integrity across all stacks: `make docs-check`
+  verifies required house docs, calendar-valid VERSION/changelog alignment,
+  private-diagnostic local Markdown/simple-HTML link resolution, balanced fences,
+  and bounded Mermaid structure. Working and immutable-staged modes are required
+  through smoke/precommit/docs-only hooks and the **Tests** CI job, while external
+  URLs, anchors, full parsing, and actual rendering stay with purpose-built tools.
 - Opt-in stack-agnostic bounded runner for trusted one-shot argv units: strict
   path-partitioned admission across concurrent specs, worker budgets, deadlines,
   heartbeat stalls, proven POSIX process-group cleanup, fingerprint-bound

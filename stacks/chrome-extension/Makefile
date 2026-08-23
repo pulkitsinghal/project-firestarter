@@ -7,7 +7,7 @@ COMPOSE := docker compose
 RUN     := $(COMPOSE) --profile tools run --rm node-tools
 
 .DEFAULT_GOAL := help
-.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke repo-hygiene mutation-check verify-env verify-live hook-install
+.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke docs-check repo-hygiene mutation-check verify-env verify-live hook-install
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -36,8 +36,11 @@ lint: typecheck ## Type-check (CI "Lint & Typecheck" job)
 precommit: repo-hygiene smoke typecheck test-unit build ## Mirror the CI gates locally
 	@echo "✓ precommit gates passed"
 
-smoke: ## Syntax-check shipped shell scripts and git hooks (fast, no SDK; runs on host)
+smoke: docs-check ## Fast shell/git-hook/doc preflight (no SDK; runs on host)
 	bash scripts/smoke.sh
+
+docs-check: ## Check required docs, local links, and Mermaid structure (no renderer)
+	bash scripts/check-docs.sh
 
 repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
 	bash scripts/repo-hygiene.sh --staged

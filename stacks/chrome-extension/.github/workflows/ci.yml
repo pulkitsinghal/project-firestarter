@@ -24,8 +24,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Repository hygiene
         run: make repo-hygiene
-      - name: Script smoke (syntax-check shipped hooks & scripts)
-        run: bash scripts/smoke.sh
+      - name: Fast project preflight (docs, hooks, and scripts)
+        run: make smoke
       - name: Install deps (in container)
         run: make install
       - name: Unit tests (vitest)

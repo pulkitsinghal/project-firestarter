@@ -100,3 +100,26 @@ narrated/captioned cut: keep it short, make it understandable both **muted**
 quickly scannable brief lets a busy decider decide fast — that is worth the extra
 few minutes to produce, and it is the expected format for a decision request, not
 an optional flourish.
+
+## 5. Keep shipped documentation structurally intact
+
+Run `make docs-check` directly, or get it through `make smoke`, `make precommit`,
+the docs-only pre-commit path, and CI's **Tests** job. Working mode checks tracked
+plus non-ignored untracked Markdown; `--staged` materializes and checks only the
+immutable index used by the commit hook. The dependency-free guard requires the
+house documents, checks repository-local inline/reference links and simple
+single-line quoted HTML `href`/`src` paths, rejects symlink/case/escape/publication
+mistakes and unbalanced fenced blocks, and preflights bounded Mermaid structure.
+It also keeps `VERSION` aligned with a calendar-valid matching changelog heading.
+
+The Mermaid check is intentionally a **preflight, not a renderer**: it verifies
+that a `mermaid` fence starts with an allowlisted diagram type and rejects literal
+semicolons in `sequenceDiagram`. [Mermaid uses semicolons as statement
+separators](https://mermaid.js.org/syntax/sequenceDiagram.html#entity-codes-to-escape-characters);
+Firestarter intentionally rejects even valid semicolon-separated statements as
+a one-statement-per-line house rule. Encode a visible semicolon as `#59;`.
+
+Its boundary is equally explicit: external URL reachability, heading-anchor
+validity, multiline/full HTML, and full Markdown/Mermaid parsing are not claimed.
+Use a real renderer or browser evidence when render fidelity is an acceptance
+criterion.

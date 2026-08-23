@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Repository hygiene
         run: make repo-hygiene
-      - name: Script smoke
+      - name: Fast project preflight (docs, hooks, and scripts)
         run: make smoke
       - name: Unit and Redis integration suites
         run: make test

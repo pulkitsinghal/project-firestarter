@@ -7,7 +7,8 @@ designated paths are transparently encrypted on the way into git and decrypted i
 your working tree once the repo is unlocked.
 
 This capability is **opt-in** (`include_encrypted_local_areas=yes` at generation).
-It complements the [`secret_vault`](SECRET_VAULT.md) add-on: `secret_vault` stores
+It complements the `secret_vault` add-on (`docs/SECRET_VAULT.md` when both are
+enabled): `secret_vault` stores
 and recovers the *key* redundantly; this doc is about the *areas* the key protects
 and the guard that keeps them honest.
 
@@ -165,13 +166,13 @@ remote as an incident (rotate the key, scrub the remote).
   treat them as burned.
 - **Recover**: any single durable copy restores the key. With `secret_vault`,
   `./scripts/git-crypt-key.sh restore` pulls it from {{ password_manager }} → the
-  OS keychain → the on-disk backup, fingerprint-verified. See
-  [SECRET_VAULT.md → Recovery](SECRET_VAULT.md#recovery).
+  OS keychain → the on-disk backup, fingerprint-verified. See the Recovery
+  section in `docs/SECRET_VAULT.md` when `secret_vault` is also enabled.
 
 ## Related
 
-- [SECRETS.md](SECRETS.md) — the secrets house contract (never plaintext-commit,
+- `docs/SECRETS.md` (with `secret_vault`) — the secrets house contract (never plaintext-commit,
   redundancy + fingerprint, runtime injection).
-- [SECRET_VAULT.md](SECRET_VAULT.md) — `secret-store` / `secret-get` /
+- `docs/SECRET_VAULT.md` (with `secret_vault`) — `secret-store` / `secret-get` /
   `git-crypt-key` tooling that backs the key.
 - [SECURITY.md](../SECURITY.md) — reporting + fail-closed config.

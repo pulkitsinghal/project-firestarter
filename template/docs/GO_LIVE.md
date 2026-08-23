@@ -38,7 +38,8 @@ Green locally ⇒ CI will be green (`make precommit` mirrors the CI gates exactl
 - [ ] **Cut the first release:** bump `VERSION`, run `make version-sync`, update
       `CHANGELOG.md`, tag (`git tag -a vX.Y.Z`) — see [CHANGELOG.md](../CHANGELOG.md).
 - [ ] **Deploy path rehearsed:** `make up && make deploy` opens a public Cloudflare
-      quick-tunnel (no account, no secrets) — see [DEPLOY.md](../DEPLOY.md).
+      quick-tunnel (no account, no secrets) — see `DEPLOY.md` when the selected
+      stack supplies it.
 - [ ] **Backups decided** before real data lands — see
       [docs/OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) ("database backup & restore
       strategy") and [docs/migration-rollback.md](migration-rollback.md).

@@ -1,8 +1,9 @@
 #!/bin/sh
 #
 # Pre-commit hook: always scans the immutable staged index for repository hygiene.
-# Source changes then run `make precommit` (all gates, all inside Docker — no host
-# SDKs); docs-only changes run only the fast hygiene gate.
+# Source changes then run `make precommit`; docs-only changes run the fast
+# dependency-free documentation guard. Both paths keep the immutable hygiene
+# scan above as their first gate.
 #
 # Enable per-checkout via:
 #   make hook-install
@@ -28,6 +29,17 @@ if [ $rc -ne 0 ]; then
 fi
 
 # Source globs across the supported stacks. Add yours here if it differs.
+if echo "$CHANGED" | grep -qiE '(^|/)([^/]+\.(md|markdown))$|^VERSION$'; then
+    echo "▶ pre-commit: checking the staged documentation snapshot..."
+    bash scripts/check-docs.sh --staged
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echo ""
+        echo "✗ staged documentation integrity failed (exit $rc)."
+        exit $rc
+    fi
+fi
+
 if echo "$CHANGED" | grep -qE '^(backend|frontend|app|splash|services|extension|src|test|public|e2e|storyboard|scripts)/|(pyproject\.toml|package\.json|pubspec\.yaml)$'; then
     echo "▶ pre-commit: running precommit gates (Docker)..."
     make precommit

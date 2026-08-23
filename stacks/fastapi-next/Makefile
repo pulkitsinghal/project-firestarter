@@ -76,9 +76,12 @@ test: repo-hygiene backend-test ## Run the test suite (CI "Tests" job)
 .PHONY: lint
 lint: backend-lint frontend-typecheck ## All lint/type checks (CI "Lint & Typecheck" job)
 
-.PHONY: smoke
-smoke: ## Syntax-check shipped shell scripts, git hooks, and python (fast, no SDK)
+.PHONY: smoke docs-check
+smoke: docs-check ## Fast shell/git-hook/doc preflight (no SDK)
 	bash scripts/smoke.sh
+
+docs-check: ## Check required docs, local links, and Mermaid structure (no renderer)
+	bash scripts/check-docs.sh
 
 .PHONY: repo-hygiene
 repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
