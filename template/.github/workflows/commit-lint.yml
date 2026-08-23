@@ -10,25 +10,55 @@ permissions:
 on:
   pull_request:
     branches: [master, main]
+    types: [opened, reopened, synchronize, edited, labeled, ready_for_review]
 
 jobs:
   conventional-commits:
     name: Conventional Commits
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout trusted guard
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # Need the full history of the PR branch + base to inspect each commit.
+          ref: ${{ github.event.repository.default_branch }}
+          path: trusted-base
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout candidate history as data
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate-history
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Validate commit subjects
+      - name: Validate issue-closing intent and commit subjects
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          BASE="origin/${{ github.base_ref }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
+          set -eu
+          umask 077
+          TITLE_FILE="$(mktemp)"
+          BODY_FILE="$(mktemp)"
+          trap 'rm -f "$TITLE_FILE" "$BODY_FILE"' EXIT HUP INT TERM
+          printf '%s' "$PR_TITLE" >"$TITLE_FILE"
+          printf '%s' "$PR_BODY" >"$BODY_FILE"
 
-          echo "Validating commits in ${BASE}..${HEAD}"
-          COMMITS=$(git log --format=%H "${BASE}..${HEAD}")
+          CHECKER="$GITHUB_WORKSPACE/trusted-base/scripts/check-closing-keywords.sh"
+          COMMIT_REPO="$GITHUB_WORKSPACE/candidate-history"
+          (
+            cd "$COMMIT_REPO"
+            sh "$CHECKER" \
+              --commit-range "${BASE_SHA}..${HEAD_SHA}" \
+              --pr-title-file "$TITLE_FILE" \
+              --pr-body-file "$BODY_FILE"
+          )
+
+          COMMITS=$(git -C "$COMMIT_REPO" rev-list --reverse "${BASE_SHA}..${HEAD_SHA}")
           if [ -z "${COMMITS}" ]; then
             echo "No commits to validate."
             exit 0
@@ -40,7 +70,7 @@ jobs:
 
           STATUS=0
           for sha in ${COMMITS}; do
-            subject=$(git log -1 --format=%s "${sha}")
+            subject=$(git -C "$COMMIT_REPO" log -1 --format=%s "${sha}")
 
             # Skip machine-generated commits that don't follow conventional format.
             case "${subject}" in
@@ -48,9 +78,8 @@ jobs:
             esac
 
             if ! echo "${subject}" | grep -Eq "${PATTERN}"; then
-              echo "::error::${sha} subject does not match Conventional Commits:"
-              echo "    ${subject}"
-              echo "    Expected: <type>(<scope>): <subject>  (types: feat fix refactor chore docs test ci build)"
+              echo "::error::A commit subject does not match Conventional Commits."
+              echo "Expected: <type>(<scope>): <subject>  (types: feat fix refactor chore docs test ci build)"
               STATUS=1
             fi
           done

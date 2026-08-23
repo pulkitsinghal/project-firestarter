@@ -186,6 +186,12 @@ Use **Conventional Commits**:
 `{{ commit_scopes }}`. Template: `.gitmessage`
 (`git config --local commit.template .gitmessage`).
 
+Commit messages and PR titles must not contain automatic issue-closing
+directives. Number ordinary prose as `Fix 1`. Put intentional closure only in
+the pull-request template's exact final `Issue closure` section; the local hook,
+PR check, and final auto-merge revalidation apply the same content-suppressed
+rule to every commit type.
+
 {{ coauthor_policy }}
 
 ### Pull requests

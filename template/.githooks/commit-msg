@@ -1,6 +1,7 @@
 #!/bin/sh
 #
-# Commit-msg hook: enforces Conventional Commits subject. Mirrors
+# Commit-msg hook: blocks accidental issue-closing directives, then enforces
+# the Conventional Commits subject. Mirrors
 # `.github/workflows/commit-lint.yml` so a commit that passes locally also
 # passes CI.
 #
@@ -9,7 +10,22 @@
 MSG_FILE="$1"
 [ -z "$MSG_FILE" ] && exit 0
 
-# Strip comment lines (the .gitmessage template includes them).
+# Every commit type is checked before machine-generated subjects may bypass the
+# conventional-subject regex. Scan the full proposed file conservatively: Git's
+# editor, -m, and verbatim cleanup modes retain different comment-looking lines,
+# and the hook cannot safely infer a narrower cleanup mode.
+HOOK_DIR=$(
+    CDPATH=''
+    cd -- "$(dirname -- "$0")" && pwd
+)
+if sh "$HOOK_DIR/../scripts/check-closing-keywords.sh" --commit-file "$MSG_FILE"; then
+    :
+else
+    guard_status=$?
+    exit "$guard_status"
+fi
+
+# Template comments cannot become the subject; use the first non-comment line.
 SUBJECT=$(grep -v '^#' "$MSG_FILE" | sed -n '1p')
 
 # Allow merge / revert / fixup commits to bypass the regex.

@@ -8,14 +8,16 @@ name: Auto-merge
 #
 # To opt a PR into auto-merge: add the `auto-merge` label. Remove it to cancel.
 # Requires branch protection on master with the same checks as required.
+# This privileged workflow intentionally has no `pull_request` trigger. It is
+# loaded only from the trusted default branch after a check/workflow completes;
+# PR metadata edits and label additions rerun Commit Lint, whose completion
+# wakes this workflow.
 #
 # Check names below MUST match the job display names in ci.yml. Firestarter
 # itself also requires the native trusted-workstation behavior checks;
 # generated stacks use "Tests", "Lint & Typecheck", and (conditionally) "Build".
 
 on:
-  pull_request:
-    types: [labeled, unlabeled, synchronize]
   check_suite:
     types: [completed]
   workflow_run:
@@ -31,9 +33,6 @@ jobs:
   auto-merge:
     name: Squash-merge if green
     runs-on: ubuntu-latest
-    if: |
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'auto-merge')
     steps:
       - name: Find candidate PR
         id: pr
@@ -41,21 +40,16 @@ jobs:
         with:
           script: |
             const ev = context.eventName;
-            let pr;
-            if (ev === 'pull_request') {
-              pr = context.payload.pull_request;
-            } else {
-              const sha = ev === 'check_suite'
-                ? context.payload.check_suite.head_sha
-                : context.payload.workflow_run.head_sha;
-              const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                commit_sha: sha,
-              });
-              pr = data.find(p => p.state === 'open'
-                && p.labels.some(l => l.name === 'auto-merge'));
-            }
+            const sha = ev === 'check_suite'
+              ? context.payload.check_suite.head_sha
+              : context.payload.workflow_run.head_sha;
+            const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: sha,
+            });
+            const pr = data.find(p => p.state === 'open'
+              && p.labels.some(l => l.name === 'auto-merge'));
             if (!pr) {
               core.info('No auto-merge candidate PR.');
               return null;
@@ -155,27 +149,80 @@ jobs:
               core.setOutput('ready', 'true');
             }
 
-      - name: Squash-merge
+      - name: Checkout trusted closing-intent guard
+        if: steps.verdict.outputs.verdict == 'OK' && steps.checks.outputs.ready == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: trusted-base
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Revalidate fresh closing intent and squash-merge
         if: steps.verdict.outputs.verdict == 'OK' && steps.checks.outputs.ready == 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
+            const fs = require('fs');
+            const path = require('path');
             const prNumber = parseInt('${{ steps.pr.outputs.number }}', 10);
-            await github.rest.pulls.merge({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-              merge_method: 'squash',
-              sha: '${{ steps.pr.outputs.head_sha }}',
-            });
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
             });
+            const expectedSha = '${{ steps.pr.outputs.head_sha }}';
+            if (pr.state !== 'open'
+                || pr.head.sha !== expectedSha
+                || !pr.labels.some(label => label.name === 'auto-merge')) {
+              core.info('PR state changed before final validation; skipping auto-merge.');
+              return;
+            }
+
+            const privateDir = fs.mkdtempSync(
+              path.join(process.env.RUNNER_TEMP, 'closing-intent-')
+            );
+            fs.chmodSync(privateDir, 0o700);
+            const titleFile = path.join(privateDir, 'title');
+            const bodyFile = path.join(privateDir, 'body');
+            fs.writeFileSync(titleFile, pr.title || '', { mode: 0o600 });
+            fs.writeFileSync(bodyFile, pr.body || '', { mode: 0o600 });
+            const checker = path.join(
+              process.env.GITHUB_WORKSPACE,
+              'trusted-base',
+              'template',
+              'scripts',
+              'check-closing-keywords.sh'
+            );
+            try {
+              const guardExit = await exec.exec(
+                'sh',
+                [checker, '--pr-title-file', titleFile, '--pr-body-file', bodyFile],
+                { ignoreReturnCode: true, silent: true }
+              );
+              if (guardExit !== 0) {
+                core.setFailed('Fresh PR metadata failed the issue-closing intent guard.');
+                return;
+              }
+              const { data: merge } = await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                merge_method: 'squash',
+                sha: expectedSha,
+                commit_title: pr.title,
+                commit_message: 'Squash-merged after required checks and issue-closing intent validation.',
+              });
+              if (!merge.merged) {
+                core.setFailed('GitHub declined the validated squash merge.');
+                return;
+              }
+            } finally {
+              fs.rmSync(privateDir, { recursive: true, force: true });
+            }
             await github.rest.git.deleteRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: `heads/${pr.head.ref}`,
             }).catch(() => {});
-            core.info(`Merged PR #${prNumber} and deleted ${pr.head.ref}.`);
+            core.info('Validated squash merge completed; source branch cleanup requested.');

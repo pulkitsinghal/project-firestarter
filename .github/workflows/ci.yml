@@ -48,6 +48,7 @@ jobs:
             test -x "$generated/scripts/repo-hygiene.sh"
             test -x "$generated/scripts/mutation-check.sh"
             test -x "$generated/scripts/check-docs.sh"
+            test -x "$generated/scripts/check-closing-keywords.sh"
             test -x "$generated/scripts/gate-selftest.sh"
             test -f "$generated/scripts/tests/test-gate-selftest.sh"
             test -f "$generated/scripts/mutation-cases.sh"
@@ -98,6 +99,7 @@ jobs:
           bash -n "$OUT/supabase-flutter/backend/scripts/migrate.sh"
           bash -n "$OUT/node-notifier/scripts/sync_version.sh"
           for stack in fastapi-next supabase-flutter chrome-extension node-notifier; do
+            sh -n "$OUT/$stack/scripts/check-closing-keywords.sh"
             for h in commit-msg pre-commit pre-push; do
               sh -n "$OUT/$stack/.githooks/$h"
             done
@@ -122,6 +124,9 @@ jobs:
 
       - name: Verify the workflow supply-chain contract
         run: python3 -B -m unittest -v tests.test_workflow_supply_chain_contract
+
+      - name: Verify the issue-closing intent guard
+        run: python3 -B -m unittest -v tests.test_closing_keyword_guard
 
       - name: Verify Docker gates grade current source
         run: python3 -B -m unittest -v tests.test_gate_selftest_contract
