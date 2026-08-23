@@ -235,6 +235,7 @@ def main() -> int:
         "local_ollama",
         "encrypted_local_areas",
         "convergent_deploy",
+        "cross_host_agent",
         "version_changelog",
         "trusted_workstation",
     ):
