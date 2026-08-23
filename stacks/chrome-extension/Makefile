@@ -7,7 +7,7 @@ COMPOSE := docker compose
 RUN     := $(COMPOSE) --profile tools run --rm node-tools
 
 .DEFAULT_GOAL := help
-.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke repo-hygiene verify-env verify-live hook-install
+.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke repo-hygiene mutation-check verify-env verify-live hook-install
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -41,6 +41,9 @@ smoke: ## Syntax-check shipped shell scripts and git hooks (fast, no SDK; runs o
 
 repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
 	bash scripts/repo-hygiene.sh --staged
+
+mutation-check: ## Prove configured focused tests fail under one exact source mutation
+	@bash scripts/mutation-check.sh
 
 verify-env: ## Check .env has every required var set (reads the .env.example manifest)
 	bash scripts/verify-env.sh

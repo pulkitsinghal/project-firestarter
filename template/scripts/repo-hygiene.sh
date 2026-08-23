@@ -110,7 +110,7 @@ is_forbidden_path() {
   case "$candidate_path" in
     *.tsbuildinfo|*.har) return 0 ;;
   esac
-  if [[ "$candidate_path" =~ (^|/)(node_modules|build|out|dist|coverage|htmlcov|test-results|playwright-report|\.next|\.turbo|\.pnpm-store|\.wrangler|\.dart_tool|\.venv|venv|[^/]+\.egg-info|\.direnv|\.terraform|\.ruff_cache|__pycache__|\.pytest_cache|\.mypy_cache|\.cache)(/|$) ]]; then
+  if [[ "$candidate_path" =~ (^|/)(node_modules|build|out|dist|coverage|htmlcov|test-results|playwright-report|\.next|\.turbo|\.pnpm-store|\.wrangler|\.dart_tool|\.venv|venv|[^/]+\.egg-info|\.direnv|\.terraform|\.ruff_cache|__pycache__|\.pytest_cache|\.mypy_cache|\.cache|\.mutation-check\.lock)(/|$) ]]; then
     return 0
   fi
   if [[ "$candidate_path" =~ (^|/)((browser|chrome)[_-]?profile|\.auth)(/|$) ]]; then

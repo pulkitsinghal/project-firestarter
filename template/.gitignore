@@ -49,6 +49,9 @@ build/
 .bounded-runner/
 .bounded-runner-locks/
 
+# ── Mutation-check private crash-recovery journal ────────────────────────────
+.mutation-check.lock/
+
 # ── Storyboard output (generated screenshots) ────────────────────────────────
 storyboard/output/*.png
 storyboard/output/*.mp4
