@@ -116,6 +116,11 @@ Then sanity-check generated shell (`bash -n .../migrate.sh`), and that
 
 - **Conventional Commits**: `type(scope): subject` (≤100 chars). Scopes:
   `template stacks bin docs ci build`.
+- **Issue-closing intent**: commit messages and PR titles must not contain
+  automatic-closing directives. Number ordinary prose as `Fix 1`; put any
+  intentional closure only in the PR template's exact final `Issue closure`
+  section. The local hook, PR check, and final auto-merge revalidation enforce
+  the same rule without logging source text or identifiers.
 - Branch off `master`; open a PR; squash-merge. Don't push straight to `master`.
 - **Parallel sessions → use a git worktree (disk permitting).** If more than one
   session/agent may touch this repo at once, give each its own worktree on its

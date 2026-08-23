@@ -31,10 +31,15 @@ when the staged diff touches source. Blocks the commit on failure. Skipped on
 docs-only changes.
 
 ### `commit-msg`
-Validates the in-progress commit subject against the same Conventional Commits
-regex as CI (`.github/workflows/commit-lint.yml`). Blocks on invalid subject.
-Allowed types: `feat fix refactor chore docs test ci build`. Subject
-description must be 1-100 chars. Skips merge / revert / fixup / squash commits.
+First checks the complete proposed message for automatic issue-closing
+directives, including comment-looking lines and merge / revert / fixup / squash
+messages. This conservative superset is necessary because editor, `-m`, and
+verbatim cleanup modes retain different lines. Closure intent belongs only in
+the PR template's final `Issue closure` section; number ordinary prose as
+`Fix 1`. Then validates the subject against the same Conventional Commits regex as CI
+(`.github/workflows/commit-lint.yml`). Allowed types: `feat fix refactor chore
+docs test ci build`; the description must be 1-100 chars. Machine-generated
+subjects skip only that second regex check.
 
 ### `pre-push`
 Non-blocking. Prints how many commits ahead of `origin/master` the current

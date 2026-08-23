@@ -13,4 +13,9 @@
 #   - any rollback or migration considerations
 #   - links to issues, plans, or docs
 #
+# Issue safety:
+#   - commit messages and PR titles never carry automatic-closing directives
+#   - number prose as "Fix 1", and reserve closure intent for the PR template's
+#     final Issue closure section
+#
 # {{ coauthor_policy }}

@@ -246,11 +246,20 @@ fi
 
 if [ -n "$commit_range" ]; then
     umask 077
-    message_file=$(mktemp "${TMPDIR:-/tmp}/closing-keyword-message.XXXXXX") || {
+    message_file=$(mktemp "${TMPDIR:-/tmp}/closing-keyword-message.XXXXXX" 2>/dev/null) || {
         printf '%s\n' 'closing-keyword guard: private workspace unavailable.' >&2
         exit 2
     }
-    trap 'rm -f "$message_file"' EXIT HUP INT TERM
+    cleanup_message_file() {
+        rm -f "$message_file" >/dev/null 2>&1 || :
+        if [ -e "$message_file" ] || [ -L "$message_file" ]; then
+            printf '%s\n' 'closing-keyword guard: private workspace cleanup failed.' >&2
+            return 2
+        fi
+        return 0
+    }
+    trap 'cleanup_message_file || exit 2' EXIT
+    trap 'cleanup_message_file; exit 2' HUP INT TERM
     commits=$(git rev-list --reverse "$commit_range" 2>/dev/null) || {
         printf '%s\n' 'closing-keyword guard: commit range unavailable.' >&2
         exit 2
@@ -262,7 +271,10 @@ if [ -n "$commit_range" ]; then
         fi
         check_forbidden_file "$message_file" 'commit message'
     done
-    rm -f "$message_file"
+    if ! cleanup_message_file; then
+        trap - EXIT HUP INT TERM
+        exit 2
+    fi
     trap - EXIT HUP INT TERM
 fi
 

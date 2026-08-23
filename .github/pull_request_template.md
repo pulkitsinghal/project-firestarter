@@ -40,3 +40,10 @@ state evidence. Use synthetic/test data in every artifact.
 - [ ] Narrated E2E evidence is post-processed from normal-speed assertions, without `slowMo` or fixed presentation waits, or N/A is explained
 - [ ] Material multi-step UI work links the supported release cut, or video N/A is explained
 - [ ] Compact polished media is committed under `docs/media/`; raw recordings remain artifacts, or N/A is explained
+
+<!-- Keep the section below as the final nonblank block. Replace None with one
+approved `Closes:` target per line only when this PR should close an issue. -->
+
+## Issue closure
+
+None
