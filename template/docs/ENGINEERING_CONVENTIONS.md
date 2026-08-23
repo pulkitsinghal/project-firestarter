@@ -17,15 +17,42 @@ Run that pyramid **locally, at high intensity, in Docker, mirroring CI** —
 `make precommit` plus the stack's integration / API / e2e targets. A green local
 gate is the real signal:
 
-- **It is authoritative.** If the hosted CI run is unavailable or flaky for
-  reasons unrelated to your change, the green local gate still stands as the
-  merge signal. This never licenses ignoring a *genuinely* failing check or a
-  **BLOCKING** review verdict — those are real and must be resolved.
+- **It is authoritative.** If hosted CI produces no substantive proof because
+  it is unavailable or infrastructure prevents the intended check from
+  executing, the green local gate still stands as the quality signal. This never
+  licenses reclassifying an executed hosted failure or a **BLOCKING** review
+  verdict — those are real and must be resolved.
 - **Nothing beyond review + the pyramid is required** to validate code quality.
   Don't hold merge-ready work waiting for a review layer the gate already covers.
 - **Name which layers exist and ran.** A stack that lacks a layer (a DB-less
   stack has no integration-DB tests, a library has no e2e) says so — it does not
   silently skip the gate.
+
+### CI integrity: unexecuted is not green
+
+Hosted CI is green only when the intended required proof for the exact candidate
+was dispatched, executed, and completed successfully. A configured workflow or
+a historical success is not current evidence.
+
+| Hosted-check state | Truthful classification |
+|---|---|
+| Intended required proof completed successfully for the exact candidate | Green |
+| Check absent, disabled, or not dispatched | Unexecuted—not green |
+| Execution blocked by billing/quota state or runner unavailability | Unexecuted or unavailable—not green |
+| Queued or pending | Incomplete—not green |
+| Failed, canceled, or timed out | Unsuccessful—not green |
+| Explicitly optional check whose trigger does not apply | Not applicable—not passed or green |
+| Zero substantive proof steps executed | Unexecuted—not green |
+
+Keep local and hosted evidence separate. Only when hosted CI produced no
+substantive proof may the local gate supply the quality signal; record both
+facts: “local gate passed; hosted CI unexecuted,” plus the reason. The local run
+is authoritative quality evidence only when it is the documented equivalent
+gate, runs on the exact candidate, proves current-source visibility, covers every
+applicable test-pyramid layer, and names any inapplicable layer. An ad hoc subset,
+stale candidate, or silently skipped layer is not equivalent. A local pass never
+overrides an executed hosted failure and never claims to satisfy or bypass the
+repository host's merge policy.
 
 ### Quality gate ≠ side-effect gate
 

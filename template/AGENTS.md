@@ -189,7 +189,9 @@ Use **Conventional Commits**:
 {{ coauthor_policy }}
 
 ### Pull requests
-- Always via PR, even solo. CI must be green.
+- Always via PR, even solo. The quality evidence must be green, and hosted CI
+  must be reported truthfully. **Unexecuted is not green**; see [engineering
+  conventions](docs/ENGINEERING_CONVENTIONS.md#ci-integrity-unexecuted-is-not-green).
 - Squash-merge into `master`. The PR's conventional-commit subject becomes the
   trunk commit.
 - Rebase, never merge, when pulling `master` into a feature branch.
@@ -214,8 +216,11 @@ required, or the user-test hold in the push policy applies:
 3. When repository delivery is authorized and no user-test hold applies, commit
    conventionally, push the feature branch, and open a self-contained PR with
    the evidence bundle below.
-4. Obtain code review and green CI. Resolve findings with new commits; never
-   weaken a gate to make the PR pass.
+4. Obtain code review and green quality evidence. When hosted CI executes, its
+   actual result stands. When hosted CI produced no substantive proof, only the
+   documented equivalent local gate on the exact candidate may supply that
+   evidence; report hosted CI separately and never bypass merge policy. Resolve
+   findings with new commits; never weaken a gate to make the PR pass.
 5. When merge is authorized, squash-merge through the PR, update local `master`
    with a fast-forward, then rerun the affected tests plus a proportionate
    post-merge smoke/E2E check.
@@ -263,9 +268,19 @@ Merge-readiness has exactly two ingredients, and together they are sufficient:
 
 Run the pyramid **locally at high intensity, in Docker, mirroring CI** — `make
 precommit` plus the stack's integration/API/e2e targets. A green local gate is
-authoritative: if the hosted CI run is unavailable or flaky for reasons
-unrelated to your change, it still stands as the merge signal. That never
-licenses ignoring a *genuinely* failing check or a BLOCKING review verdict.
+authoritative quality evidence when hosted CI produced no substantive proof
+because it was unavailable or infrastructure prevented the intended check from
+executing. It never overrides an executed hosted failure or a BLOCKING review
+verdict.
+Hosted CI is green only when its intended required proof for the exact
+candidate was dispatched, executed, and completed successfully. An absent,
+disabled, undispatched, billing/quota-blocked, runner-unavailable, or
+zero-substantive-step check is
+**unexecuted or unavailable—not passing**; a queued check is pending. Report
+“local gate passed; hosted CI unexecuted” and the reason as separate facts. The
+local result is authoritative only for the documented equivalent gate on the
+exact candidate with every applicable layer named; it never overrides an
+executed hosted failure or bypasses merge policy.
 Nothing beyond review + the pyramid is required to validate code quality — don't
 hold merge-ready work for a review layer the gate already covers, and name which
 layers exist and ran rather than skipping one silently. This is a **quality**

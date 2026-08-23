@@ -370,6 +370,108 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                     )
                     self.assertIn("bash scripts/check-docs.sh --staged", hook)
 
+                    conventions = (
+                        output / "docs" / "ENGINEERING_CONVENTIONS.md"
+                    ).read_text(encoding="utf-8")
+                    agents = (output / "AGENTS.md").read_text(encoding="utf-8")
+                    contributing = (output / "CONTRIBUTING.md").read_text(
+                        encoding="utf-8"
+                    )
+                    go_live = (output / "docs" / "GO_LIVE.md").read_text(
+                        encoding="utf-8"
+                    )
+                    normalized_conventions = " ".join(conventions.split())
+                    normalized_agents = " ".join(agents.split())
+                    normalized_contributing = " ".join(contributing.split())
+                    normalized_go_live = " ".join(go_live.split())
+                    self.assertEqual(
+                        conventions.count(
+                            "### CI integrity: unexecuted is not green"
+                        ),
+                        1,
+                        answers.name,
+                    )
+                    self.assertEqual(
+                        agents.count("**Unexecuted is not green**"),
+                        1,
+                        answers.name,
+                    )
+                    for required in (
+                        "Only when hosted CI produced no substantive proof may "
+                        "the local gate supply the quality signal",
+                        "intended required proof for the exact candidate was "
+                        "dispatched, executed, and "
+                        "completed successfully",
+                        "Check absent, disabled, or not dispatched | "
+                        "Unexecuted—not green",
+                        "Execution blocked by billing/quota state or runner "
+                        "unavailability | Unexecuted or unavailable—not green",
+                        "Queued or pending | Incomplete—not green",
+                        "Failed, canceled, or timed out | Unsuccessful—not green",
+                        "Explicitly optional check whose trigger does not apply | "
+                        "Not applicable—not passed or green",
+                        "Zero substantive proof steps executed | "
+                        "Unexecuted—not green",
+                        "local gate passed; hosted CI unexecuted",
+                        "A local pass never overrides an executed hosted failure",
+                        "never claims to satisfy or bypass the repository host's "
+                        "merge policy",
+                    ):
+                        self.assertIn(
+                            required, normalized_conventions, answers.name
+                        )
+                    for required in (
+                        "authoritative quality evidence when hosted CI produced "
+                        "no substantive proof",
+                        "**Unexecuted is not green**",
+                        "docs/ENGINEERING_CONVENTIONS.md#"
+                        "ci-integrity-unexecuted-is-not-green",
+                        "**unexecuted or unavailable—not passing**",
+                        "local gate passed; hosted CI unexecuted",
+                        "never overrides an executed hosted failure or bypasses "
+                        "merge policy",
+                    ):
+                        self.assertIn(required, normalized_agents, answers.name)
+                    for obsolete in (
+                        "unavailable or flaky",
+                        "*genuinely* failing",
+                        "reasons unrelated to",
+                    ):
+                        self.assertNotIn(obsolete, conventions, answers.name)
+                        self.assertNotIn(obsolete, agents, answers.name)
+                    for required in (
+                        "unavailable or unexecuted hosted check is not green",
+                        "documented equivalent local gate may supply quality "
+                        "evidence without claiming hosted success or bypassing "
+                        "merge policy",
+                    ):
+                        self.assertIn(
+                            required, normalized_contributing, answers.name
+                        )
+                    self.assertIn(
+                        "Green locally is quality evidence",
+                        normalized_go_live,
+                        answers.name,
+                    )
+                    self.assertIn(
+                        "not a claim that hosted CI executed or passed",
+                        normalized_go_live,
+                        answers.name,
+                    )
+                    for obsolete in (
+                        "CI must be green",
+                        "Obtain code review and green CI",
+                    ):
+                        self.assertNotIn(obsolete, agents, answers.name)
+                    self.assertNotIn(
+                        "CI must be green", contributing, answers.name
+                    )
+                    self.assertNotIn(
+                        "Green locally ⇒ CI will be green",
+                        go_live,
+                        answers.name,
+                    )
+
                     subprocess.run(["git", "init", "-q"], cwd=output, check=True)
                     subprocess.run(["git", "add", "-A"], cwd=output, check=True)
                     result = subprocess.run(
