@@ -63,13 +63,14 @@ validate_remote_urls() {
   fi
   [ -n "$urls" ] && [ "${#urls}" -le 8192 ] || return 1
   saved_ifs=$IFS
+  github_scp_prefix='git''@github.com:'
   IFS='
 '
   for remote in $urls; do
     [ -n "$remote" ] && [ "${#remote}" -le 2048 ] || { IFS=$saved_ifs; return 1; }
     case "$remote" in
       https://github.com/*) normalized=${remote%.git} ;;
-      git@github.com:*) normalized="https://github.com/${remote#git@github.com:}"; normalized=${normalized%.git} ;;
+      "$github_scp_prefix"*) normalized=${remote#"$github_scp_prefix"}; normalized="https://github.com/$normalized"; normalized=${normalized%.git} ;;
       *) IFS=$saved_ifs; return 1 ;;
     esac
     [ "$normalized" = "https://github.com/$EXPECTED_REPO" ] || { IFS=$saved_ifs; return 1; }
