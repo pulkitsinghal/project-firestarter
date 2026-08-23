@@ -84,6 +84,11 @@ function parseStrict(text) {
       if (text.charAt(at) === "}") { at += 1; return result; }
       while (true) {
         white(); key = string();
+        // In modern JavaScript engines, assigning __proto__ changes the
+        // object's prototype instead of creating an enumerable own property.
+        // Reject it before assignment so unknown-field validation cannot be
+        // bypassed on macOS JXA (older Windows JScript rejects it later too).
+        if (key === "__proto__") { fail("prototype JSON key is forbidden"); }
         if (seen["$" + key]) { fail("duplicate JSON key"); }
         seen["$" + key] = true; white();
         if (text.charAt(at) !== ":") { fail("invalid JSON object"); }
@@ -124,7 +129,7 @@ function validate(data) {
   if (data.schemaVersion !== "1.0") { fail("unsupported schemaVersion"); }
   if (safeString(data.repository, "repository", 200) !== EXPECTED_REPO) { fail("repository does not match this project"); }
   safeString(data.clonePath, "clonePath", 1024);
-  if (typeof data.state !== "string" || !states[data.state]) { fail("invalid state"); }
+  if (typeof data.state !== "string" || !hasOwn(states, data.state)) { fail("invalid state"); }
   safeString(data.updatedAt, "updatedAt", 64);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(data.updatedAt)) { fail("updatedAt must be a UTC RFC3339 timestamp"); }
   if (!isObject(data.checks)) { fail("checks must be an object"); }
@@ -134,7 +139,7 @@ function validate(data) {
   }
   function requirePass(names, state) {
     for (var j = 0; j < names.length; j += 1) {
-      if (data.checks[names[j]] !== "pass") { fail(state + " requires passing check: " + names[j]); }
+      if (!hasOwn(data.checks, names[j]) || data.checks[names[j]] !== "pass") { fail(state + " requires passing check: " + names[j]); }
     }
   }
   if (data.state === "cloned") { requirePass(["cloneOwned", "remoteMatch"], data.state); }
@@ -182,7 +187,10 @@ function validate(data) {
     requireFields(data.mutagen, ["sessionName", "mode", "exclusions"], "mutagen");
     safeString(data.mutagen.sessionName, "mutagen.sessionName", 128);
     if (data.mutagen.mode !== "one-way-safe") { fail("sync-enabled requires one-way-safe mode"); }
-    var requiredExclusions = [".git", ".git/**", ".git-crypt/**", "*.key", "*.git-crypt.key"];
+    var requiredExclusions = [
+      ".git", ".git/**", ".git-crypt/**", "*.key", "*.git-crypt.key",
+      ".env", ".env.*", ".mutagen-data/**", "enrollment-ledger*.json"
+    ];
     for (i = 0; i < requiredExclusions.length; i += 1) {
       var found = false;
       for (var j = 0; j < data.mutagen.exclusions.length; j += 1) {

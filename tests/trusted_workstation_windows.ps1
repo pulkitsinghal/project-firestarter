@@ -63,7 +63,7 @@ try {
   Assert-Case verified_missing_evidence ('{"schemaVersion":"1.0","repository":"' + $repo + '","clonePath":"C:\\synthetic","state":"verified","checks":{' + $allChecks + '},"updatedAt":"2026-08-22T00:00:00Z"}') $false
   Assert-Case verified_valid ('{"schemaVersion":"1.0","repository":"' + $repo + '","clonePath":"C:\\synthetic","state":"verified","checks":{' + $allChecks + '},"machine":{' + $machine + '},"revision":"' + $revision + '","keyFingerprint":"' + $fingerprint + '","updatedAt":"2026-08-22T00:00:00Z"}') $true
   Assert-Case sync_missing_mutagen ('{"schemaVersion":"1.0","repository":"' + $repo + '","clonePath":"C:\\synthetic","state":"sync-enabled","checks":{' + $allChecks + '},"machine":{' + $machine + '},"revision":"' + $revision + '","keyFingerprint":"' + $fingerprint + '","updatedAt":"2026-08-22T00:00:00Z"}') $false
-  Assert-Case sync_valid ('{"schemaVersion":"1.0","repository":"' + $repo + '","clonePath":"C:\\synthetic","state":"sync-enabled","checks":{' + $allChecks + '},"machine":{' + $machine + '},"revision":"' + $revision + '","keyFingerprint":"' + $fingerprint + '","mutagen":{"enabled":true,"sessionName":"synthetic","mode":"one-way-safe","exclusions":[".git",".git/**",".git-crypt/**","*.key","*.git-crypt.key"]},"updatedAt":"2026-08-22T00:00:00Z"}') $true
+  Assert-Case sync_valid ('{"schemaVersion":"1.0","repository":"' + $repo + '","clonePath":"C:\\synthetic","state":"sync-enabled","checks":{' + $allChecks + '},"machine":{' + $machine + '},"revision":"' + $revision + '","keyFingerprint":"' + $fingerprint + '","mutagen":{"enabled":true,"sessionName":"synthetic","mode":"one-way-safe","exclusions":[".git",".git/**",".git-crypt/**","*.key","*.git-crypt.key",".env",".env.*",".mutagen-data/**","enrollment-ledger*.json"]},"updatedAt":"2026-08-22T00:00:00Z"}') $true
 
   $corpus = Join-Path $repoRoot 'tests\fixtures\trusted_workstation_ledgers'
   foreach ($entry in @(@{ Directory = 'accepted'; Accept = $true }, @{ Directory = 'rejected'; Accept = $false })) {
@@ -117,12 +117,16 @@ try {
   try {
     $doctorOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $doctor 2>&1
     if ($LASTEXITCODE -ne 0) { throw "independent clone doctor failed: $($doctorOutput -join ' ')" }
+    & git -C $clone remote set-url --add --push origin 'https://github.com/attacker/collector.git'
+    $pushMismatch = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $doctor 2>&1
+    if ($LASTEXITCODE -eq 0 -or ($pushMismatch -join ' ') -notmatch 'fetch or push URL') { throw 'mismatched origin push URL was accepted' }
+    & git -C $clone config --unset-all remote.origin.pushurl
     $externalGit = Join-Path $fixtureRoot 'external-git'; Move-Item -LiteralPath (Join-Path $clone '.git') -Destination $externalGit
     $gitJunction = Join-Path $clone '.git'; New-Item -ItemType Junction -Path $gitJunction -Target $externalGit | Out-Null
     $linkedDoctor = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $doctor 2>&1
     if ($LASTEXITCODE -eq 0 -or ($linkedDoctor -join ' ') -notmatch 'linked, external, or shared') { throw 'linked Git metadata was not rejected' }
     [IO.Directory]::Delete($gitJunction)
-    $passed += 2
+    $passed += 3
   } finally { Pop-Location; $env:PATH = $savedPath }
 } finally {
   $junction = Join-Path $fixtureRoot 'linked-parent'

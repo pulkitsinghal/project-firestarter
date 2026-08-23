@@ -64,7 +64,7 @@
     },
     {
       "if": { "properties": { "state": { "const": "sync-enabled" } }, "required": ["state"] },
-      "then": { "required": ["mutagen"], "properties": { "mutagen": { "required": ["enabled", "sessionName", "mode", "exclusions"], "properties": { "enabled": { "const": true }, "mode": { "const": "one-way-safe" }, "exclusions": { "allOf": [{ "contains": { "const": ".git" } }, { "contains": { "const": ".git/**" } }, { "contains": { "const": ".git-crypt/**" } }, { "contains": { "const": "*.key" } }, { "contains": { "const": "*.git-crypt.key" } }] } } } } }
+      "then": { "required": ["mutagen"], "properties": { "mutagen": { "required": ["enabled", "sessionName", "mode", "exclusions"], "properties": { "enabled": { "const": true }, "mode": { "const": "one-way-safe" }, "exclusions": { "allOf": [{ "contains": { "const": ".git" } }, { "contains": { "const": ".git/**" } }, { "contains": { "const": ".git-crypt/**" } }, { "contains": { "const": "*.key" } }, { "contains": { "const": "*.git-crypt.key" } }, { "contains": { "const": ".env" } }, { "contains": { "const": ".env.*" } }, { "contains": { "const": ".mutagen-data/**" } }, { "contains": { "const": "enrollment-ledger*.json" } }] } } } } }
     }
   ]
 }

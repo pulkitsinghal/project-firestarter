@@ -42,6 +42,10 @@ fi
 if [ "${#ledger}" -gt 2048 ] || printf '%s' "$ledger" | LC_ALL=C grep -q '[[:cntrl:]]'; then
   printf 'BLOCKED ledger path is malformed\n' >&2; exit 1
 fi
+case "$ledger" in
+  /*) ;;
+  *) ledger="$(pwd -P)/$ledger" ;;
+esac
 if [ ! -f "$ledger" ]; then printf 'NOT_ENROLLED ledger is missing\n'; exit 1; fi
 cursor=$ledger
 while [ -n "$cursor" ] && [ "$cursor" != "/" ]; do

@@ -54,12 +54,33 @@ if [ "$linked" -eq 0 ] && [ "$PWD" = "$physical_pwd" ] && [ -d "$root/.git" ] &&
   report PASS 'independent clone metadata is canonical and clone-owned'
 else report BLOCKED 'clone root or Git metadata is linked, external, or shared'; fail=1; fi
 
-remote="$(git remote get-url origin 2>/dev/null || true)"
-normalized="$(printf '%s' "$remote" | sed -E 's#^git@github.com:#https://github.com/#; s#\.git$##')"
-case "$normalized" in
-  "https://github.com/$EXPECTED_REPO") report PASS 'origin matches the configured repository' ;;
-  *) report BLOCKED 'origin does not match the configured repository'; fail=1 ;;
-esac
+validate_remote_urls() {
+  kind=$1
+  if [ "$kind" = fetch ]; then
+    urls="$(git remote get-url --all origin 2>/dev/null)" || return 1
+  else
+    urls="$(git remote get-url --push --all origin 2>/dev/null)" || return 1
+  fi
+  [ -n "$urls" ] && [ "${#urls}" -le 8192 ] || return 1
+  saved_ifs=$IFS
+  IFS='
+'
+  for remote in $urls; do
+    [ -n "$remote" ] && [ "${#remote}" -le 2048 ] || { IFS=$saved_ifs; return 1; }
+    case "$remote" in
+      https://github.com/*) normalized=${remote%.git} ;;
+      git@github.com:*) normalized="https://github.com/${remote#git@github.com:}"; normalized=${normalized%.git} ;;
+      *) IFS=$saved_ifs; return 1 ;;
+    esac
+    [ "$normalized" = "https://github.com/$EXPECTED_REPO" ] || { IFS=$saved_ifs; return 1; }
+  done
+  IFS=$saved_ifs
+}
+if validate_remote_urls fetch && validate_remote_urls push; then
+  report PASS 'origin fetch and push URLs match the configured repository'
+else
+  report BLOCKED 'origin fetch or push URL does not match the configured repository'; fail=1
+fi
 
 for tool in git-crypt op tailscale; do
   if has_command "$tool"; then report PASS "$tool is available (not invoked)"

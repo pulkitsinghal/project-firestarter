@@ -53,11 +53,23 @@ if ($gitDir -ieq $ownedGit -and $commonDir -ieq $ownedGit -and
   Report PASS 'independent clone metadata is canonical and clone-owned'
 } else { Report BLOCKED 'clone root or Git metadata is linked, external, or shared'; $failed = $true }
 
-$remote = (& git remote get-url origin 2>$null).Trim()
-if (Has-Control $remote -or $remote.Length -gt 2048) { Report BLOCKED 'origin is malformed'; exit 1 }
-$normalized = $remote -replace '^git@github.com:', 'https://github.com/' -replace '\.git$', ''
-if ($normalized -ieq "https://github.com/$expectedRepo") { Report PASS 'origin matches the configured repository' }
-else { Report BLOCKED 'origin does not match the configured repository'; $failed = $true }
+function Test-RemoteUrls([string[]]$Arguments) {
+  $lines = @(& git remote get-url @Arguments origin 2>$null)
+  if ($LASTEXITCODE -ne 0 -or $lines.Count -eq 0 -or ($lines -join "`n").Length -gt 8192) { return $false }
+  foreach ($line in $lines) {
+    $remote = [string]$line
+    if (-not $remote -or (Has-Control $remote) -or $remote.Length -gt 2048) { return $false }
+    if ($remote -match '^git@github\.com:') { $normalized = $remote -replace '^git@github\.com:', 'https://github.com/' }
+    elseif ($remote -match '^https://github\.com/') { $normalized = $remote }
+    else { return $false }
+    $normalized = $normalized -replace '\.git$', ''
+    if ($normalized -ine "https://github.com/$expectedRepo") { return $false }
+  }
+  return $true
+}
+if ((Test-RemoteUrls -Arguments @('--all')) -and (Test-RemoteUrls -Arguments @('--push', '--all'))) {
+  Report PASS 'origin fetch and push URLs match the configured repository'
+} else { Report BLOCKED 'origin fetch or push URL does not match the configured repository'; $failed = $true }
 
 foreach ($tool in @('git-crypt', 'op', 'tailscale')) {
   if (Has-Command $tool) { Report PASS "$tool is available (not invoked)" }

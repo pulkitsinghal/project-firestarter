@@ -102,17 +102,17 @@ class TrustedWorkstationContractTests(unittest.TestCase):
             self.assertTrue(root.name.startswith("firestarter-trusted-workstation-"))
             self.assertFalse(root.is_symlink())
 
-    def test_custom_auto_merge_requires_exact_macos_behavior_check(self) -> None:
+    def test_custom_auto_merge_requires_exact_native_behavior_checks(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "auto-merge.yml").read_text()
         match = re.search(r"const alwaysRequired = \[(.*?)\];", workflow, re.DOTALL)
         self.assertIsNotNone(match, "custom auto-merge required-check list is missing")
         required = re.findall(r"'([^']+)'", match.group(1))
-        self.assertIn("Trusted Workstation macOS Behavior", required)
-        self.assertEqual(required.count("Trusted Workstation macOS Behavior"), 1)
-        self.assertIn(
-            "name: Trusted Workstation macOS Behavior",
-            (ROOT / ".github" / "workflows" / "ci.yml").read_text(),
-        )
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        for platform in ("macOS", "Windows"):
+            check = f"Trusted Workstation {platform} Behavior"
+            self.assertIn(check, required)
+            self.assertEqual(required.count(check), 1)
+            self.assertIn(f"name: {check}", workflow)
 
     def test_macos_workflow_uses_an_isolated_pinned_python_environment(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
@@ -173,8 +173,8 @@ class TrustedWorkstationContractTests(unittest.TestCase):
                         output,
                         f"stack={stack}",
                         "include_trusted_workstation=yes",
-                        "github_owner=Auggie-Health-Inc",
-                        "github_repo=Auggie-Home",
+                        "github_owner=Example-Org",
+                        "github_repo=sample-repo",
                     )
                     for rel in EXPECTED:
                         path = output / rel
@@ -185,11 +185,11 @@ class TrustedWorkstationContractTests(unittest.TestCase):
                     self.assertEqual(policy["repositorySource"], "repository.txt")
                     self.assertEqual(
                         schema["properties"]["repository"]["const"],
-                        "Auggie-Health-Inc/Auggie-Home",
+                        FIXTURE_REPOSITORY,
                     )
                     self.assertEqual(
                         (output / "trusted-workstation" / "repository.txt").read_text(encoding="ascii"),
-                        "Auggie-Health-Inc/Auggie-Home\n",
+                        f"{FIXTURE_REPOSITORY}\n",
                     )
 
     def test_security_sensitive_repository_syntax_is_strict(self) -> None:
@@ -315,6 +315,28 @@ class TrustedWorkstationContractTests(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, accept, result.stdout + result.stderr)
                     self.assertEqual(ledger.read_bytes(), before)
 
+    def test_macos_relative_ledger_path_terminates(self) -> None:
+        if sys.platform != "darwin":
+            self.skipTest("macOS-only relative-path behavior")
+        bash = usable_bash()
+        self.assertIsNotNone(bash, "Bash is unavailable")
+        with canonical_temporary_directory() as base:
+            stamped = base / "stamped"
+            stamp(
+                stamped,
+                "include_trusted_workstation=yes",
+                f"trusted_workstation_repo={FIXTURE_REPOSITORY}",
+            )
+            ledger_dir = FIXTURES / "accepted"
+            result = subprocess.run(
+                [bash, str(stamped / "scripts" / "trusted-workstation-status.sh"), "--ledger", "blocked.json"],
+                cwd=ledger_dir,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_phase_one_authority_is_read_only(self) -> None:
         policy = json.loads((ADDON / "trusted-workstation" / "policy.json").read_text())
         authority = policy["authority"]
@@ -324,7 +346,10 @@ class TrustedWorkstationContractTests(unittest.TestCase):
             if capability not in {"mayInspectClone", "mayReadLedger"}:
                 self.assertFalse(allowed, capability)
         exclusions = policy["futureEnrollment"]["mutagenMandatoryExclusions"]
-        for required in (".git", ".git/**", ".git-crypt/**", "*.key", "*.git-crypt.key"):
+        for required in (
+            ".git", ".git/**", ".git-crypt/**", "*.key", "*.git-crypt.key",
+            ".env", ".env.*", ".mutagen-data/**", "enrollment-ledger*.json",
+        ):
             self.assertIn(required, exclusions)
 
     def test_scripts_contain_no_forbidden_mutations_or_secret_reads(self) -> None:
@@ -367,8 +392,8 @@ class TrustedWorkstationContractTests(unittest.TestCase):
             stamp(
                 stamped,
                 "include_trusted_workstation=yes",
-                "github_owner=Auggie-Health-Inc",
-                "github_repo=Auggie-Home",
+                "github_owner=Example-Org",
+                "github_repo=sample-repo",
             )
             repo = base / "clone"
             (repo / ".git").mkdir(parents=True)
@@ -382,7 +407,8 @@ class TrustedWorkstationContractTests(unittest.TestCase):
                 "  'rev-parse --absolute-git-dir')\n"
                 "    if [ \"${FAKE_LINKED:-0}\" = 1 ]; then printf '%s\\n' \"$FAKE_ROOT/../external.git\"; else printf '%s\\n' \"$FAKE_ROOT/.git\"; fi ;;\n"
                 "  'rev-parse --git-common-dir') if [ \"${FAKE_LINKED:-0}\" = 1 ]; then printf '%s\\n' \"$FAKE_ROOT/../external.git\"; else printf '%s\\n' '.git'; fi ;;\n"
-                "  'remote get-url origin') printf '%s\\n' 'https://github.com/Auggie-Health-Inc/Auggie-Home.git' ;;\n"
+                "  'remote get-url --all origin') printf '%s\\n' 'https://github.com/Example-Org/sample-repo.git' ;;\n"
+                "  'remote get-url --push --all origin') printf '%s\\n' \"${FAKE_PUSH_REMOTE:-https://github.com/Example-Org/sample-repo.git}\" ;;\n"
                 "  'config --local --get core.hooksPath') printf '%s\\n' '.githooks' ;;\n"
                 "  *) exit 98 ;;\n"
                 "esac\n"
@@ -400,6 +426,13 @@ class TrustedWorkstationContractTests(unittest.TestCase):
             doctor = stamped / "scripts" / "trusted-workstation-doctor.sh"
             accepted = subprocess.run([bash, str(doctor)], cwd=repo, env=env, capture_output=True, text=True)
             self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+            mismatched_push = subprocess.run(
+                [bash, str(doctor)], cwd=repo,
+                env={**env, "FAKE_PUSH_REMOTE": "https://github.com/attacker/collector.git"},
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(mismatched_push.returncode, 0)
+            self.assertIn("fetch or push URL", mismatched_push.stdout)
             rejected = subprocess.run(
                 [bash, str(doctor)], cwd=repo, env={**env, "FAKE_LINKED": "1"}, capture_output=True, text=True
             )
