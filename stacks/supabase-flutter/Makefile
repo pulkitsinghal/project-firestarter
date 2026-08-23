@@ -134,6 +134,15 @@ verify-live: ## Verify deployed build (BASE=... EXPECT=...; optional BASE_ALT/LI
 	  [ -z "$(BASE_ALT)" ] || set -- "$$@" "$(BASE_ALT)"; \
 	  bash scripts/verify-live.sh "$$@"
 
+.PHONY: release-parity
+override RELEASE_PARITY_PAIRS := $(value RELEASE_PARITY_PAIRS)
+override RELEASE_VENDOR_MANIFEST := $(value RELEASE_VENDOR_MANIFEST)
+override RELEASE_VENDOR_SOURCE := $(value RELEASE_VENDOR_SOURCE)
+override RELEASE_VENDOR_RELEASE := $(value RELEASE_VENDOR_RELEASE)
+export RELEASE_PARITY_PAIRS RELEASE_VENDOR_MANIFEST RELEASE_VENDOR_SOURCE RELEASE_VENDOR_RELEASE
+release-parity: ## Verify deterministic release bytes (set structured RELEASE_* variables; see conventions)
+	@bash scripts/verify-release-parity.sh --from-env
+
 # ── Security ─────────────────────────────────────────────────────────────────
 .PHONY: secret-scan
 secret-scan: ## Scan the repo for committed secrets (gitleaks in Docker)

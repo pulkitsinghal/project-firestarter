@@ -382,6 +382,15 @@ and understandable both muted (captions) and with sound. A watchable brief lets 
 busy decider decide fast, and is the expected format for a decision request. See
 [docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md).
 
+## Adopt canonical process code with parity evidence (a precept)
+
+When replacing duplicated process or infrastructure code with a shared version,
+land a sanitized golden fixture and prove the old and canonical implementations
+match before switching one reversible shim. Deterministic release assets use
+`scripts/verify-release-parity.sh`; post-deploy truth still comes from
+`scripts/verify-live.sh`. See
+[docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md#8-adopt-canonical-process-code-with-a-parity-lock).
+
 ## AI code review
 
 1. **Pre-commit self-review** — the gates above + read your staged diff back.
