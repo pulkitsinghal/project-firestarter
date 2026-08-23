@@ -52,9 +52,19 @@ Run these every time you open a new session, in order. Do not skip.
 3. If `master` is behind `origin/master`, fast-forward (`git pull --ff-only`)
    before doing anything else.
 4. Read the current versions of `ARCHITECTURE.md`,
-   `PROJECT_STATUS_AND_NEXT_STEPS.md`, and the newest entries in
-   `backend/migrations/`.
+   `PROJECT_STATUS_AND_NEXT_STEPS.md`, `docs/PRACTICES.md`, and the newest
+   entries in `backend/migrations/`.
 5. List Docker state: `docker compose ps` so you know whether the stack is up.
+
+## Earned practices
+
+`docs/PRACTICES.md` is the project's memory of durable rules learned from real
+failures, near misses, rework, or safeguards. Read it before designing. When an
+incident yields a rule that should outlive the current task, add the safe
+evidence, **what it cost**, and the generalized rule there; keep task state in
+`PROJECT_STATUS_AND_NEXT_STEPS.md` and incident detail in `docs/postmortems/`.
+At project milestones, sweep recent findings, postmortems, review notes, and
+commits for stranded rules and promote the durable ones.
 
 ## Local TLS and certificate authority
 
@@ -382,3 +392,4 @@ Adding a toolchain means: add a profiled Compose service, pin the image, add
 - Feature handoff evidence: `docs/FEATURE_HANDOFF.md`
 - Engineering conventions (quality gate, stacked PRs, forking work, decision
   briefs): `docs/ENGINEERING_CONVENTIONS.md`
+- Project-earned rules and their evidence: `docs/PRACTICES.md`
