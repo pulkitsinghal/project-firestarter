@@ -376,10 +376,11 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
                     self.assertNotIn(secret, self.combined(result))
                     shutil.rmtree(temp_parent, ignore_errors=True)
 
-    def test_create_then_fail_mkdir_leaves_no_candidate_directory(self) -> None:
+    def test_create_then_fail_mkdir_removes_every_actual_candidate(self) -> None:
         args = self.seed_pair(b"same", b"same")
         temp_parent = self.repo / "mkdir-parent"
         temp_parent.mkdir()
+        candidate_log = self.repo / "mkdir-candidates.txt"
         actual_mkdir = shutil.which("mkdir")
         self.assertIsNotNone(actual_mkdir)
         shim_dir = self.repo / "mkdir-create-then-fail-shim"
@@ -387,6 +388,9 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
         shim = shim_dir / "mkdir"
         shim.write_text(
             "#!/bin/sh\n"
+            "last=\n"
+            "for arg in \"$@\"; do last=$arg; done\n"
+            f"printf '%s\\n' \"$last\" >> '{candidate_log}'\n"
             f"'{actual_mkdir}' \"$@\" || exit $?\n"
             "exit 9\n",
             encoding="utf-8",
@@ -400,6 +404,26 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
             },
         )
         self.assertEqual(result.returncode, 2)
+        candidates = [
+            Path(value)
+            for value in candidate_log.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(candidates), 32)
+        expected_parent = Path("/tmp").resolve()
+        process_ids: set[str] = set()
+        attempts: list[int] = []
+        for candidate in candidates:
+            with self.subTest(candidate=candidate.name):
+                prefix, process_id, attempt = candidate.name.split(".")
+                self.assertEqual(prefix, "release-parity")
+                self.assertTrue(process_id.isdigit())
+                self.assertTrue(attempt.isdigit())
+                self.assertEqual(candidate.parent.resolve(), expected_parent)
+                self.assertFalse(candidate.exists() or candidate.is_symlink())
+                process_ids.add(process_id)
+                attempts.append(int(attempt))
+        self.assertEqual(len(process_ids), 1)
+        self.assertEqual(attempts, list(range(32)))
         self.assertFalse(any(temp_parent.glob("release-parity.*")))
         self.assertNotIn(str(temp_parent), self.combined(result))
 
@@ -469,7 +493,7 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertNotIn(private_missing, self.combined(result))
 
-    def test_open_temp_parent_handle_defeats_ancestor_symlink_substitution(self) -> None:
+    def test_fixed_temp_parent_defeats_caller_ancestor_substitution(self) -> None:
         args = self.seed_pair(b"same", b"same")
         temp_area = self.repo / "temp-ancestor"
         base = temp_area / "base"

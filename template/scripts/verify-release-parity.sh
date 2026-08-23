@@ -193,22 +193,17 @@ is_plain_directory() {
   return 0
 }
 
-temp_base_input=${TMPDIR:-/tmp}
+temp_base_input=/tmp
 temp_base=$(cd -P "$temp_base_input" 2>/dev/null && pwd -P) \
   || infra_error "private-temp-base"
 case "$temp_base" in /) infra_error "private-temp-base" ;; /*) ;; *) infra_error "private-temp-base" ;; esac
 
-# Keep the resolved parent open for the entire run. /proc/self/fd (Linux) or
-# /dev/fd (macOS/BSD) gives child tools the same directory handle, so replacing
-# any pathname ancestor with a symlink cannot redirect cleanup elsewhere.
-exec 9< "$temp_base" || infra_error "private-temp-base"
-if [ -d /proc/self/fd/9 ]; then
-  temp_parent=/proc/self/fd/9
-elif [ -d /dev/fd/9 ]; then
-  temp_parent=/dev/fd/9
-else
-  infra_error "private-temp-handle"
-fi
+# Do not trust caller-controlled TMPDIR ancestry. The fixed system temp root is
+# portable across Linux, macOS, and Git Bash; its physical path also keeps child
+# tools from following a substituted caller path.
+temp_parent=$temp_base
+TMPDIR=$temp_base
+export TMPDIR
 temp_root=
 temp_attempt=0
 while [ "$temp_attempt" -lt 32 ]; do
