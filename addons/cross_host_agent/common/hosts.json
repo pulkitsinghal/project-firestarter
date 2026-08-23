@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "Which host can do what, and when its grant ends.",
+    "An agent asks for a capability, never an address, so intent stays reviewable here",
+    "rather than scattered through shell history.",
+    "grant_expires is mandatory: the default outcome of forgetting a channel should be",
+    "that it closes. agent-host refuses to use an expired grant."
+  ],
+  "hosts": [
+    {
+      "name": "example-windows",
+      "address": "some-host",
+      "os": "windows",
+      "user": "you",
+      "capabilities": ["windows-only-software"],
+      "grant_expires": "2026-01-01",
+      "note": "Replace this example. Delete it once you have a real host."
+    }
+  ]
+}

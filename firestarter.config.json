@@ -23,6 +23,7 @@
   "include_local_ollama": ["no", "yes"],
   "include_encrypted_local_areas": ["no", "yes"],
   "include_convergent_deploy": ["no", "yes"],
+  "include_cross_host_agent": ["no", "yes"],
   "include_version_changelog": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",

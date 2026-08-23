@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""Resolve a capability to a host, run a command there, and keep the grant honest.
+
+An agent session runs on one machine. Some work only exists on another: software that is
+Windows-only, a GPU in one box, a licensed tool, a build that must happen on the target
+OS. This is the thin client for that, and it is deliberately thin. It shells out to ssh
+and scp rather than reimplementing them, because the security properties worth having
+come from ssh's configuration, not from a wrapper.
+
+Design notes worth keeping:
+
+**Capabilities, not addresses.** An agent asks for `joinpoint`, not for 100.76.25.4.
+Intent lives in hosts.json where it can be reviewed and revoked, rather than in shell
+history where it cannot.
+
+**Grants expire.** Every host carries `grant_expires`. Past it, `run` refuses. The
+default outcome of forgetting about a channel is that it closes, not that it stays open
+forever, and that is the whole reason the field is mandatory.
+
+**Refuse rather than guess.** Unknown capability, ambiguous capability, missing host,
+expired grant: all are errors. A tool that silently picks a host when two match is a tool
+that eventually runs something on the wrong machine.
+
+**Log everything.** Not a security boundary, since anything with the key can bypass it.
+It is the record you want when asking what a session did on another machine.
+
+Stdlib only, no dependencies.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import pathlib
+import shlex
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+HOSTS = pathlib.Path(os.environ.get("AGENT_HOST_MANIFEST", ROOT / "hosts.json"))
+LOG = pathlib.Path(os.environ.get("AGENT_HOST_LOG",
+                                 pathlib.Path.home() / ".agent-host" / "audit.log"))
+KEY = os.environ.get("AGENT_HOST_KEY", str(pathlib.Path.home() / ".ssh" / "agent_host_ed25519"))
+
+SSH_HARDENING = [
+    "-o", "BatchMode=yes",              # never prompt for a password
+    "-o", "PasswordAuthentication=no",  # and never send one
+    "-o", "StrictHostKeyChecking=accept-new",
+    "-o", "ConnectTimeout=15",
+]
+
+
+def die(msg: str, code: int = 2):
+    print(f"agent-host: {msg}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def load_hosts() -> list[dict]:
+    if not HOSTS.exists():
+        die(f"no manifest at {HOSTS}. Declare hosts before using them.")
+    try:
+        return json.loads(HOSTS.read_text()).get("hosts", [])
+    except ValueError as e:
+        die(f"{HOSTS} is not valid JSON: {e}")
+
+
+def expired(host: dict) -> str | None:
+    v = host.get("grant_expires")
+    if not v:
+        return "no grant_expires set; every grant must have an end date"
+    try:
+        end = dt.date.fromisoformat(v)
+    except ValueError:
+        return f"grant_expires {v!r} is not an ISO date"
+    today = dt.date.today()
+    if end < today:
+        return f"grant expired on {end} ({(today - end).days} days ago)"
+    return None
+
+
+def resolve(cap: str) -> dict:
+    matches = [h for h in load_hosts() if cap in h.get("capabilities", [])]
+    if not matches:
+        known = sorted({c for h in load_hosts() for c in h.get("capabilities", [])})
+        die(f"no host offers {cap!r}. Declared capabilities: {', '.join(known) or 'none'}")
+    if len(matches) > 1:
+        names = ", ".join(h["name"] for h in matches)
+        die(f"{cap!r} is offered by more than one host ({names}). "
+            f"Name one with --host rather than letting this choose.")
+    host = matches[0]
+    why = expired(host)
+    if why:
+        die(f"host {host['name']}: {why}. Re-run the bootstrap to renew, "
+            f"or 'agent-host revoke {host['name']}' if it is done with.")
+    return host
+
+
+def audit(host: str, action: str, detail: str, rc: int | None = None):
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now().isoformat(timespec="seconds")
+    with open(LOG, "a") as fh:
+        fh.write(f"{stamp}\t{host}\t{action}\trc={rc}\t{detail}\n")
+
+
+def target(host: dict) -> str:
+    return f"{host['user']}@{host['address']}"
+
+
+def cmd_run(args) -> int:
+    host = by_name(args.host) if args.host else resolve(args.capability)
+    remote = " ".join(args.command)
+    if not remote:
+        die("nothing to run. Put the command after --")
+    argv = ["ssh", *SSH_HARDENING, "-i", KEY, target(host), remote]
+    if args.dry_run:
+        print(" ".join(shlex.quote(a) for a in argv))
+        return 0
+    print(f"agent-host: {host['name']} ({host.get('os','?')}) <- {remote}", file=sys.stderr)
+    rc = subprocess.call(argv)
+    audit(host["name"], "run", remote, rc)
+    return rc
+
+
+def cmd_copy(args) -> int:
+    src, dst = args.source, args.dest
+    if ":" in dst:
+        cap, path = dst.split(":", 1)
+        host = by_name(args.host) if args.host else resolve(cap)
+        remote = f"{target(host)}:{path}"
+        argv = ["scp", *SSH_HARDENING, "-i", KEY, src, remote]
+    elif ":" in src:
+        cap, path = src.split(":", 1)
+        host = by_name(args.host) if args.host else resolve(cap)
+        argv = ["scp", *SSH_HARDENING, "-i", KEY, f"{target(host)}:{path}", dst]
+    else:
+        die("one side must be <capability>:<path>")
+    rc = subprocess.call(argv)
+    audit(host["name"], "copy", f"{src} -> {dst}", rc)
+    return rc
+
+
+def by_name(name: str) -> dict:
+    for h in load_hosts():
+        if h["name"] == name:
+            why = expired(h)
+            if why:
+                die(f"host {name}: {why}")
+            return h
+    die(f"no host named {name!r}")
+
+
+def cmd_list(args) -> int:
+    hosts = load_hosts()
+    if not hosts:
+        print("no hosts declared")
+        return 0
+    for h in hosts:
+        why = expired(h)
+        state = "EXPIRED" if why else "ok"
+        print(f"{h['name']:<20} {h.get('os','?'):<9} {state:<8} "
+              f"{','.join(h.get('capabilities', []))}")
+        if h.get("note"):
+            print(f"{'':<20} {h['note']}")
+    return 0
+
+
+def cmd_check(args) -> int:
+    bad = 0
+    for h in load_hosts():
+        why = expired(h)
+        if why:
+            print(f"{h['name']}: {why}"); bad += 1; continue
+        argv = ["ssh", *SSH_HARDENING, "-i", KEY, target(h), "echo ok"]
+        rc = subprocess.call(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"{h['name']}: {'reachable' if rc == 0 else 'UNREACHABLE'}")
+        audit(h["name"], "check", "connectivity", rc)
+        bad += (rc != 0)
+    return 1 if bad else 0
+
+
+def cmd_revoke(args) -> int:
+    host = by_name(args.host)
+    print(f"Revoking access to {host['name']}. Run this on that machine:\n")
+    if host.get("os") == "windows":
+        print("  Remove-NetFirewallRule -Name agent-host-ssh -EA SilentlyContinue")
+        print("  Stop-Service sshd; Set-Service sshd -StartupType Disabled")
+        print("  # and drop the key line from")
+        print("  #   $env:ProgramData\\ssh\\administrators_authorized_keys")
+    else:
+        print("  sudo systemctl disable --now sshd   # or: sudo systemsetup -setremotelogin off")
+        print("  # and drop the agent-host line from ~/.ssh/authorized_keys")
+    print(f"\nThen remove {host['name']} from {HOSTS}.")
+    audit(host["name"], "revoke", "instructions issued")
+    return 0
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(prog="agent-host", description=__doc__.split("\n")[0])
+    p.add_argument("--host", help="name a host explicitly instead of resolving a capability")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    r = sub.add_parser("run", help="run a command on the host offering a capability")
+    r.add_argument("capability", nargs="?")
+    r.add_argument("--dry-run", action="store_true", help="print the ssh invocation only")
+    r.add_argument("command", nargs=argparse.REMAINDER)
+    r.set_defaults(fn=cmd_run)
+
+    c = sub.add_parser("copy", help="copy to or from <capability>:<path>")
+    c.add_argument("source"); c.add_argument("dest"); c.set_defaults(fn=cmd_copy)
+
+    sub.add_parser("list", help="declared hosts and grant status").set_defaults(fn=cmd_list)
+    sub.add_parser("check", help="test reachability of every declared host").set_defaults(fn=cmd_check)
+
+    v = sub.add_parser("revoke", help="how to close a channel")
+    v.add_argument("host"); v.set_defaults(fn=cmd_revoke)
+
+    args = p.parse_args()
+    if args.cmd == "run":
+        # argparse.REMAINDER swallows everything after the capability, flags included, so
+        # `run thing --dry-run -- echo hi` arrives with --dry-run inside the remote
+        # command. Left unhandled that does not merely mis-parse: it executes the command
+        # the user asked to preview. Pull our own flags back out before the separator.
+        rest = list(args.command)
+        while rest and rest[0].startswith("-") and rest[0] != "--":
+            flag = rest.pop(0)
+            if flag == "--dry-run":
+                args.dry_run = True
+            else:
+                die(f"unknown option {flag!r} before the command. "
+                    f"Put agent-host options before the capability, and the remote "
+                    f"command after --")
+        if rest and rest[0] == "--":
+            rest = rest[1:]
+        args.command = rest
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
