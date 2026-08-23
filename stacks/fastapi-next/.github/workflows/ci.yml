@@ -24,8 +24,8 @@ jobs:
       - name: Repository hygiene
         run: make repo-hygiene
 
-      - name: Script smoke (syntax-check shipped hooks & scripts)
-        run: bash scripts/smoke.sh
+      - name: Fast project preflight (docs, hooks, and scripts)
+        run: make smoke
 
       - name: Start infrastructure
         run: docker compose up -d postgres redis

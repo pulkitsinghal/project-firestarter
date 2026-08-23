@@ -47,15 +47,18 @@ jobs:
             done
             test -x "$generated/scripts/repo-hygiene.sh"
             test -x "$generated/scripts/mutation-check.sh"
+            test -x "$generated/scripts/check-docs.sh"
             test -f "$generated/scripts/mutation-cases.sh"
             grep -Eq '^repo-hygiene:' "$generated/Makefile"
             grep -Eq '^mutation-check:' "$generated/Makefile"
+            grep -Eq '^docs-check:' "$generated/Makefile"
             grep -Eq '^test:.*repo-hygiene' "$generated/Makefile"
             if grep -Eq '^(test|precommit):.*mutation-check' "$generated/Makefile"; then
               echo "::error::optional mutation-check entered a required local gate"
               exit 1
             fi
             grep -Fq 'make repo-hygiene' "$generated/.githooks/pre-commit"
+            grep -Fq 'bash scripts/check-docs.sh --staged' "$generated/.githooks/pre-commit"
             awk '
               /^  tests:$/ { in_tests=1; next }
               in_tests && /^  [[:alnum:]_-]+:$/ { exit }
@@ -65,6 +68,8 @@ jobs:
             git -C "$generated" init -q
             git -C "$generated" add -A
             (cd "$generated" && bash scripts/repo-hygiene.sh --staged)
+            (cd "$generated" && bash scripts/check-docs.sh)
+            (cd "$generated" && bash scripts/check-docs.sh --staged)
             test "$(cd "$generated" && make mutation-check)" = \
               'mutation-check: SKIP cases=0 configured=0'
             rm -rf "$generated/.git"
@@ -107,6 +112,9 @@ jobs:
 
       - name: Verify the deployed-artifact contract
         run: python3 -B -m unittest -v tests.test_verify_live_contract
+
+      - name: Verify the documentation-integrity contract
+        run: python3 -B -m unittest -v tests.test_doc_integrity_contract
 
       - name: Verify the offline repository-hygiene contract
         run: python3 -B -m unittest -v tests.test_repo_hygiene_contract
@@ -313,6 +321,8 @@ jobs:
             "$VENV/bin/python" -B -m unittest -v tests.test_repo_hygiene_contract
           MUTATION_CHECK_BASH=/bin/bash \
             "$VENV/bin/python" -B -m unittest -v tests.test_mutation_check_contract
+          DOC_CHECK_BASH=/bin/bash \
+            "$VENV/bin/python" -B -m unittest -v tests.test_doc_integrity_contract
 
   trusted-workstation-windows:
     name: Trusted Workstation Windows Behavior

@@ -12,6 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "template" / "scripts" / "repo-hygiene.sh"
+DOC_SCRIPT = ROOT / "template" / "scripts" / "check-docs.sh"
 HOOK = ROOT / "template" / ".githooks" / "pre-commit"
 BASH = os.environ.get("REPO_HYGIENE_BASH", "bash")
 
@@ -702,8 +703,31 @@ exec "$REAL_GIT" "$@"
     def test_precommit_runs_hygiene_for_docs_and_full_gates_for_source(self) -> None:
         script = self.write("scripts/repo-hygiene.sh", SCRIPT.read_bytes())
         script.chmod(0o755)
+        doc_script = self.write("scripts/check-docs.sh", DOC_SCRIPT.read_bytes())
+        doc_script.chmod(0o755)
         hook = self.write(".githooks/pre-commit", HOOK.read_bytes())
         hook.chmod(0o755)
+        self.write("VERSION", "0.1.0\n")
+        self.write(
+            "CHANGELOG.md",
+            "# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - YYYY-MM-DD\n",
+        )
+        for required in (
+            "README.md",
+            "SECURITY.md",
+            "CONTRIBUTING.md",
+            "ARCHITECTURE.md",
+            "AGENTS.md",
+            "CLAUDE.md",
+            "docs/LOCAL_TLS.md",
+            "docs/DEPLOY_POLICY.md",
+            "docs/PRACTICES.md",
+            "docs/SECURITY_INCIDENT_ROTATION.md",
+            "docs/STORYBOARD.md",
+            "docs/FEATURE_HANDOFF.md",
+            "docs/storyboard-harness.md",
+        ):
+            self.write(required, "# Synthetic required document\n")
         self.write(
             "Makefile",
             (

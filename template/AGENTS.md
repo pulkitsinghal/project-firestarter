@@ -81,7 +81,7 @@ HTTPS without `-k`, `--insecure`, or disabled certificate checks.
 Every secret — API key, token, password, signing key, git-crypt repo key — obeys
 these rules. They are non-negotiable; [SECURITY.md](SECURITY.md) covers reporting
 and fail-closed config, and when the **secret_vault** add-on is enabled
-[docs/SECRETS.md](docs/SECRETS.md) + [docs/SECRET_VAULT.md](docs/SECRET_VAULT.md)
+`docs/SECRETS.md` + `docs/SECRET_VAULT.md`
 carry the full contract and the tooling. When exposure is suspected, stop normal
 handling and follow [docs/SECURITY_INCIDENT_ROTATION.md](docs/SECURITY_INCIDENT_ROTATION.md):
 the runbook is value-free and untracking is not rotation. Provider access,

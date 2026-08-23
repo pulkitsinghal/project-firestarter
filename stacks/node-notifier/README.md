@@ -77,7 +77,7 @@ sequenceDiagram
 
     B->>A: Local signed session or production access token
     B->>A: POST /api/tasks
-    A->>Q: Rate limit identity; index and add durable job
+    A->>Q: Rate limit identity, index and add durable job
     A-->>B: 202 Accepted and taskId
     Q->>W: Claim job
     W->>Q: Save completion and publish live hint

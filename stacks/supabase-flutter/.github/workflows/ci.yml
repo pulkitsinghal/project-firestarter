@@ -24,8 +24,8 @@ jobs:
       - name: Repository hygiene
         run: make repo-hygiene
 
-      - name: Script smoke (syntax-check shipped hooks & scripts)
-        run: bash scripts/smoke.sh
+      - name: Fast project preflight (docs, hooks, and scripts)
+        run: make smoke
 
       # Flutter widget tests are self-contained (no data stack); run them first
       # so a broken app fails fast before we spin up postgres/redis/etc.

@@ -1,7 +1,7 @@
 # Deploy policy — when a deploy is self-authorized
 
 This is the **decision frame**, not the mechanics. The mechanics live in
-[`DEPLOY.md`](../DEPLOY.md) / the `deploy` make target and
+`DEPLOY.md` when the selected stack supplies it, the `deploy` make target, and
 [`GO_LIVE.md`](GO_LIVE.md); this doc answers the human question those don't:
 *when may a change ship without a separate owner sign-off?* Edit the specifics to
 match {{ project_name }} — the three-condition shape is the reusable part.
