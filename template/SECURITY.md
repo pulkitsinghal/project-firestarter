@@ -19,7 +19,9 @@ You'll get an acknowledgement and a coordinated disclosure timeline.
   full house contract for handling durable secrets (redundant storage, sha256
   fingerprint integrity, runtime injection, rotation) is *Secrets & credentials*
   in [AGENTS.md](AGENTS.md); with the `secret_vault` add-on, see
-  [docs/SECRETS.md](docs/SECRETS.md).
+  [docs/SECRETS.md](docs/SECRETS.md). If exposure is suspected, follow the
+  value-free [secret exposure response and rotation runbook](docs/SECURITY_INCIDENT_ROTATION.md):
+  untracking is not rotation; provider/live/destructive actions remain owner-only.
 - **Never bake a default or guessable secret** into deploy configs, Compose
   files, or code. A hardcoded demo/JWT/signing key becomes a live credential the
   moment the stack is exposed. Read every secret from the environment (`gh secret`

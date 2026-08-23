@@ -38,6 +38,16 @@ jobs:
             python3 bin/generate.py --values "$values" --output "$OUT/$ex"
           done
 
+          # Security-response pointers must never stamp as broken links. Keep
+          # this generic document present and referenced by every stack.
+          for generated in "$OUT"/*; do
+            test -f "$generated/docs/SECURITY_INCIDENT_ROTATION.md"
+            for guide in SECURITY.md AGENTS.md CLAUDE.md; do
+              grep -Fq 'docs/SECURITY_INCIDENT_ROTATION.md' "$generated/$guide"
+            done
+          done
+          echo "✓ secret-exposure runbook and pointers present in every stack"
+
           # 1. No unsubstituted tokens leaked. The only legitimate {{ matches are
           #    GitHub Actions expression syntax and JSX style={{ }} object literals.
           if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then

@@ -127,6 +127,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
 | `PROJECT_STATUS_AND_NEXT_STEPS.md` | MVP phases, what's done, what's next |
 | `docs/OPEN_QUESTIONS.md` | Deferred decisions and known gaps |
 | `docs/ci-secrets.md` | How to provide CI secrets without leaking them |
+| `docs/SECURITY_INCIDENT_ROTATION.md` | Value-free break-glass checklist; all live/provider/destructive actions are owner-only, including optional history cleanup |
 | `docs/FEATURE_HANDOFF.md` | Evidence bundle for user/dev feature review |
 | `docs/ENGINEERING_CONVENTIONS.md` | Quality gate (review + test pyramid), stacked-PR merge order, forking work, decision briefs |
 | `docs/PRACTICES.md` | Project-earned rules, each grounded in safe evidence and what it cost |
