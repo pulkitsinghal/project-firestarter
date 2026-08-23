@@ -60,6 +60,10 @@ smoke: ## Syntax-check shipped shell scripts, git hooks, and Python
 repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
 	bash scripts/repo-hygiene.sh --staged
 
+.PHONY: mutation-check
+mutation-check: ## Prove configured focused tests fail under one exact source mutation
+	@bash scripts/mutation-check.sh
+
 .PHONY: precommit
 precommit: repo-hygiene smoke lint test build ## Mirror every required CI gate locally
 	@echo "✓ precommit gates passed"

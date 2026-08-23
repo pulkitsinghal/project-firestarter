@@ -46,8 +46,15 @@ jobs:
               grep -Fq 'docs/SECURITY_INCIDENT_ROTATION.md' "$generated/$guide"
             done
             test -x "$generated/scripts/repo-hygiene.sh"
+            test -x "$generated/scripts/mutation-check.sh"
+            test -f "$generated/scripts/mutation-cases.sh"
             grep -Eq '^repo-hygiene:' "$generated/Makefile"
+            grep -Eq '^mutation-check:' "$generated/Makefile"
             grep -Eq '^test:.*repo-hygiene' "$generated/Makefile"
+            if grep -Eq '^(test|precommit):.*mutation-check' "$generated/Makefile"; then
+              echo "::error::optional mutation-check entered a required local gate"
+              exit 1
+            fi
             grep -Fq 'make repo-hygiene' "$generated/.githooks/pre-commit"
             awk '
               /^  tests:$/ { in_tests=1; next }
@@ -58,9 +65,11 @@ jobs:
             git -C "$generated" init -q
             git -C "$generated" add -A
             (cd "$generated" && bash scripts/repo-hygiene.sh --staged)
+            test "$(cd "$generated" && make mutation-check)" = \
+              'mutation-check: SKIP cases=0 configured=0'
             rm -rf "$generated/.git"
           done
-          echo "✓ security runbook + repository-hygiene gate present in every stack"
+          echo "✓ security runbook + hygiene gate + optional mutation proof present in every stack"
 
           # 1. No unsubstituted tokens leaked. The only legitimate {{ matches are
           #    GitHub Actions expression syntax and JSX style={{ }} object literals.
@@ -101,6 +110,9 @@ jobs:
 
       - name: Verify the offline repository-hygiene contract
         run: python3 -B -m unittest -v tests.test_repo_hygiene_contract
+
+      - name: Verify the optional mutation-proof contract
+        run: python3 -B -m unittest -v tests.test_mutation_check_contract
 
       - name: Verify the bounded-execution runner contract
         run: python3 -B -m unittest -v tests.test_bounded_runner_contract
@@ -299,6 +311,8 @@ jobs:
           "$VENV/bin/python" -B -m unittest -v tests.test_trusted_workstation_contract
           REPO_HYGIENE_BASH=/bin/bash \
             "$VENV/bin/python" -B -m unittest -v tests.test_repo_hygiene_contract
+          MUTATION_CHECK_BASH=/bin/bash \
+            "$VENV/bin/python" -B -m unittest -v tests.test_mutation_check_contract
 
   trusted-workstation-windows:
     name: Trusted Workstation Windows Behavior

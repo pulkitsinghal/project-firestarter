@@ -158,6 +158,7 @@ exec "$REAL_GIT" "$@"
             ".turbo/cache",
             ".pnpm-store/cache",
             ".ruff_cache/cache",
+            ".mutation-check.lock/original",
             "venv/bin/activate",
             "package.egg-info/PKG-INFO",
             ".coverage",
@@ -186,6 +187,7 @@ exec "$REAL_GIT" "$@"
             "venv-example/bin/activate",
             "package.egg-info.txt",
             ".coverage.example",
+            ".mutation-check.lock.example/original",
         )
         for relative in near_misses:
             self.write(relative, "safe content\n")
