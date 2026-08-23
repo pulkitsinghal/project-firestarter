@@ -22,7 +22,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
 
 1. Read `PROJECT_STATUS_AND_NEXT_STEPS.md` — current MVP scope and what's done.
 2. Read `docs/OPEN_QUESTIONS.md` — known gaps and deferred decisions.
-3. Read `AGENTS.md` — engineering workflow, commit format, push policy.
+3. Read `docs/PRACTICES.md` — rules this project learned the hard way.
+4. Read `AGENTS.md` — engineering workflow, commit format, push policy.
 
 ## Owner preferences (read before doing anything)
 
@@ -82,6 +83,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   environment/dashboard URL — see *Response convention* and the *Environments &
   URLs* table in [AGENTS.md](AGENTS.md). Record new environment URLs there the
   moment they go live.
+- **Preserve earned practices.** When a failure, near miss, or repeated rework
+  yields a durable rule, record safe evidence, **what it cost**, and the
+  generalized rule in `docs/PRACTICES.md`. At milestones, sweep recent findings,
+  postmortems, review notes, and commits for rules stranded where they happened.
 
 ## Domain invariants (non-negotiable)
 
@@ -124,5 +129,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
 | `docs/ci-secrets.md` | How to provide CI secrets without leaking them |
 | `docs/FEATURE_HANDOFF.md` | Evidence bundle for user/dev feature review |
 | `docs/ENGINEERING_CONVENTIONS.md` | Quality gate (review + test pyramid), stacked-PR merge order, forking work, decision briefs |
+| `docs/PRACTICES.md` | Project-earned rules, each grounded in safe evidence and what it cost |
 | `Makefile` | All common dev commands (`make help`) |
 | `backend/migrations/` | Forward-only SQL migrations |

@@ -33,3 +33,10 @@ Concrete, owned, dated. Mark which ones harden the template/tooling so the next
 project never hits this.
 
 - [ ] <action> — owner — due
+
+## Durable practice
+
+- [ ] Decide whether this incident produced a rule that should outlive its
+  action items.
+- [ ] If yes, promote the safe evidence, **what it cost**, and the generalized
+  rule to `docs/PRACTICES.md`; keep sensitive incident detail here.
