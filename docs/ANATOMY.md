@@ -60,6 +60,7 @@ docs/                     this map, plus how-to guides
 | `.github/workflows/deploy.yml` | `workflow_dispatch` one-button beta deploy default for server-backed profiles: `make up` + `make deploy` on a self-hosted runner (Cloudflare quick-tunnel, no secrets). Client-only profiles must replace this with their distribution path before go-live | sibling |
 | `.gitleaks.toml` | gitleaks config: extends default rules + allowlists build-artifact dirs (so local `make secret-scan` on a dirty tree is clean). Add narrow allowlists for known public/test fixtures | best-practice |
 | `docs/ci-secrets.md` | How to set `ANTHROPIC_API_KEY` without leaking it | sibling |
+| `docs/SECURITY_INCIDENT_ROTATION.md` | Value-free post-exposure runbook: inventory aliases/consumers/stores, choose revoke-first vs controlled cutover, propagate safely, prove the old credential is rejected, and treat history rewriting as owner-approved follow-up hardening | restricted sibling process; source identity withheld |
 | `docs/HOST_REQUIREMENTS.md` | Onboarding: the few tools that live on the host (Docker/git/make/gh) + a "do NOT install on host" table + opt-in native-mobile sections | sibling |
 | `docs/LOCAL_TLS.md` | Shared local-CA policy and macOS/Caddy runbook: fingerprint-checked trust, one canonical issuer, no agent-held CA keys, verified rollout/rollback | local-ai certificate incident |
 | `docs/OPEN_QUESTIONS.md` | Template for the deferred-decisions log (incl. a backup-strategy stub) | both |
