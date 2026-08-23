@@ -92,7 +92,9 @@ and optional history cleanup stay owner actions.
    a commit, a PR body, an issue, a log, a screenshot, or the chat. Anything that
    lands there is compromised — rotate it. Repo-embedded secrets use **git-crypt**;
    `.env` and the local backup dir (`.secret-vault/`) are git-ignored; the gitleaks
-   secret scan is a backstop, not a substitute.
+   secret scan is a backstop, not a substitute. `make repo-hygiene` also checks
+   the immutable staged index for tracked local state plus credential/PII shapes;
+   its aggregate report never prints matching content, paths, or Git identifiers.
 2. **Redundancy + fingerprint integrity.** A durable secret lives in **≥2 durable
    stores plus a backup**, each cross-checked by the same **sha256 fingerprint**,
    so one lost/corrupted store is never unrecoverable. With the add-on:

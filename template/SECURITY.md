@@ -22,6 +22,13 @@ You'll get an acknowledgement and a coordinated disclosure timeline.
   [docs/SECRETS.md](docs/SECRETS.md). If exposure is suspected, follow the
   value-free [secret exposure response and rotation runbook](docs/SECURITY_INCIDENT_ROTATION.md):
   untracking is not rotation; provider/live/destructive actions remain owner-only.
+- **Run `make repo-hygiene` before commit.** It scans an immutable copy of the
+  complete Git index for tracked local/build/session state, credential shapes,
+  and narrow PII shapes without printing content, paths, or object IDs. Use
+  `bash scripts/repo-hygiene.sh --history` for the explicit all-ref audit. This
+  audit rejects shallow repositories rather than claiming incomplete history is
+  clean. The offline tripwire complements gitleaks and review; it does not prove
+  a repo safe or replace rotation after exposure.
 - **Never bake a default or guessable secret** into deploy configs, Compose
   files, or code. A hardcoded demo/JWT/signing key becomes a live credential the
   moment the stack is exposed. Read every secret from the environment (`gh secret`

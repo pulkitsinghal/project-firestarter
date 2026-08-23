@@ -7,7 +7,7 @@ Security posture (deliberate, reviewed):
   an attempt, and the challenge is cleared on success or lockout.
 - Session tokens are 256-bit url-safe randoms; only their SHA-256 is stored.
 - Requesting a code never reveals whether an account exists (always "sent").
-- Identifiers are normalized so "A@x.com" and "a@x.com " are one account.
+- Identifiers are normalized so "A@example.com" and "a@example.com " are one account.
 """
 
 from __future__ import annotations

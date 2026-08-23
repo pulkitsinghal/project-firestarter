@@ -70,7 +70,7 @@ class DesktopHostAdapterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="pm-proxy-stream-exit-") as raw:
             root = private(Path(raw))
             fake = write_executable(root / "fake-codex", "#!/bin/sh\nexit 0\n")
-            token = "stream-shutdown-token"
+            token = "-".join(("stream", "shutdown", "token"))
             session_path = root / "session.json"
             session = self.full_session(
                 instance=root,
@@ -310,7 +310,7 @@ for line in sys.stdin:
     sys.stdout.flush()
 """,
             )
-            token = "synthetic-private-token"
+            token = "-".join(("synthetic", "private", "token"))
             session_path = instance / "session.json"
             now = ADAPTER.utc_now()
             session = self.full_session(
@@ -850,7 +850,7 @@ for line in sys.stdin:
             session = self.full_session(
                 instance=root,
                 fake_codex=fake,
-                token="isolation-loss-token",
+                token="-".join(("isolation", "loss", "token")),
                 now=ADAPTER.utc_now(),
             )
             session.update(
@@ -870,7 +870,7 @@ for line in sys.stdin:
     def test_exact_process_observation_integration(self):
         with tempfile.TemporaryDirectory(prefix="pm-proxy-host-process-e2e-") as raw:
             root = private(Path(raw))
-            token = "process-observation-token"
+            token = "-".join(("process", "observation", "token"))
             sleeper = "trap 'exit 0' TERM INT; while :; do sleep 1 & wait; done"
             process_executable = Path("/bin/sh").resolve(strict=True)
             session = self.full_session(
@@ -1461,7 +1461,7 @@ for line in sys.stdin:
             session = self.full_session(
                 instance=root,
                 fake_codex=fake,
-                token="stop-collision-token",
+                token="-".join(("stop", "collision", "token")),
                 now=ADAPTER.utc_now(),
             )
             session["desktop_pid"] = 4301

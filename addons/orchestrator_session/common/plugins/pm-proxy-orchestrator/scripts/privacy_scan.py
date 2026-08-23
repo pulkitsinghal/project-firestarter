@@ -14,9 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 TEXT_SUFFIXES = {".md", ".json", ".py", ".yaml", ".yml", ".txt", ""}
 FORBIDDEN_TEXT = [
     "[TODO:",
-    "-----BEGIN PRIVATE KEY-----",
-    "-----BEGIN RSA PRIVATE KEY-----",
-    "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "-----BEGIN PRIVATE KEY-----",  # gitleaks:allow -- scanner signature
+    "-----BEGIN RSA PRIVATE KEY-----",  # gitleaks:allow -- scanner signature
+    "-----BEGIN OPENSSH PRIVATE KEY-----",  # gitleaks:allow -- scanner signature
 ]
 # Owner-neutral PII heuristics: flag real home-directory paths and
 # real-looking personal email addresses, while ignoring the reserved

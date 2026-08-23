@@ -21,6 +21,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Repository hygiene
+        run: make repo-hygiene
+
       - name: Script smoke (syntax-check shipped hooks & scripts)
         run: bash scripts/smoke.sh
 

@@ -71,7 +71,7 @@ frontend-lockcheck: ## Guard: package-lock.json must satisfy `npm ci` on npm 11 
 
 # ── Aggregate gates ──────────────────────────────────────────────────────────
 .PHONY: test
-test: backend-test ## Run the test suite (CI "Tests" job)
+test: repo-hygiene backend-test ## Run the test suite (CI "Tests" job)
 
 .PHONY: lint
 lint: backend-lint frontend-typecheck ## All lint/type checks (CI "Lint & Typecheck" job)
@@ -80,8 +80,12 @@ lint: backend-lint frontend-typecheck ## All lint/type checks (CI "Lint & Typech
 smoke: ## Syntax-check shipped shell scripts, git hooks, and python (fast, no SDK)
 	bash scripts/smoke.sh
 
+.PHONY: repo-hygiene
+repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
+	bash scripts/repo-hygiene.sh --staged
+
 .PHONY: precommit
-precommit: smoke backend-lint backend-test frontend-typecheck frontend-lockcheck ## Mirror CI gates locally
+precommit: repo-hygiene smoke backend-lint backend-test frontend-typecheck frontend-lockcheck ## Mirror CI gates locally
 	@echo "✓ precommit gates passed"
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────

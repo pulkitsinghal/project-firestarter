@@ -41,7 +41,7 @@ test-integration: ## Run Redis-backed cross-instance and recovery tests
 	$(TEST_RUN) npm run test:integration
 
 .PHONY: test
-test: ## Run unit and Redis integration suites (CI "Tests")
+test: repo-hygiene ## Run unit and Redis integration suites (CI "Tests")
 	$(TEST_RUN) npm run test:all
 
 .PHONY: lint
@@ -56,8 +56,12 @@ build: ## Build the production API/worker image (CI "Build")
 smoke: ## Syntax-check shipped shell scripts, git hooks, and Python
 	bash scripts/smoke.sh
 
+.PHONY: repo-hygiene
+repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
+	bash scripts/repo-hygiene.sh --staged
+
 .PHONY: precommit
-precommit: smoke lint test build ## Mirror every required CI gate locally
+precommit: repo-hygiene smoke lint test build ## Mirror every required CI gate locally
 	@echo "✓ precommit gates passed"
 
 .PHONY: storyboard

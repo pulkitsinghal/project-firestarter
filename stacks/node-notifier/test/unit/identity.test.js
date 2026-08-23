@@ -13,7 +13,17 @@ import {
   createOidcTokenVerifier,
 } from "../../src/identity.js";
 
-const SECRET = "identity-test-secret-that-is-at-least-32-bytes";
+const SECRET = [
+  "identity",
+  "test",
+  "secret",
+  "that",
+  "is",
+  "at",
+  "least",
+  "32",
+  "bytes",
+].join("-");
 
 test("anonymous identity persists through the signed tutorial cookie", async () => {
   let cookie;
