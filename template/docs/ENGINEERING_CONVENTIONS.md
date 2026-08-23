@@ -269,6 +269,15 @@ content, URLs, or hashes. A digest stored beside a blob proves reviewed-byte int
 independent publisher authenticity. Publish only asset names and inventories
 that are already safe and licensed to disclose.
 
+Run the guard from a trusted, quiescent checkout and keep the manifests stable
+for the duration of the check. Portable Bash validates each manifest before and
+after opening it, then consumes the retained descriptor, so removing the path
+after it is open does not change the bytes being checked. It does **not** claim
+protection from a concurrent same-user replacement between those checks; a FIFO
+substitution can also block at open. Do not mutate release inputs concurrently,
+and retain the pipeline's ordinary job timeout. A hostile shared workspace needs
+a separately reviewed platform sandbox or identity-verifying helper.
+
 Release parity proves the local artifact was assembled from declared bytes. It
 complements rather than replaces post-deploy `scripts/verify-live.sh`, which
 proves collaborators can fetch the intended build from every live hostname.

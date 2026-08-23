@@ -173,17 +173,6 @@ is_plain_file() {
   return 0
 }
 
-fd_reference() {
-  local descriptor=$1
-  if [ -e "/proc/self/fd/$descriptor" ] || [ -L "/proc/self/fd/$descriptor" ]; then
-    printf '/proc/self/fd/%s' "$descriptor"
-  elif [ -e "/dev/fd/$descriptor" ] || [ -L "/dev/fd/$descriptor" ]; then
-    printf '/dev/fd/%s' "$descriptor"
-  else
-    return 1
-  fi
-}
-
 is_plain_directory() {
   local value=$1
   is_safe_relative_path "$value" || return 1
@@ -368,10 +357,7 @@ if [ -n "$pairs_manifest" ]; then
   fi
   { exec 7< "$pairs_manifest"; } 2>/dev/null \
     || infra_error "pairs-manifest-open"
-  pairs_fd_path=$(fd_reference 7) || infra_error "pairs-manifest-open"
-  [ -f "$pairs_fd_path" ] && [ "$pairs_manifest" -ef "$pairs_fd_path" ] \
-    || infra_error "pairs-manifest-open"
-  is_safe_relative_path "$pairs_manifest" \
+  is_plain_file "$pairs_manifest" \
     || infra_error "pairs-manifest-open"
   pair_seen="$temp_root/pair-seen"
   : > "$pair_seen" || infra_error "private-temp-write"
@@ -425,10 +411,7 @@ if [ "$vendor_option_count" -eq 3 ]; then
   is_plain_file "$vendor_manifest" || infra_error "vendor-manifest"
   { exec 8< "$vendor_manifest"; } 2>/dev/null \
     || infra_error "vendor-manifest-open"
-  vendor_fd_path=$(fd_reference 8) || infra_error "vendor-manifest-open"
-  [ -f "$vendor_fd_path" ] && [ "$vendor_manifest" -ef "$vendor_fd_path" ] \
-    || infra_error "vendor-manifest-open"
-  is_safe_relative_path "$vendor_manifest" \
+  is_plain_file "$vendor_manifest" \
     || infra_error "vendor-manifest-open"
   is_plain_directory "$vendor_source" || infra_error "vendor-source"
   is_plain_directory "$vendor_release" || infra_error "vendor-release"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -432,7 +433,7 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         actual_grep = shutil.which("grep")
         self.assertIsNotNone(actual_grep)
-        shim_dir = self.repo / "manifest-race-shim" / target.replace("/", "_")
+        shim_dir = self.repo / "manifest-removal-shim" / target.replace("/", "_")
         shim_dir.mkdir(parents=True)
         shim = shim_dir / "grep"
         target_path = self.repo / target
@@ -532,6 +533,74 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
         self.assertTrue(sentinel.is_file())
         self.assertTrue(base.is_symlink())
         self.assertFalse(any(moved.glob("release-parity.*")))
+
+    def test_manifest_retention_has_no_platform_fd_path_dependency(self) -> None:
+        source_text = SCRIPT.read_text(encoding="utf-8")
+        self.assertNotIn("/proc/self/fd", source_text)
+        self.assertNotIn("/dev/fd", source_text)
+        self.assertNotIn("fd_reference", source_text)
+        for needle in (
+            'exec 7< "$pairs_manifest"',
+            'done <&7',
+            'exec 7<&-',
+            'exec 8< "$vendor_manifest"',
+            'done <&8',
+            'exec 8<&-',
+        ):
+            with self.subTest(single_open_read_close=needle):
+                self.assertEqual(source_text.count(needle), 1)
+        pair_check = 'is_plain_file "$pairs_manifest"'
+        vendor_check = 'is_plain_file "$vendor_manifest"'
+        pair_checks = [
+            match.start() for match in re.finditer(re.escape(pair_check), source_text)
+        ]
+        vendor_checks = [
+            match.start() for match in re.finditer(re.escape(vendor_check), source_text)
+        ]
+        self.assertEqual(len(pair_checks), 2)
+        self.assertEqual(len(vendor_checks), 2)
+        pair_open = source_text.index('exec 7< "$pairs_manifest"')
+        pair_read = source_text.index('done <&7')
+        pair_close = source_text.index('exec 7<&-')
+        self.assertLess(pair_checks[0], pair_open)
+        self.assertLess(pair_open, pair_checks[1])
+        self.assertLess(pair_checks[1], pair_read)
+        self.assertLess(pair_read, pair_close)
+        vendor_open = source_text.index('exec 8< "$vendor_manifest"')
+        vendor_read = source_text.index('done <&8')
+        vendor_close = source_text.index('exec 8<&-')
+        self.assertLess(vendor_checks[0], vendor_open)
+        self.assertLess(vendor_open, vendor_checks[1])
+        self.assertLess(vendor_checks[1], vendor_read)
+        self.assertLess(vendor_read, vendor_close)
+
+        conventions = (
+            ROOT / "template" / "docs" / "ENGINEERING_CONVENTIONS.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("trusted, quiescent checkout", conventions)
+        self.assertIn("concurrent same-user replacement", conventions)
+        self.assertRegex(conventions, r"FIFO\s+substitution can also block")
+        self.assertIn("Do not mutate release inputs concurrently", conventions)
+        self.assertIn("pipeline's ordinary job timeout", conventions)
+        self.assertIn("hostile shared workspace", conventions)
+        self.assertIn("platform sandbox or identity-verifying helper", conventions)
+
+        anatomy = (ROOT / "docs" / "ANATOMY.md").read_text(encoding="utf-8")
+        self.assertIn("trusted quiescent checkout", anatomy)
+        self.assertIn(
+            "Concurrent same-user manifest replacement is explicitly outside",
+            anatomy,
+        )
+        self.assertIn("FIFO substitution can block", anatomy)
+        self.assertIn("keep the pipeline timeout", anatomy)
+        self.assertIn("hostile shared workspace", anatomy)
+        self.assertIn("separate sandbox/helper", anatomy)
+        lift_log = (ROOT / "docs" / "LIFT-LOG.md").read_text(encoding="utf-8")
+        self.assertIn("trusted quiescent checkout", lift_log)
+        self.assertIn("concurrent same-user manifest replacement", lift_log)
+        self.assertIn("FIFO substitution", lift_log)
+        self.assertIn("separate sandbox/helper", lift_log)
+        self.assertIn("pipeline timeout", lift_log)
 
     def test_comparison_inventory_and_digest_checks_are_load_bearing(self) -> None:
         source_text = SCRIPT.read_text(encoding="utf-8")
