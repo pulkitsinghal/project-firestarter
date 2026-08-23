@@ -32,6 +32,7 @@ code/config so the control is auditable — not aspirational:
 | regulated data reaches a third party (e.g. an LLM) | scrub before any egress | `backend/...` |
 | SSRF / scraping an internal host | egress host must be public; allowlist | `backend/...` |
 | secrets committed to the repo | gitleaks secret scan (required check) | `.github/workflows/secret-scan.yml` |
+| local/session output or PII-shaped content staged | immutable-index, content-suppressed offline tripwire | `scripts/repo-hygiene.sh` / `make repo-hygiene` |
 
 ## Data handling
 

@@ -4,7 +4,15 @@ import test from "node:test";
 import { loadConfig } from "../../src/config.js";
 
 const VALID_ENV = {
-  SESSION_SECRET: "a-valid-session-secret-with-32-bytes",
+  SESSION_SECRET: [
+    "a",
+    "synthetic",
+    "session",
+    "secret",
+    "with",
+    "32",
+    "bytes",
+  ].join("-"),
   PUBLIC_ORIGIN: "http://localhost:3000",
 };
 

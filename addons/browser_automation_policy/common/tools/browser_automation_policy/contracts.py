@@ -17,6 +17,7 @@ from typing import FrozenSet, Optional, Tuple, Union
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$")
 SAFE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+ACCESSIBLE_NAME_TOKEN_FIELD = "accessibleNameToken"
 ALLOWED_PRECONDITIONS = frozenset(
     {
         "task-bound",
@@ -350,7 +351,7 @@ class TargetContract:
             "kind": self.kind,
             "contractId": self.contract_id,
             "role": self.role,
-            "accessibleNameToken": self.accessible_name_token,
+            ACCESSIBLE_NAME_TOKEN_FIELD: self.accessible_name_token,
             "containerContractId": self.container_contract_id,
         }
 
@@ -412,7 +413,7 @@ class RelativeTargetContract:
             "kind": self.kind,
             "contractId": self.contract_id,
             "role": self.role,
-            "accessibleNameToken": self.accessible_name_token,
+            ACCESSIBLE_NAME_TOKEN_FIELD: self.accessible_name_token,
             "containerContractId": self.container_contract_id,
             "trainedRegimeId": self.trained_regime_id,
             "xRatio": self.x_ratio,

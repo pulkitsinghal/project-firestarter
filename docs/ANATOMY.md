@@ -48,7 +48,7 @@ docs/                     this map, plus how-to guides
 | `.gitmessage` | Conventional-commit template (`git config commit.template`) | both |
 | `.gitignore` | Covers Python, Node, Dart/Flutter, Docker, storyboard output; ignores Claude Code **local** state (`.claude/settings.local.json`, `.claude/worktrees/`) while keeping the committed `.claude/settings.json` + hooks tracked | union of both |
 | `.githooks/commit-msg` | Enforces conventional-commit subject (mirrors CI) | both |
-| `.githooks/pre-commit` | Runs `make precommit` when source changes | both |
+| `.githooks/pre-commit` | Always runs immutable-index repository hygiene; source changes continue through `make precommit`, while docs-only changes stop after the fast hygiene gate | both |
 | `.githooks/pre-push` | Non-blocking "you're N commits ahead" reminder | both |
 | `.githooks/README.md` | Why hooks are opt-in + how to enable | both |
 | `.github/workflows/ai-pr-review.yml` | **Crown jewel** — calls the Anthropic API directly, posts a BLOCKING/NON-BLOCKING/LGTM verdict, breaks BLOCKING loops after 3 cycles | both |
@@ -85,6 +85,7 @@ docs/                     this map, plus how-to guides
 | `.claude/settings.json` + `.claude/hooks/session-start-clean-tree.sh` (+ `README.md`) | Session-isolation guardrails: deny-rules for the blanket staging forms + a warn-only, fail-open SessionStart dirty-tree hook (Claude Code; other tools get the same norm from `AGENTS.md`) | sibling |
 | `.env.example` | Env-var manifest for `make verify-env` — value `__REPLACE_ME__` (or a `# required` tag) marks a var required; committed (un-ignored) | a sibling project |
 | `scripts/smoke.sh` | Syntax-checks the project's own shipped shell/hooks/python (`bash -n`/`sh -n`/`py_compile`; python3 optional, no host SDK). Wired into each stack's Tests job + `make smoke`/`precommit` | a sibling project |
+| `scripts/repo-hygiene.sh` + `make repo-hygiene` | Offline Bash+Git tripwire over an immutable index snapshot, or every reachable ref with `--history`: bounded path/credential/PII rules, binary-safe blob reads, oversized-blob failure, lazy fetch and replacement objects disabled, shallow-history rejection, source identifiers suppressed, and aggregate-only diagnostics | restricted sibling implementations; identities/details withheld |
 | `scripts/verify-env.sh` | Preflight that fails fast when a required env var is unset or still a placeholder; hardened line-by-line loader | a sibling project |
 | `scripts/verify-live.sh` + `make verify-live` | Time/byte-bounded post-deploy probe across every reachable hostname: exact JSON build-provenance match (or explicit static-content mode), browser-like/no-cache requests, redirects fail closed, and optional `206` + `Content-Range` verification for seekable assets. Response bodies and unlisted paths are never logged | sibling deployed-artifact pipelines |
 

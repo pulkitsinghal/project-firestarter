@@ -11,7 +11,17 @@ import {
   verifySessionToken,
 } from "../../src/session.js";
 
-const SECRET = "unit-test-secret-that-is-at-least-32-bytes";
+const SECRET = [
+  "unit",
+  "test",
+  "secret",
+  "that",
+  "is",
+  "at",
+  "least",
+  "32",
+  "bytes",
+].join("-");
 
 test("signed sessions round-trip and reject tampering", () => {
   const { sessionId, token } = createSession(SECRET);

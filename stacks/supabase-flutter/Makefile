@@ -64,7 +64,7 @@ splash-build: ## Production build of the splash page
 
 # ── Aggregate gates ──────────────────────────────────────────────────────────
 .PHONY: test
-test: dart-test flutter-test ## Run the test suite (CI "Tests" job)
+test: repo-hygiene dart-test flutter-test ## Run the test suite (CI "Tests" job)
 
 .PHONY: lint
 lint: flutter-analyze flutter-format-check ## All lint/type checks (CI "Lint & Typecheck" job)
@@ -73,8 +73,12 @@ lint: flutter-analyze flutter-format-check ## All lint/type checks (CI "Lint & T
 smoke: ## Syntax-check shipped shell scripts, git hooks, and python (fast, no SDK)
 	bash scripts/smoke.sh
 
+.PHONY: repo-hygiene
+repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
+	bash scripts/repo-hygiene.sh --staged
+
 .PHONY: precommit
-precommit: smoke flutter-analyze flutter-format-check dart-test flutter-test ## Mirror CI gates locally
+precommit: repo-hygiene smoke flutter-analyze flutter-format-check dart-test flutter-test ## Mirror CI gates locally
 	@echo "✓ precommit gates passed"
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────

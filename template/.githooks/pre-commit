@@ -1,7 +1,8 @@
 #!/bin/sh
 #
-# Pre-commit hook: runs `make precommit` (all gates, all inside Docker — no host
-# SDKs) when the staged diff touches source. Skipped for docs-only changes.
+# Pre-commit hook: always scans the immutable staged index for repository hygiene.
+# Source changes then run `make precommit` (all gates, all inside Docker — no host
+# SDKs); docs-only changes run only the fast hygiene gate.
 #
 # Enable per-checkout via:
 #   make hook-install
@@ -10,10 +11,24 @@
 #
 # Skip with: git commit --no-verify
 
-CHANGED=$(git diff --cached --name-only --diff-filter=ACMR)
+echo "▶ pre-commit: scanning staged repository hygiene..."
+make repo-hygiene
+rc=$?
+if [ $rc -ne 0 ]; then
+    echo ""
+    echo "✗ repository hygiene failed (exit $rc)."
+    exit $rc
+fi
+
+CHANGED=$(git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null)
+rc=$?
+if [ $rc -ne 0 ]; then
+    echo "✗ unable to classify the staged index."
+    exit 2
+fi
 
 # Source globs across the supported stacks. Add yours here if it differs.
-if echo "$CHANGED" | grep -qE '^(backend|frontend|app|splash|services)/|(pyproject\.toml|package\.json|pubspec\.yaml)$'; then
+if echo "$CHANGED" | grep -qE '^(backend|frontend|app|splash|services|extension|src|test|public|e2e|storyboard|scripts)/|(pyproject\.toml|package\.json|pubspec\.yaml)$'; then
     echo "▶ pre-commit: running precommit gates (Docker)..."
     make precommit
     rc=$?
