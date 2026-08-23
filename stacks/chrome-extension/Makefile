@@ -4,10 +4,11 @@
 # suite is the exception — it needs a real headed Chromium, so it runs on host.
 
 COMPOSE := docker compose
-RUN     := $(COMPOSE) --profile tools run --rm node-tools
+RUN_FLAGS :=
+RUN     := $(COMPOSE) --profile tools run --rm $(RUN_FLAGS) node-tools
 
 .DEFAULT_GOAL := help
-.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke docs-check repo-hygiene mutation-check verify-env verify-live hook-install
+.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke docs-check repo-hygiene mutation-check gate-selftest gate-selftest-run verify-env verify-live hook-install
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -29,11 +30,11 @@ clean: ## Remove extension/dist/
 	$(RUN) npm run clean
 
 # ── Meta-layer contract targets (this stack has no server/DB) ─────────────────
-test: repo-hygiene test-unit ## Run the test suite (CI "Tests" job)
+test: gate-selftest repo-hygiene test-unit ## Run the test suite (CI "Tests" job)
 
 lint: typecheck ## Type-check (CI "Lint & Typecheck" job)
 
-precommit: repo-hygiene smoke typecheck test-unit build ## Mirror the CI gates locally
+precommit: gate-selftest repo-hygiene smoke typecheck test-unit build ## Mirror the CI gates locally
 	@echo "✓ precommit gates passed"
 
 smoke: docs-check ## Fast shell/git-hook/doc preflight (no SDK; runs on host)
@@ -47,6 +48,13 @@ repo-hygiene: ## Scan the immutable Git index for local output, credentials, and
 
 mutation-check: ## Prove configured focused tests fail under one exact source mutation
 	@bash scripts/mutation-check.sh
+
+gate-selftest: ## Prove Docker gates grade current source, never a stale image
+	@$(MAKE) --no-print-directory gate-selftest-run RUN_FLAGS="--no-deps -T"
+
+gate-selftest-run:
+	@bash scripts/gate-selftest.sh \
+	  --case node-tools . /work $(RUN)
 
 verify-env: ## Check .env has every required var set (reads the .env.example manifest)
 	bash scripts/verify-env.sh

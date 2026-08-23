@@ -148,3 +148,35 @@ Dependabot can see every action shipped from dormant source directories, and a
 parity contract blocks partial propagation. Self-CI also parses every source and
 generated workflow as YAML: a malformed workflow that never starts is a failed
 gate, never an absent green check.
+
+## 7. Prove Docker gates grade current source
+
+`docker compose run` may reuse an existing image. A tool service therefore sees
+the current working tree only while its source bind mount remains intact, or
+while its exact runner rebuilds the current context. Losing either mechanism can
+leave every test green against an old snapshot—the most dangerous gate failure,
+because it looks like success.
+
+Run `make gate-selftest` before the real gates. It plants content-free temporary
+sentinels in each source root and invokes the same Make variables the test/lint/
+build targets use. The container probe emits two unique observations:
+
+- **runner started + sentinel seen** → that gate grades current source;
+- **runner started + sentinel missing** → the gate is **BLIND** and must fail;
+- **runner never started** → infrastructure/build failure, with sightedness
+  **UNKNOWN**. Never misreport this as blindness or accept it as green.
+
+Visibility markers and wrapper health remain separate facts: a wrapper that
+exits non-zero after the probe still fails, while retaining an observed current-
+source or BLIND diagnosis rather than rewriting it to UNKNOWN.
+
+The distinction is load-bearing: swallowing runner errors makes an unavailable
+Docker daemon look exactly like a removed mount, eroding trust in the real alarm.
+Map captured stderr to a fixed privacy-safe category—never echo runner-controlled
+bytes that may contain secrets or private paths—remove every sentinel and private
+log on pass/failure/signal, and fail closed without printing a path if cleanup
+itself fails. Mutation-test both directions with dependency-light fake runners.
+The generated **Tests** job runs the guard before project gates, and
+`make precommit` lists it first. Do not duplicate a runner command inside the
+guard; route optional probe flags through the same Make variable so runner
+profile, service, mount/build, and future changes cannot drift.
