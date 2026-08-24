@@ -307,6 +307,21 @@ exit 0
         self.assertNotIn(f"id={ID1} sha256=".encode(), self.ledger.read_bytes())
         self.assertFalse(self.gh_log.exists())
 
+    def test_bsd_wc_count_padding_is_portable(self) -> None:
+        real_wc = shutil.which("wc")
+        self.assertIsNotNone(real_wc)
+        fake_wc = self.tool_bin / "wc"
+        fake_wc.write_text(
+            "#!/bin/sh\n"
+            f"count=$({shlex.quote(real_wc)} -c)\n"
+            "printf '     %s\\n' \"$count\"\n",
+            encoding="utf-8",
+        )
+        fake_wc.chmod(0o755)
+        result = self.run_helper(ID1, "--local-only")
+        self.assertEqual(result.returncode, 0, self.combined(result))
+        self.assertIn("local=created tracker=disabled", self.combined(result))
+
     def test_every_tracker_phase_has_a_process_deadline(self) -> None:
         real_sleep = shutil.which("sleep")
         self.assertIsNotNone(real_sleep)

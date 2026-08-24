@@ -151,7 +151,7 @@ trap 'exit 2' HUP INT TERM
 # Read at most one byte beyond the limit so unbounded input is rejected without
 # materializing it. The canonical copy normalizes CRLF and adds one final LF.
 dd bs=1 count=65537 of="$raw_record" 2>/dev/null || fail "record-read"
-raw_size=$(wc -c < "$raw_record" 2>/dev/null) || fail "record-read"
+raw_size=$(wc -c < "$raw_record" 2>/dev/null | awk '{print $1}') || fail "record-read"
 case "$raw_size" in ""|*[!0-9]*) fail "record-read" ;; esac
 [ "$raw_size" -gt 0 ] && [ "$raw_size" -le 65536 ] || fail "record-size"
 
@@ -173,7 +173,7 @@ od -An -v -tu1 "$canonical_record" 2>/dev/null | awk '
   }
 ' >/dev/null 2>&1 || fail "record-control-byte"
 
-canonical_size=$(wc -c < "$canonical_record" 2>/dev/null) || fail "record-read"
+canonical_size=$(wc -c < "$canonical_record" 2>/dev/null | awk '{print $1}') || fail "record-read"
 case "$canonical_size" in ""|*[!0-9]*) fail "record-read" ;; esac
 [ "$canonical_size" -gt 0 ] && [ "$canonical_size" -le 65536 ] || fail "record-size"
 
