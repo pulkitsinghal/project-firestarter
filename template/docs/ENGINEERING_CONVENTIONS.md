@@ -306,3 +306,73 @@ are documented somewhere durable. In a public repository, use sanitized opaque
 references that reveal no private repository relationship or internal path; if
 that would erase useful provenance, keep the detailed table in the private
 origin and publish only a generic adoption status.
+
+<!-- platform-locked-gate-precept:start -->
+## 9. Split platform-locked gates without hiding them
+
+Use a platform split only when a required command genuinely cannot execute on
+the repository's supported hosted runners because of an OS, architecture,
+device, hardware, driver, entitlement, or vendor-toolchain constraint. A test
+that is merely slow, flaky, expensive, or currently failing is not
+platform-locked and must not be moved out of CI to make the workflow green.
+
+Declare three things before splitting the gate:
+
+1. **The portable gate** — the largest meaningful subset the supported hosted
+   runner can execute, using synthetic/test inputs and no production data or
+   credentials.
+2. **The platform gate** — the exact omitted target, its required compatible
+   environment, and the evidence it produces. Run it on the exact candidate;
+   it is authoritative only for the platform-specific dimension.
+3. **The shared seam** — one repository-owned target or wrapper called by both
+   hosted CI and the local full gate. Do not copy shared commands into a
+   CI-specific implementation: the platform-only command should be the sole
+   intentional difference. A portable mock may add coverage, but it is never
+   evidence that the real platform command ran.
+
+Put a short comment at the top of every workflow that intentionally omits a
+platform gate. Use at least these auditable fields:
+
+```yaml
+# platform-gate-split:
+# omitted-target: <repository-owned target>
+# constraint: <OS/architecture/device/hardware/toolchain reason>
+# shared-portable-target: <target called by hosted and full gates>
+# authoritative-platform-target: <target plus compatible environment>
+# evidence-location: <required check/artifact or safe handoff reference>
+# merge-control: <required check, or draft/hold with auto-merge absent>
+```
+
+Keep the comment generic and value-free: no credentials, private paths, private
+repository relationships, production records, or proprietary inputs. Preserve
+the required job display names **Tests** / **Lint & Typecheck** / **Build** for
+the portable hosted jobs.
+
+Do not let the portable jobs race auto-merge ahead of required platform proof.
+Either make the platform target emit a machine-observable required check for the
+exact candidate and register that unique check in the repository's merge gate,
+or open the PR as a draft. For a local-only gate, keep the PR draft; before
+making it ready, add the `hold` or `no-auto-merge` label and confirm the
+`auto-merge` label is absent. Keep that control until the exact-candidate
+platform evidence is attached and reviewed. Adding `hold` after `auto-merge`
+already exists is not sufficient by itself—remove `auto-merge` too.
+
+Evidence composes per dimension. A successful hosted portable job means only
+"portable gate passed"; the platform dimension passes only when the exact
+documented platform target ran on the exact candidate. The overall acceptance
+statement names both results and is complete only when every required dimension
+passed. Local platform evidence never replaces or reclassifies the hosted
+portable result, never turns hosted CI green, and never bypasses merge policy.
+Missing platform evidence is **unexecuted—not green for that dimension**. Any
+billing, quota, dispatch, or runner-availability state keeps the classification
+defined by the CI-integrity table above; this split does not reinterpret Section 1. If
+the platform gate is required for acceptance and cannot run, the change is not
+fully proved.
+
+This convention does **not** relax the no-host-SDK rule. Prefer a pinned
+container or maintained compatible runner. It grants no new native-toolchain
+exception and cannot widen any repository-documented, narrowly scoped CI-only
+native lane. Current generated-stack toolchains remain containerized. Proposing
+an additional stack whose core toolchain cannot be containerized is a separate
+owner decision outside this convention.
+<!-- platform-locked-gate-precept:end -->

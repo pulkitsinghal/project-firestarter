@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -14,6 +15,91 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "template" / "scripts" / "check-docs.sh"
 BASH = os.environ.get("DOC_CHECK_BASH", "bash")
+PLATFORM_PRECEPT_HEADING = "## 9. Split platform-locked gates without hiding them"
+PLATFORM_PRECEPT_START = "<!-- platform-locked-gate-precept:start -->"
+PLATFORM_PRECEPT_END = "<!-- platform-locked-gate-precept:end -->"
+PLATFORM_HEADER_FIELDS = (
+    "# omitted-target:",
+    "# constraint:",
+    "# shared-portable-target:",
+    "# authoritative-platform-target:",
+    "# evidence-location:",
+    "# merge-control:",
+)
+PLATFORM_SECTION_REQUIREMENTS = (
+    "slow, flaky, expensive, or currently failing is not platform-locked",
+    "synthetic/test inputs and no production data or credentials",
+    "Run it on the exact candidate",
+    "the sole intentional difference",
+    "A portable mock may add coverage, but it is never evidence that the real "
+    "platform command ran",
+    "**Tests** / **Lint & Typecheck** / **Build**",
+    "machine-observable required check for the exact candidate",
+    "open the PR as a draft",
+    "confirm the `auto-merge` label is absent",
+    "remove `auto-merge` too",
+    "Evidence composes per dimension",
+    "Local platform evidence never replaces or reclassifies the hosted portable "
+    "result",
+    "unexecuted—not green for that dimension",
+    "does **not** relax the no-host-SDK rule",
+    "grants no new native-toolchain exception",
+    "narrowly scoped CI-only native lane",
+    "separate owner decision outside this convention",
+)
+PLATFORM_AGENT_REQUIREMENTS = (
+    "### Platform-locked gates are explicit, not skipped",
+    "docs/ENGINEERING_CONVENTIONS.md#9-split-platform-locked-gates-without-"
+    "hiding-them",
+    "same repository-owned portable target",
+    "not a machine-observable required check, open the PR as a draft",
+    "keep `auto-merge` absent",
+    "until exact-candidate evidence is attached and reviewed",
+    "grants no new native-toolchain exception",
+)
+
+
+def platform_precept_contract_errors(conventions: str, agents: str) -> list[str]:
+    errors: list[str] = []
+    for marker in (PLATFORM_PRECEPT_START, PLATFORM_PRECEPT_END):
+        if conventions.count(marker) != 1:
+            errors.append(f"marker:{marker}")
+    if conventions.count(PLATFORM_PRECEPT_HEADING) != 1:
+        errors.append("heading")
+    if errors:
+        return errors
+
+    start_index = conventions.index(PLATFORM_PRECEPT_START)
+    heading_index = conventions.index(PLATFORM_PRECEPT_HEADING)
+    end_index = conventions.index(PLATFORM_PRECEPT_END)
+    if not start_index < heading_index < end_index:
+        return ["boundary-order"]
+    section = conventions[
+        start_index + len(PLATFORM_PRECEPT_START) : end_index
+    ]
+    normalized_section = " ".join(section.split())
+    normalized_agents = " ".join(agents.split())
+    for field in PLATFORM_HEADER_FIELDS:
+        if section.count(field) != 1:
+            errors.append(f"header:{field}")
+    for requirement in PLATFORM_SECTION_REQUIREMENTS:
+        if requirement not in normalized_section:
+            errors.append(f"section:{requirement}")
+    for requirement in PLATFORM_AGENT_REQUIREMENTS:
+        if requirement not in normalized_agents:
+            errors.append(f"agents:{requirement}")
+    for disclosure in ("github.com/", "Source:"):
+        if disclosure in section:
+            errors.append(f"disclosure:{disclosure}")
+    return errors
+
+
+def remove_contract_phrase(body: str, phrase: str) -> str:
+    pattern = r"\s+".join(re.escape(part) for part in phrase.split())
+    mutated, count = re.subn(pattern, "removed-contract-clause", body, count=1)
+    if count != 1:
+        raise AssertionError(f"mutation target missing: {phrase}")
+    return mutated
 
 
 class DocIntegrityBehaviorTests(unittest.TestCase):
@@ -409,6 +495,11 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                     ):
                         self.assertNotIn(forbidden, conventions, answers.name)
                     self.assertEqual(
+                        platform_precept_contract_errors(conventions, agents),
+                        [],
+                        answers.name,
+                    )
+                    self.assertEqual(
                         conventions.count(
                             "### CI integrity: unexecuted is not green"
                         ),
@@ -528,9 +619,70 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
         ):
             self.assertIn(required, normalized)
         self.assertIn(
-            "Eight reusable stack-neutral conventions",
+            "Nine reusable stack-neutral conventions",
             anatomy,
         )
+
+    def test_platform_locked_precept_safety_clauses_are_mutation_proved(
+        self,
+    ) -> None:
+        conventions = (
+            ROOT / "template" / "docs" / "ENGINEERING_CONVENTIONS.md"
+        ).read_text(encoding="utf-8")
+        agents = (ROOT / "template" / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertEqual(platform_precept_contract_errors(conventions, agents), [])
+
+        convention_mutations = (
+            PLATFORM_PRECEPT_START,
+            PLATFORM_PRECEPT_END,
+            *PLATFORM_HEADER_FIELDS,
+            "synthetic/test inputs",
+            "Run it on the exact candidate",
+            "machine-observable required check for the exact candidate",
+            "open the PR as a draft",
+            "confirm the `auto-merge` label is absent",
+            "Evidence composes per dimension",
+            "never replaces or reclassifies",
+            "grants no new native-toolchain exception",
+        )
+        for phrase in convention_mutations:
+            with self.subTest(convention_phrase=phrase):
+                mutated = remove_contract_phrase(conventions, phrase)
+                self.assertNotEqual(
+                    platform_precept_contract_errors(mutated, agents), []
+                )
+
+        swapped_markers = conventions.replace(
+            PLATFORM_PRECEPT_START, "temporary-platform-boundary", 1
+        ).replace(PLATFORM_PRECEPT_END, PLATFORM_PRECEPT_START, 1)
+        swapped_markers = swapped_markers.replace(
+            "temporary-platform-boundary", PLATFORM_PRECEPT_END, 1
+        )
+        self.assertNotEqual(
+            platform_precept_contract_errors(swapped_markers, agents), []
+        )
+
+        heading_outside = conventions.replace(
+            PLATFORM_PRECEPT_HEADING, "removed-platform-heading", 1
+        )
+        heading_outside = (
+            f"{PLATFORM_PRECEPT_HEADING}\n" + heading_outside
+        )
+        self.assertNotEqual(
+            platform_precept_contract_errors(heading_outside, agents), []
+        )
+
+        for phrase in (
+            "same repository-owned portable target",
+            "open the PR as a draft",
+            "keep `auto-merge` absent",
+            "until exact-candidate evidence is attached and reviewed",
+        ):
+            with self.subTest(agent_phrase=phrase):
+                mutated = remove_contract_phrase(agents, phrase)
+                self.assertNotEqual(
+                    platform_precept_contract_errors(conventions, mutated), []
+                )
 
     def test_every_optional_overlay_and_all_enabled_composition_stays_green(self) -> None:
         config = json.loads((ROOT / "firestarter.config.json").read_text())
