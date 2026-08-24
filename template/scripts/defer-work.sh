@@ -331,10 +331,12 @@ if ! run_gh_bounded auth status --hostname github.com; then
 fi
 
 origin_url=$(git remote get-url origin 2>/dev/null) || origin_url=
+github_scp_prefix='git''@github.com:'
+github_ssh_prefix='ssh://git''@github.com/'
 case "$origin_url" in
   https://github.com/*) repo_slug=${origin_url#https://github.com/} ;;
-  git@github.com:*) repo_slug=${origin_url#git@github.com:} ;;
-  ssh://git@github.com/*) repo_slug=${origin_url#ssh://git@github.com/} ;;
+  "$github_scp_prefix"*) repo_slug=${origin_url#"$github_scp_prefix"} ;;
+  "$github_ssh_prefix"*) repo_slug=${origin_url#"$github_ssh_prefix"} ;;
   *) repo_slug= ;;
 esac
 repo_slug=${repo_slug%.git}
