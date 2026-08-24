@@ -47,11 +47,16 @@ jobs:
             done
             test -x "$generated/scripts/repo-hygiene.sh"
             test -x "$generated/scripts/mutation-check.sh"
+            test -x "$generated/scripts/defer-work.sh"
             test -x "$generated/scripts/check-docs.sh"
             test -x "$generated/scripts/check-closing-keywords.sh"
             test -x "$generated/scripts/gate-selftest.sh"
             test -f "$generated/scripts/tests/test-gate-selftest.sh"
             test -f "$generated/scripts/mutation-cases.sh"
+            test -f "$generated/docs/DEFERRED_WORK.md"
+            grep -Fq 'docs/DEFERRED_WORK.md' "$generated/AGENTS.md"
+            grep -Fq 'docs/DEFERRED_WORK.md' "$generated/CLAUDE.md"
+            grep -Fq 'docs/DEFERRED_WORK.md text eol=lf' "$generated/.gitattributes"
             grep -Eq '^repo-hygiene:' "$generated/Makefile"
             grep -Eq '^mutation-check:' "$generated/Makefile"
             grep -Eq '^docs-check:' "$generated/Makefile"
@@ -139,6 +144,9 @@ jobs:
 
       - name: Verify the optional mutation-proof contract
         run: python3 -B -m unittest -v tests.test_mutation_check_contract
+
+      - name: Verify the file-first deferred-work contract
+        run: python3 -B -m unittest -v tests.test_deferred_work_contract
 
       - name: Verify the bounded-execution runner contract
         run: python3 -B -m unittest -v tests.test_bounded_runner_contract
@@ -341,6 +349,8 @@ jobs:
             "$VENV/bin/python" -B -m unittest -v tests.test_repo_hygiene_contract
           MUTATION_CHECK_BASH=/bin/bash \
             "$VENV/bin/python" -B -m unittest -v tests.test_mutation_check_contract
+          DEFER_WORK_BASH=/bin/bash \
+            "$VENV/bin/python" -B -m unittest -v tests.test_deferred_work_contract
           DOC_CHECK_BASH=/bin/bash \
             "$VENV/bin/python" -B -m unittest -v tests.test_doc_integrity_contract
           RELEASE_PARITY_BASH=/bin/bash \

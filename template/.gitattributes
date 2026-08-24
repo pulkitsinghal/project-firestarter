@@ -7,3 +7,4 @@
 *.sh        text eol=lf
 .githooks/* text eol=lf
 .bounded-runner-root text eol=lf
+docs/DEFERRED_WORK.md text eol=lf
