@@ -295,6 +295,23 @@ owner-only actions in [docs/DEPLOY_POLICY.md](docs/DEPLOY_POLICY.md) (deploy,
 credentials, prod-DB migrations, spend, destructive history). Full rationale:
 [docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md).
 
+### Platform-locked gates are explicit, not skipped
+
+When a required target genuinely cannot run on this repository's supported
+hosted runners, follow the [platform-locked gate split](docs/ENGINEERING_CONVENTIONS.md#9-split-platform-locked-gates-without-hiding-them).
+Hosted CI and the compatible-platform full gate must call the same
+repository-owned portable target; the workflow header names the sole omitted
+platform target, constraint, shared target, platform target, evidence location,
+and merge control. Record portable and platform results separately. A portable
+pass does not prove the platform target ran, and missing platform proof is
+unexecuted—not green for that dimension. When platform proof is required but is
+not a machine-observable required check, open the PR as a draft and keep
+`auto-merge` absent (`hold` / `no-auto-merge`) until exact-candidate evidence is
+attached and reviewed. This convention does not relax the no-host-SDK rule or
+the required **Tests** / **Lint & Typecheck** / **Build** job names, and it grants
+no new native-toolchain exception. A non-containerizable stack proposal is a
+separate owner decision outside this convention.
+
 ### Hermetic unit tests (a precept)
 
 The default unit suite must run with **no network and no secrets** — `make test`
@@ -426,6 +443,6 @@ Adding a toolchain means: add a profiled Compose service, pin the image, add
 - CI secrets: `docs/ci-secrets.md`
 - Storyboard harness: `docs/storyboard-harness.md` → `docs/STORYBOARD.md`
 - Feature handoff evidence: `docs/FEATURE_HANDOFF.md`
-- Engineering conventions (quality gate, stacked PRs, forking work, decision
-  briefs): `docs/ENGINEERING_CONVENTIONS.md`
+- Engineering conventions (quality gate, platform-locked CI splits, stacked
+  PRs, forking work, decision briefs): `docs/ENGINEERING_CONVENTIONS.md`
 - Project-earned rules and their evidence: `docs/PRACTICES.md`

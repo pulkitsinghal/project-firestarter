@@ -129,7 +129,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
 | `docs/ci-secrets.md` | How to provide CI secrets without leaking them |
 | `docs/SECURITY_INCIDENT_ROTATION.md` | Value-free break-glass checklist; all live/provider/destructive actions are owner-only, including optional history cleanup |
 | `docs/FEATURE_HANDOFF.md` | Evidence bundle for user/dev feature review |
-| `docs/ENGINEERING_CONVENTIONS.md` | Quality gate, stacked-PR recovery, decision briefs, and reversible canonical adoption with golden/release parity |
+| `docs/ENGINEERING_CONVENTIONS.md` | Quality gate, explicit platform-locked CI splits, stacked-PR recovery, decision briefs, and reversible canonical adoption with golden/release parity |
 | `docs/PRACTICES.md` | Project-earned rules, each grounded in safe evidence and what it cost |
 | `Makefile` | All common dev commands (`make help`) |
 | `backend/migrations/` | Forward-only SQL migrations |
