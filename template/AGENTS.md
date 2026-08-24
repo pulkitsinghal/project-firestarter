@@ -66,6 +66,26 @@ evidence, **what it cost**, and the generalized rule there; keep task state in
 At project milestones, sweep recent findings, postmortems, review notes, and
 commits for stranded rules and promote the durable ones.
 
+## Never lose deferred work (a precept)
+
+Any pipeline that filters, skips, parks, blocks, or defers an item must record
+repository-safe metadata in the tracked `docs/DEFERRED_WORK.md` ledger before it
+may report that item as safely deferred. Use `scripts/defer-work.sh` so the
+local, fail-closed write happens before the optional best-effort GitHub issue
+projection. The ledger's leaf record is authoritative; status docs, dashboards,
+and issues are derivative views and must not override it. Every record names an
+opaque content-independent `dw-` ID, status, dependency, and concrete completion
+test.
+
+Never put credentials, private records, regulated data, identities, production
+identifiers, parked payloads, or competitive details in the ledger or tracker.
+Keep sensitive source material in its approved private/encrypted store and use
+only an opaque safe reference. Local-write failure is blocking and must not call
+the tracker; network/auth/tracker failure after local success is a warning and
+the exact record can be replayed. Read
+[docs/DEFERRED_WORK.md](docs/DEFERRED_WORK.md) for the format, concurrency, and
+recovery boundary.
+
 ## Local TLS and certificate authority
 
 Read [docs/LOCAL_TLS.md](docs/LOCAL_TLS.md) before changing local HTTPS. Reuse

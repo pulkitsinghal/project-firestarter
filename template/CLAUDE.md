@@ -87,6 +87,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   yields a durable rule, record safe evidence, **what it cost**, and the
   generalized rule in `docs/PRACTICES.md`. At milestones, sweep recent findings,
   postmortems, review notes, and commits for rules stranded where they happened.
+- **Persist before declaring work deferred.** Pipelines that filter, skip, park,
+  block, or defer must use `scripts/defer-work.sh`: the repository-safe leaf
+  record in `docs/DEFERRED_WORK.md` must succeed first; the content-free GitHub
+  issue is a best-effort derivative. Never put secrets, private records, parked
+  payloads, identities, or competitive details in either surface.
 
 ## Domain invariants (non-negotiable)
 
@@ -126,6 +131,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
 | `ARCHITECTURE.md` | Layers, data model, invariants |
 | `PROJECT_STATUS_AND_NEXT_STEPS.md` | MVP phases, what's done, what's next |
 | `docs/OPEN_QUESTIONS.md` | Deferred decisions and known gaps |
+| `docs/DEFERRED_WORK.md` | Authoritative file-first ledger for safely deferred pipeline work |
 | `docs/ci-secrets.md` | How to provide CI secrets without leaking them |
 | `docs/SECURITY_INCIDENT_ROTATION.md` | Value-free break-glass checklist; all live/provider/destructive actions are owner-only, including optional history cleanup |
 | `docs/FEATURE_HANDOFF.md` | Evidence bundle for user/dev feature review |
