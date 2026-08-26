@@ -169,12 +169,13 @@ and optional history cleanup stay owner actions.
   deny-rules for the blanket forms plus a SessionStart hook that warns on a dirty
   tree (Claude Code); the norm holds for every tool.
 - **Owner-gated work → hand it off as a labeled issue, don't block.** Some steps
-  are owner-only — prod credentials, prod-DB migrations, deploys, billing (see
+  are owner-only — prod credentials, prod-DB migrations, deploys outside the
+  self-authorized deploy-policy lane, and billing (see
   [docs/DEPLOY_POLICY.md](docs/DEPLOY_POLICY.md)). When you hit one, don't stall
-  or bury the ask in chat: open a **self-contained GitHub issue** whose body is a
-  copy-paste runbook — exact commands, a verify step, done-criteria checkboxes —
-  that the owner (or a session that holds the creds) can execute cold, and label
-  it `owner-action`. That turns every hand-off into a filterable queue:
+  or bury the ask in chat: open a **self-contained GitHub issue** whose body is
+  a copy-paste runbook — exact commands, a verify step, done-criteria checkboxes
+  — that the owner (or a session that holds the creds) can execute cold, and
+  label it `owner-action`. That turns every hand-off into a filterable queue:
   ```bash
   gh label create owner-action --color 1d76db \
     --description "Needs the owner (prod creds / deploys)" 2>/dev/null || true
@@ -183,6 +184,62 @@ and optional history cleanup stay owner actions.
   ```
   Reuse an existing `owner-action` issue if one already tracks the task instead of
   filing a duplicate.
+
+<!-- irreversible-action-precept:start -->
+### Irreversible external actions are preview-first (a precept)
+
+Code quality, merge authority, and side-effect authority are separate. Any
+operation that spends money or makes an external change that cannot be reliably
+undone is **plan/dry-run by default**. This includes purchases and paid-resource
+changes as well as destructive data, account, permission, credential, message,
+or publication actions. A deploy stays in the self-authorized lane only when it
+is cost-neutral and mechanically reversible, its audience and content class are
+already authorized, and it is not the first disclosure of private, regulated,
+or competitively sensitive material. Infrastructure rollback cannot retract a
+disclosure. Classify each deploy substep independently: migrations, DNS/IAM,
+messages/webhooks, billing, and first disclosure may still be gated. This
+precept never grants authority for an owner-only action.
+
+Before an irreversible or spending action may execute:
+
+1. **Preview the exact scope without making the change.** State the actor,
+   target, environment, effect, inputs, audience/content class, source state or
+   quote revision, quantity, all-in maximum spend, expiry, and rollback or
+   compensation path using repository-safe identifiers. Interactive agents say
+   what they are about to do and wait before invoking, queueing, or spawning the
+   action; they never infer consent from urgency, earlier discussion, or
+   approval of a different action.
+2. **Require fresh, explicit confirmation bound to that preview.** A changed
+   target, effect, amount, cap, input, or environment invalidates confirmation.
+   Blank, blanket, stale, or replayed confirmation fails closed. Non-interactive
+   tools expose a deliberate `--execute`/`--yes` gate, but the flag only arms
+   execution; it is not consent. Execution also requires a one-use authorization
+   bound to the canonical scope, confirmer authority, state/quote revision,
+   expiry, and spend cap. Omitting either boundary must perform no external
+   write. The authorization is valid only for the same normalized scope executed
+   by that invocation; it is never reusable blanket consent.
+3. **Make money and retries bounded.** The maximum total authorized spend binds
+   currency, quantity, fees/tax, billing period, and any renewal commitment. A
+   stable idempotency key binds that same scope and is reused across reconciliation
+   retries. Other irreversible writes use an idempotency key or an equivalent
+   provider precondition when available. If neither exists, make at most one
+   attempt, then reconcile or hand off to the owner. An indeterminate outcome is
+   reconciled before retry and is never auto-retried blind.
+4. **Journal intent before execution, then the observed outcome.** A durable,
+   sanitized write-ahead intent must succeed before the provider call. If the
+   outcome cannot be durably appended after the call, report `indeterminate`,
+   retain the same idempotency key, and reconcile before any retry. Public or
+   repository journals use random opaque operation IDs or keyed digests; any
+   provider-ID mapping belongs in an approved private store. Never record
+   credentials, private records, identities, production identifiers, payloads,
+   or competitive details.
+
+Scripts that implement this boundary must test that the default path is a true
+no-op, unsafe invocations are rejected, caps are enforced, duplicate/replayed
+execution is safe, and journal/reconciliation failures cannot report success.
+When authority or reversibility is uncertain, fail closed and use the
+`owner-action` hand-off above.
+<!-- irreversible-action-precept:end -->
 
 ### When to commit
 Commit at the smallest unit of work that leaves the tree in a revert-worthy
@@ -311,8 +368,9 @@ Nothing beyond review + the pyramid is required to validate code quality — don
 hold merge-ready work for a review layer the gate already covers, and name which
 layers exist and ran rather than skipping one silently. This is a **quality**
 gate, not a **side-effect** gate: it authorizes merging code, never the
-owner-only actions in [docs/DEPLOY_POLICY.md](docs/DEPLOY_POLICY.md) (deploy,
-credentials, prod-DB migrations, spend, destructive history). Full rationale:
+owner-only actions in [docs/DEPLOY_POLICY.md](docs/DEPLOY_POLICY.md) (credentials,
+prod-DB migrations, deploys outside its self-authorized lane, spend, destructive
+history). Full rationale:
 [docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md).
 
 ### Platform-locked gates are explicit, not skipped

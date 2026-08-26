@@ -57,9 +57,17 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
 - **The quality gate is code review + the test pyramid.** unit → integration →
   API → e2e, run locally at high intensity in Docker. That gate is sufficient to
   validate code quality — no extra human sign-off is needed to merge. It is a
-  code-quality gate only, never a licence for owner-gated side-effects (deploy,
-  credentials, prod migrations, spend). See
+  code-quality gate only, never a licence for owner-gated side-effects
+  (credentials, prod migrations, spend, or deploys outside the self-authorized
+  deploy-policy lane). See
   [docs/ENGINEERING_CONVENTIONS.md](docs/ENGINEERING_CONVENTIONS.md).
+- **Preview irreversible actions; never infer consent.** Spending and external
+  changes that cannot be reliably undone are plan/dry-run by default, require
+  fresh one-use authorization bound to the exact scope, use all-in spend bounds
+  and idempotent execution, and write sanitized intent before the provider call.
+  A flag only arms execution; it is not consent. See *Irreversible external
+  actions are preview-first* in [AGENTS.md](AGENTS.md); confirmation never grants
+  missing owner authority.
 - **Conventional commits, required.** `type(scope): subject`. Types:
   `feat fix refactor chore docs test ci build`. Subject ≤ 100 chars.
 - **Forward-only migrations.** Never edit an applied migration except for

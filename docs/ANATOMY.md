@@ -37,8 +37,8 @@ docs/                     this map, plus how-to guides
 
 | File | What it is | Lifted from |
 |------|-----------|-------------|
-| `AGENTS.md` | Standing brief for AI agents: branch/commit/merge workflow, push policy, gates | both (sibling phrasing) |
-| `CLAUDE.md` | Claude Code context: owner preferences, invariants, CI table | both |
+| `AGENTS.md` | Standing brief for AI agents: branch/commit/merge workflow, push policy, gates, and a preview-first contract for irreversible or spending actions | both (sibling phrasing) |
+| `CLAUDE.md` | Claude Code context: owner preferences, invariants, CI table, and the irreversible-action pointer | both |
 | `CONTRIBUTING.md` | Human-facing short version of the workflow | both |
 | `ARCHITECTURE.md` | Scaffold for layers/data-model/invariants | both (genericized) |
 | `PROJECT_STATUS_AND_NEXT_STEPS.md` | Living "where are we" doc | both |
@@ -67,7 +67,7 @@ docs/                     this map, plus how-to guides
 | `docs/OPEN_QUESTIONS.md` | Template for the deferred-decisions log (incl. a backup-strategy stub) | both |
 | `docs/DEFERRED_WORK.md` + `scripts/defer-work.sh` | Authoritative repository-safe deferred-work ledger plus a Bash 3.2 guard: validate and canonicalize bounded leaf metadata from stdin, serialize a same-tree read/append/atomic-rename, make canonical-byte replay idempotent, reject conflicting reuse and stale locks, then process-bound a content-free best-effort GitHub issue projection. Local failure never invokes the tracker; tracker failure never rolls back local success; an exact closed projection is reopened | genericized deferred-pipeline safety net (#12) |
 | `docs/GO_LIVE.md` | Clean-slate run/verify/go-live checklist tying together secrets, release, deploy, backups | sibling |
-| `docs/DEPLOY_POLICY.md` | The *decision frame* `GO_LIVE`/`DEPLOY` don't cover: when a deploy is **self-authorized** (3 conditions — ample testing, snapshot verification, post-deploy check) vs. what stays owner-only (credentials, prod-DB migrations, billing) | sibling |
+| `docs/DEPLOY_POLICY.md` | The *decision frame* `GO_LIVE`/`DEPLOY` don't cover: when a deploy is **self-authorized** (3 conditions — ample testing, snapshot verification, post-deploy check) vs. what stays owner-only, while keeping execution safety and deploy authorization distinct | sibling |
 | `docs/UNLISTED_PUBLISHING.md` | Three-tier public/unlisted/authenticated-review posture: response headers + robots + random path for non-sensitive unlisted work; explicit identity audience for sensitive review; separate human email-OTP and machine Service Auth credentials; no anonymous origin escape hatch | sibling review/share sites |
 | `docs/COMPLIANCE_POSTURE.md` | Fill-in template: which regimes you're in/out of scope for + a risk→control→where table | sibling |
 | `docs/REMOTE_AGENT_ACCESS.md` | Hardened decision doc for remote-driving the local stack: trigger-don't-connect (self-hosted `deploy.yml`), never expose `docker.sock`. No executable shipped | sibling (security-reviewed) |
