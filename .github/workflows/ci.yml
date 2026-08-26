@@ -305,6 +305,122 @@ jobs:
           python3 bin/generate.py --defaults --set project_slug=nok8s --output "$OUT/d"
           test ! -d "$OUT/d/k8s" && echo "✓ k8s absent unless include_k8s=yes"
 
+      - name: Verify the agent-eval-harness clean-room add-on contract
+        env:
+          PYTHONPATH: addons/agent_eval_harness/common
+        run: |
+          set -euo pipefail
+          # Deterministic self-validation (schema/enum lockstep, synthetic
+          # fixtures, privacy scan) plus the generator/privacy contract.
+          python3 -B -m tools.agent_eval_harness.run_validation
+          python3 -B -m unittest -v tests.test_agent_eval_harness_contract
+
+          OUT="$(mktemp -d)"
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" \
+              --set include_agent_eval_harness=yes \
+              --output "$OUT/$ex"
+            test -f "$OUT/$ex/tools/agent_eval_harness/VERSION"
+          done
+          if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::token leak in agent_eval_harness add-on output"; exit 1
+          fi
+          # The stamped copy self-validates identically (no network, stdlib only).
+          PYTHONPATH="$OUT/fastapi-next" python3 -B -m tools.agent_eval_harness.run_validation
+
+          python3 bin/generate.py --defaults --output "$OUT/off-by-default"
+          test ! -e "$OUT/off-by-default/tools/agent_eval_harness"
+          echo "✓ agent_eval_harness is removable and off by default"
+
+      - name: Verify the reviewed-extraction clean-room add-on contract
+        env:
+          PYTHONPATH: addons/reviewed_extraction/common
+        run: |
+          set -euo pipefail
+          # Deterministic self-validation (schema/enum lockstep, synthetic
+          # fixtures, privacy scan) plus the generator/privacy contract.
+          python3 -B -m tools.reviewed_extraction.run_validation
+          python3 -B -m unittest -v tests.test_reviewed_extraction_contract
+
+          OUT="$(mktemp -d)"
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" \
+              --set include_reviewed_extraction=yes \
+              --output "$OUT/$ex"
+            test -f "$OUT/$ex/tools/reviewed_extraction/VERSION"
+          done
+          if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::token leak in reviewed_extraction add-on output"; exit 1
+          fi
+          # The stamped copy self-validates identically (no network, stdlib only).
+          PYTHONPATH="$OUT/fastapi-next" python3 -B -m tools.reviewed_extraction.run_validation
+
+          python3 bin/generate.py --defaults --output "$OUT/off-by-default"
+          test ! -e "$OUT/off-by-default/tools/reviewed_extraction"
+          echo "✓ reviewed_extraction is removable and off by default"
+
+      - name: Verify the mcp-security-gate clean-room add-on contract
+        env:
+          PYTHONPATH: addons/mcp_security_gate/common
+        run: |
+          set -euo pipefail
+          # Deterministic self-validation (schema/enum lockstep, synthetic
+          # fixtures, privacy scan) plus the generator/privacy contract.
+          python3 -B -m tools.mcp_security_gate.run_validation
+          python3 -B -m unittest -v tests.test_mcp_security_gate_contract
+
+          OUT="$(mktemp -d)"
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" \
+              --set include_mcp_security_gate=yes \
+              --output "$OUT/$ex"
+            test -f "$OUT/$ex/tools/mcp_security_gate/VERSION"
+          done
+          if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::token leak in mcp_security_gate add-on output"; exit 1
+          fi
+          # The stamped copy self-validates identically (no network, stdlib only).
+          PYTHONPATH="$OUT/fastapi-next" python3 -B -m tools.mcp_security_gate.run_validation
+
+          python3 bin/generate.py --defaults --output "$OUT/off-by-default"
+          test ! -e "$OUT/off-by-default/tools/mcp_security_gate"
+          echo "✓ mcp_security_gate is removable and off by default"
+
+      - name: Verify the architecture-manifest clean-room add-on contract
+        env:
+          PYTHONPATH: addons/architecture_manifest/common
+        run: |
+          set -euo pipefail
+          # Deterministic self-validation (schema/enum lockstep, synthetic
+          # fixtures, privacy scan) plus the generator/privacy contract.
+          python3 -B -m tools.architecture_manifest.run_validation
+          python3 -B -m unittest -v tests.test_architecture_manifest_contract
+
+          OUT="$(mktemp -d)"
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" \
+              --set include_architecture_manifest=yes \
+              --output "$OUT/$ex"
+            test -f "$OUT/$ex/tools/architecture_manifest/VERSION"
+          done
+          if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::token leak in architecture_manifest add-on output"; exit 1
+          fi
+          # The stamped copy self-validates identically (no network, stdlib only).
+          PYTHONPATH="$OUT/fastapi-next" python3 -B -m tools.architecture_manifest.run_validation
+
+          python3 bin/generate.py --defaults --output "$OUT/off-by-default"
+          test ! -e "$OUT/off-by-default/tools/architecture_manifest"
+          echo "✓ architecture_manifest is removable and off by default"
+
   lint:
     name: Lint & Typecheck
     runs-on: ubuntu-latest

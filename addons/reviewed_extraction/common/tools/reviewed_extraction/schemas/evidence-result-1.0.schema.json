@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:reviewed-extraction:evidence-result:1.0",
+  "title": "Content-free evidence verification result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "verified", "code", "sourceId", "sourceDigest"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "verified": {"type": "boolean"},
+    "code": {
+      "enum": ["verified", "digest-mismatch", "offset-out-of-range"]
+    },
+    "sourceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "sourceDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

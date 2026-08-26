@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:reviewed-extraction:reduced-decision:1.0",
+  "title": "Deterministic per-field reduced decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "fieldPath",
+    "outcome",
+    "releasedValue",
+    "winningClaimId",
+    "actorId",
+    "purpose",
+    "recipientId",
+    "sourceId",
+    "sourceDigest",
+    "contributingClaimIds",
+    "supersededClaimIds"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "fieldPath": {"$ref": "#/$defs/fieldPath"},
+    "outcome": {
+      "enum": [
+        "releasable-confirmed",
+        "releasable-corrected",
+        "withheld-proposed",
+        "withheld-unknown",
+        "withheld-omitted",
+        "withheld-conflicted",
+        "withheld-superseded"
+      ]
+    },
+    "releasedValue": {
+      "anyOf": [{"$ref": "#/$defs/valueToken"}, {"type": "null"}]
+    },
+    "winningClaimId": {
+      "anyOf": [{"$ref": "#/$defs/opaqueId"}, {"type": "null"}]
+    },
+    "actorId": {
+      "anyOf": [{"$ref": "#/$defs/opaqueId"}, {"type": "null"}]
+    },
+    "purpose": {
+      "anyOf": [
+        {"enum": ["treatment", "payment", "operations", "research", "patient-access"]},
+        {"type": "null"}
+      ]
+    },
+    "recipientId": {
+      "anyOf": [{"$ref": "#/$defs/opaqueId"}, {"type": "null"}]
+    },
+    "sourceId": {
+      "anyOf": [{"$ref": "#/$defs/opaqueId"}, {"type": "null"}]
+    },
+    "sourceDigest": {
+      "anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]
+    },
+    "contributingClaimIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/opaqueId"}
+    },
+    "supersededClaimIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/opaqueId"}
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "fieldPath": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?:\\.[A-Za-z0-9][A-Za-z0-9_-]{0,63}){0,15}$"
+    },
+    "valueToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

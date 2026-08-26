@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.local/mcp_security_gate/risk-manifest-1.0.schema.json",
+  "title": "MCP server risk manifest 1.0",
+  "description": "A static, synthetic description of an MCP server's declared security posture. Contains no endpoints, credentials, tokens, or payloads; only opaque IDs and closed enums.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "serverId",
+    "tokenPosture",
+    "grantedAudienceId",
+    "upstreamAudienceId",
+    "secretLogPosture",
+    "degradedBehavior",
+    "tools"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "serverId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "tokenPosture": {
+      "type": "string",
+      "enum": ["audience-bound", "blind-passthrough", "unknown"]
+    },
+    "grantedAudienceId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "upstreamAudienceId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "secretLogPosture": {
+      "type": "string",
+      "enum": ["enforced", "absent", "unknown"]
+    },
+    "degradedBehavior": {
+      "type": "string",
+      "enum": ["fail-closed", "fail-open", "unknown"]
+    },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/tool"
+      }
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "boundedIntOrNull": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toolId",
+        "effect",
+        "reversibility",
+        "requiresConfirmation",
+        "annotationHandling",
+        "outputSanitization",
+        "timeoutMs",
+        "rateLimitPerMinute",
+        "maxResponseBytes"
+      ],
+      "properties": {
+        "toolId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "effect": {
+          "type": "string",
+          "enum": ["read-only", "idempotent-write", "external-send", "destructive", "unknown"]
+        },
+        "reversibility": {
+          "type": "string",
+          "enum": ["read-only", "reversible", "compensating", "irreversible", "unknown"]
+        },
+        "requiresConfirmation": {
+          "type": "boolean"
+        },
+        "annotationHandling": {
+          "type": "string",
+          "enum": ["treated-as-data", "trusted-as-instructions", "unknown"]
+        },
+        "outputSanitization": {
+          "type": "string",
+          "enum": ["enforced", "absent", "unknown"]
+        },
+        "timeoutMs": {
+          "$ref": "#/$defs/boundedIntOrNull"
+        },
+        "rateLimitPerMinute": {
+          "$ref": "#/$defs/boundedIntOrNull"
+        },
+        "maxResponseBytes": {
+          "$ref": "#/$defs/boundedIntOrNull"
+        }
+      }
+    }
+  }
+}

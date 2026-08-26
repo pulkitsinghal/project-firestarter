@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:agent-eval-harness:eval-result:1.0",
+  "title": "Deterministic agent-evaluation result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "caseId",
+    "state",
+    "checkResults",
+    "evidenceVerified",
+    "advisoryCritiqueRecorded",
+    "resultDigest"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "caseId": {"$ref": "#/$defs/opaqueId"},
+    "state": {
+      "enum": ["passed", "failed", "needs_review", "unavailable"]
+    },
+    "checkResults": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["checkId", "kind", "blocking", "outcome"],
+        "properties": {
+          "checkId": {"$ref": "#/$defs/opaqueId"},
+          "kind": {
+            "enum": [
+              "exact-equals",
+              "subset",
+              "regex-match",
+              "numeric-threshold",
+              "ordered-contains"
+            ]
+          },
+          "blocking": {"type": "boolean"},
+          "outcome": {"enum": ["satisfied", "violated", "unavailable"]}
+        }
+      }
+    },
+    "evidenceVerified": {"type": "boolean"},
+    "advisoryCritiqueRecorded": {"type": "boolean"},
+    "resultDigest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

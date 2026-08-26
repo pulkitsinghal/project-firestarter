@@ -238,6 +238,10 @@ def main() -> int:
         "cross_host_agent",
         "version_changelog",
         "trusted_workstation",
+        "agent_eval_harness",
+        "reviewed_extraction",
+        "mcp_security_gate",
+        "architecture_manifest",
     ):
         if values.get(f"include_{addon}") == "yes":
             overlaid = False

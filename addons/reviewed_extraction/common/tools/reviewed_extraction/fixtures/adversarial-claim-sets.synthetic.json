@@ -1,0 +1,201 @@
+{
+  "schemaVersion": "1.0",
+  "syntheticOnly": true,
+  "purposeBoundary": "reviewer-confirmed-values-only-leave",
+  "coverage": {
+    "R01": "test_reducer.ReducerTests.test_confirmed_reduces_to_releasable",
+    "R02": "test_reducer.ReducerTests.test_proposed_only_is_withheld",
+    "R03": "test_reducer.ReducerTests.test_unknown_is_withheld",
+    "R04": "test_reducer.ReducerTests.test_omitted_is_withheld",
+    "R05": "test_reducer.ReducerTests.test_corrected_overrides_confirmed",
+    "S01": "test_reducer.ReducerTests.test_supersedes_link_activates_newer",
+    "S02": "test_reducer.ReducerTests.test_all_superseded_is_withheld",
+    "X01": "test_reducer.ReducerTests.test_two_confirmed_disagree_conflict",
+    "X02": "test_reducer.ReducerTests.test_two_corrected_disagree_conflict",
+    "X03": "test_reducer.ReducerTests.test_explicit_conflicted_withholds",
+    "E01": "test_egress.EgressTests.test_confirmed_and_requested_is_released",
+    "E02": "test_egress.EgressTests.test_confirmed_but_not_requested_never_leaves",
+    "E03": "test_egress.EgressTests.test_proposed_requested_is_dropped",
+    "E04": "test_egress.EgressTests.test_requested_without_claim_is_dropped",
+    "E05": "test_egress.EgressTests.test_corrected_and_requested_is_released",
+    "U01": "test_egress.EgressTests.test_purpose_mismatch_is_dropped",
+    "U02": "test_egress.EgressTests.test_recipient_mismatch_is_dropped",
+    "V01": "test_evidence.EvidenceTests.test_matching_digest_and_offsets_verify",
+    "V02": "test_evidence.EvidenceTests.test_digest_mismatch_is_flagged",
+    "V03": "test_evidence.EvidenceTests.test_offset_out_of_range_is_flagged",
+    "A01": "test_adversarial.AdversarialTests.test_unknown_state_is_rejected",
+    "A02": "test_adversarial.AdversarialTests.test_unknown_claim_field_is_rejected",
+    "A04": "test_adversarial.AdversarialTests.test_duplicate_claim_id_is_rejected",
+    "A05": "test_adversarial.AdversarialTests.test_conflicted_field_never_egresses"
+  },
+  "scenarios": [
+    {
+      "id": "R01",
+      "category": "reduce",
+      "transition": "single-confirmed-claim",
+      "expectedCode": "releasable-confirmed",
+      "expectedReleased": 1
+    },
+    {
+      "id": "R02",
+      "category": "reduce",
+      "transition": "proposed-only-never-reviewed",
+      "expectedCode": "withheld-proposed",
+      "expectedReleased": 0
+    },
+    {
+      "id": "R03",
+      "category": "reduce",
+      "transition": "reviewer-marked-unknown",
+      "expectedCode": "withheld-unknown",
+      "expectedReleased": 0
+    },
+    {
+      "id": "R04",
+      "category": "reduce",
+      "transition": "reviewer-omitted-field",
+      "expectedCode": "withheld-omitted",
+      "expectedReleased": 0
+    },
+    {
+      "id": "R05",
+      "category": "reduce",
+      "transition": "correction-overrides-confirmation",
+      "expectedCode": "releasable-corrected",
+      "expectedReleased": 1
+    },
+    {
+      "id": "S01",
+      "category": "supersession",
+      "transition": "newer-claim-supersedes-older",
+      "expectedCode": "releasable-confirmed",
+      "expectedReleased": 1
+    },
+    {
+      "id": "S02",
+      "category": "supersession",
+      "transition": "sole-claim-superseded",
+      "expectedCode": "withheld-superseded",
+      "expectedReleased": 0
+    },
+    {
+      "id": "X01",
+      "category": "conflict",
+      "transition": "two-confirmed-values-disagree",
+      "expectedCode": "withheld-conflicted",
+      "expectedReleased": 0
+    },
+    {
+      "id": "X02",
+      "category": "conflict",
+      "transition": "two-corrected-values-disagree",
+      "expectedCode": "withheld-conflicted",
+      "expectedReleased": 0
+    },
+    {
+      "id": "X03",
+      "category": "conflict",
+      "transition": "explicit-conflicted-state",
+      "expectedCode": "withheld-conflicted",
+      "expectedReleased": 0
+    },
+    {
+      "id": "E01",
+      "category": "egress",
+      "transition": "confirmed-and-requested",
+      "expectedCode": "released",
+      "expectedReleased": 1
+    },
+    {
+      "id": "E02",
+      "category": "egress",
+      "transition": "confirmed-but-not-requested",
+      "expectedCode": "released",
+      "expectedReleased": 1
+    },
+    {
+      "id": "E03",
+      "category": "egress",
+      "transition": "proposed-and-requested",
+      "expectedCode": "dropped-not-releasable",
+      "expectedReleased": 0
+    },
+    {
+      "id": "E04",
+      "category": "egress",
+      "transition": "requested-path-without-claim",
+      "expectedCode": "dropped-no-decision",
+      "expectedReleased": 0
+    },
+    {
+      "id": "E05",
+      "category": "egress",
+      "transition": "corrected-and-requested",
+      "expectedCode": "released",
+      "expectedReleased": 1
+    },
+    {
+      "id": "U01",
+      "category": "purpose",
+      "transition": "requested-purpose-differs",
+      "expectedCode": "dropped-purpose-mismatch",
+      "expectedReleased": 0
+    },
+    {
+      "id": "U02",
+      "category": "purpose",
+      "transition": "requested-recipient-differs",
+      "expectedCode": "dropped-recipient-mismatch",
+      "expectedReleased": 0
+    },
+    {
+      "id": "V01",
+      "category": "evidence",
+      "transition": "digest-and-offsets-match",
+      "expectedCode": "verified",
+      "expectedReleased": 0
+    },
+    {
+      "id": "V02",
+      "category": "evidence",
+      "transition": "source-substituted",
+      "expectedCode": "digest-mismatch",
+      "expectedReleased": 0
+    },
+    {
+      "id": "V03",
+      "category": "evidence",
+      "transition": "offset-beyond-source",
+      "expectedCode": "offset-out-of-range",
+      "expectedReleased": 0
+    },
+    {
+      "id": "A01",
+      "category": "parse",
+      "transition": "unknown-review-state",
+      "expectedCode": "rejected",
+      "expectedReleased": 0
+    },
+    {
+      "id": "A02",
+      "category": "parse",
+      "transition": "unknown-claim-field",
+      "expectedCode": "rejected",
+      "expectedReleased": 0
+    },
+    {
+      "id": "A04",
+      "category": "parse",
+      "transition": "duplicate-claim-id",
+      "expectedCode": "rejected",
+      "expectedReleased": 0
+    },
+    {
+      "id": "A05",
+      "category": "egress",
+      "transition": "conflicted-field-requested",
+      "expectedCode": "dropped-not-releasable",
+      "expectedReleased": 0
+    }
+  ]
+}

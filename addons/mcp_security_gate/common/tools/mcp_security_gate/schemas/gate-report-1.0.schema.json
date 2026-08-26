@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://firestarter.local/mcp_security_gate/gate-report-1.0.schema.json",
+  "title": "MCP security gate report 1.0",
+  "description": "The deterministic verdict set produced by evaluating a risk manifest, plus a fail-closed overall disposition.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "serverId", "disposition", "failClosed", "findings"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "serverId": {
+      "$ref": "#/$defs/opaqueId"
+    },
+    "disposition": {
+      "type": "string",
+      "enum": ["allow", "block"]
+    },
+    "failClosed": {
+      "type": "boolean"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkId", "subjectId", "verdict", "reasonCode"],
+      "properties": {
+        "checkId": {
+          "type": "string",
+          "enum": [
+            "effect-soundness",
+            "confirmation-required",
+            "untrusted-annotation-handling",
+            "token-audience",
+            "output-sanitization",
+            "secret-leakage",
+            "timeout-present",
+            "rate-limit-present",
+            "size-cap-present",
+            "degraded-fail-closed"
+          ]
+        },
+        "subjectId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": ["pass", "fail", "not-applicable"]
+        },
+        "reasonCode": {
+          "type": "string",
+          "enum": [
+            "effect-declared-and-bounded",
+            "effect-undeclared",
+            "effect-reversibility-mismatch",
+            "confirmation-present",
+            "confirmation-missing-for-irreversible",
+            "confirmation-not-required",
+            "annotations-treated-as-data",
+            "annotations-trusted-as-instructions",
+            "annotation-posture-unknown",
+            "token-audience-bound",
+            "token-blind-passthrough",
+            "token-audience-mismatch",
+            "token-posture-unknown",
+            "output-sanitized",
+            "output-unsanitized",
+            "output-posture-unknown",
+            "secrets-redacted",
+            "secret-in-logs",
+            "secret-posture-unknown",
+            "timeout-bounded",
+            "timeout-absent",
+            "rate-limit-bounded",
+            "rate-limit-absent",
+            "size-cap-bounded",
+            "size-cap-absent",
+            "degraded-fails-closed",
+            "degraded-fails-open",
+            "degraded-posture-unknown"
+          ]
+        }
+      }
+    }
+  }
+}
