@@ -11,14 +11,28 @@ The gate is the *process below*, not a manual sign-off — if all three conditio
 hold, the deploy stands and **no rollback is expected**. A well-tested change
 ships without waiting on the owner.
 
+Execution safety is a separate boundary from deploy authorization. A deploy may
+keep the self-authorized path only when it satisfies this policy, is cost-neutral
+and mechanically reversible, its audience/content class is already authorized,
+and it is not a first disclosure of private, regulated, or competitively
+sensitive material. Infrastructure rollback cannot retract a disclosure.
+Classify every substep independently; migrations, DNS/IAM, messages/webhooks,
+billing, and first disclosure may still be gated. If a step spends money or makes
+an external change that cannot be reliably undone, follow *Irreversible external
+actions are preview-first* in [`AGENTS.md`](../AGENTS.md): preview exact scope,
+obtain fresh scope-bound authorization, execute with bounds and replay safety,
+and record a sanitized outcome. That authorization never grants authority for
+the owner-only actions listed below.
+
 ## Self-authorized when ALL THREE hold
 
 1. **Ample testing.** The change is on `master`, green on CI (Tests / Lint &
    Typecheck / Build), and its risky parts were exercised directly — e.g. a DB
-   migration was applied to a live database and its behaviour verified (see
-   [`migration-rollback.md`](migration-rollback.md)), and the build's own guards
-   pass (no default/guessable secret baked in, no `localhost` leak — see
-   [`../SECURITY.md`](../SECURITY.md)).
+   migration was applied to a representative non-production database and its
+   behaviour verified (production application remains a separately owner-gated
+   action; see [`migration-rollback.md`](migration-rollback.md)), and the build's
+   own guards pass (no default/guessable secret baked in, no `localhost` leak —
+   see [`../SECURITY.md`](../SECURITY.md)).
 2. **Snapshot verification.** A **before/after snapshot** of the user-facing
    change was produced and reviewed (what exists → what ships), so the visible
    effect is known in advance rather than discovered live. This is the

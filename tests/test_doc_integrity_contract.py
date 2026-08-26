@@ -57,6 +57,116 @@ PLATFORM_AGENT_REQUIREMENTS = (
     "until exact-candidate evidence is attached and reviewed",
     "grants no new native-toolchain exception",
 )
+IRREVERSIBLE_PRECEPT_HEADING = (
+    "### Irreversible external actions are preview-first (a precept)"
+)
+IRREVERSIBLE_PRECEPT_START = "<!-- irreversible-action-precept:start -->"
+IRREVERSIBLE_PRECEPT_END = "<!-- irreversible-action-precept:end -->"
+IRREVERSIBLE_AGENT_REQUIREMENTS = (
+    "Code quality, merge authority, and side-effect authority are separate",
+    "operation that spends money or makes an external change that cannot be "
+    "reliably undone",
+    "plan/dry-run by default",
+    "A deploy stays in the self-authorized lane only when it is cost-neutral "
+    "and mechanically reversible",
+    "its audience and content class are already authorized",
+    "not the first disclosure of private, regulated, or competitively "
+    "sensitive material",
+    "Infrastructure rollback cannot retract a disclosure",
+    "Classify each deploy substep independently",
+    "migrations, DNS/IAM, messages/webhooks, billing, and first disclosure may "
+    "still be gated",
+    "never grants authority for an owner-only action",
+    "Preview the exact scope without making the change",
+    "State the actor, target, environment, effect, inputs",
+    "audience/content class, source state or quote revision",
+    "source state or quote revision, quantity, all-in maximum spend, expiry",
+    "rollback or compensation path using repository-safe identifiers",
+    "Interactive agents say what they are about to do and wait before "
+    "invoking, queueing, or spawning the action",
+    "never infer consent from urgency, earlier discussion, or approval of a "
+    "different action",
+    "Require fresh, explicit confirmation bound to that preview",
+    "A changed target, effect, amount, cap, input, or environment invalidates "
+    "confirmation",
+    "Blank, blanket, stale, or replayed confirmation fails closed",
+    "the flag only arms execution; it is not consent",
+    "a one-use authorization bound to the canonical scope, confirmer authority, "
+    "state/quote revision, expiry, and spend cap",
+    "Omitting either boundary must perform no external write",
+    "The authorization is valid only for the same normalized scope executed "
+    "by that "
+    "invocation",
+    "it is never reusable blanket consent",
+    "The maximum total authorized spend binds currency, quantity, fees/tax, "
+    "billing period, and any renewal commitment",
+    "A stable idempotency key binds that same scope and is reused across "
+    "reconciliation retries",
+    "If neither exists, make at most one attempt, then reconcile or hand off "
+    "to the owner",
+    "An indeterminate outcome is reconciled before retry and is never "
+    "auto-retried blind",
+    "Journal intent before execution, then the observed outcome",
+    "A durable, sanitized write-ahead intent must succeed before the provider "
+    "call",
+    "If the outcome cannot be durably appended after the call, report "
+    "`indeterminate`, retain the same idempotency key, and reconcile before "
+    "any retry",
+    "Public or repository journals use random opaque operation IDs or keyed "
+    "digests",
+    "any provider-ID mapping belongs in an approved private store",
+    "Never record credentials, private records, identities, production "
+    "identifiers, payloads, or competitive details",
+    "the default path is a true no-op",
+    "unsafe invocations are rejected",
+    "duplicate/replayed execution is safe",
+    "journal/reconciliation failures cannot report success",
+    "fail closed and use the `owner-action` hand-off above",
+)
+IRREVERSIBLE_AGENT_GLOBAL_REQUIREMENTS = (
+    "deploys outside the self-authorized deploy-policy lane",
+    "deploys outside its self-authorized lane",
+)
+IRREVERSIBLE_CLAUDE_REQUIREMENTS = (
+    "Preview irreversible actions; never infer consent",
+    "fresh one-use authorization bound to the exact scope",
+    "all-in spend bounds and idempotent execution",
+    "write sanitized intent before the provider call",
+    "A flag only arms execution; it is not consent",
+    "confirmation never grants missing owner authority",
+    "deploys outside the self-authorized deploy-policy lane",
+)
+IRREVERSIBLE_DEPLOY_REQUIREMENTS = (
+    "Execution safety is a separate boundary from deploy authorization",
+    "A deploy may keep the self-authorized path only when it satisfies this "
+    "policy, is cost-neutral and mechanically reversible",
+    "its audience/content class is already authorized",
+    "not a first disclosure of private, regulated, or competitively sensitive "
+    "material",
+    "Infrastructure rollback cannot retract a disclosure",
+    "Classify every substep independently",
+    "migrations, DNS/IAM, messages/webhooks, billing, and first disclosure may "
+    "still be gated",
+    "preview exact scope, obtain fresh scope-bound authorization, execute with "
+    "bounds and replay safety, and record a sanitized outcome",
+    "That authorization never grants authority for the owner-only actions "
+    "listed below",
+    "a representative non-production database",
+    "production application remains a separately owner-gated action",
+)
+IRREVERSIBLE_AGENT_FORBIDDEN = (
+    "owner-only — prod credentials, prod-DB migrations, deploys, billing",
+    "owner-only actions in [docs/DEPLOY_POLICY.md](docs/DEPLOY_POLICY.md) "
+    "(deploy, credentials",
+)
+IRREVERSIBLE_CLAUDE_FORBIDDEN = (
+    "owner-gated side-effects (deploy, credentials, prod migrations, spend)",
+)
+IRREVERSIBLE_DEPLOY_FORBIDDEN = (
+    "A reversible, cost-neutral deploy is exempt from this precept",
+    "Infrastructure rollback makes publication reversible",
+    "All deploy substeps are self-authorized",
+)
 
 
 def platform_precept_contract_errors(conventions: str, agents: str) -> list[str]:
@@ -91,6 +201,54 @@ def platform_precept_contract_errors(conventions: str, agents: str) -> list[str]
     for disclosure in ("github.com/", "Source:"):
         if disclosure in section:
             errors.append(f"disclosure:{disclosure}")
+    return errors
+
+
+def irreversible_precept_contract_errors(
+    agents: str, claude: str, deploy_policy: str
+) -> list[str]:
+    errors: list[str] = []
+    for marker in (IRREVERSIBLE_PRECEPT_START, IRREVERSIBLE_PRECEPT_END):
+        if agents.count(marker) != 1:
+            errors.append(f"marker:{marker}")
+    if agents.count(IRREVERSIBLE_PRECEPT_HEADING) != 1:
+        errors.append("heading")
+    if errors:
+        return errors
+
+    start_index = agents.index(IRREVERSIBLE_PRECEPT_START)
+    heading_index = agents.index(IRREVERSIBLE_PRECEPT_HEADING)
+    end_index = agents.index(IRREVERSIBLE_PRECEPT_END)
+    if not start_index < heading_index < end_index:
+        return ["boundary-order"]
+    section = agents[
+        start_index + len(IRREVERSIBLE_PRECEPT_START) : end_index
+    ]
+    normalized_section = " ".join(section.split())
+    normalized_agents = " ".join(agents.split())
+    normalized_claude = " ".join(claude.split())
+    normalized_deploy = " ".join(deploy_policy.split())
+    for requirement in IRREVERSIBLE_AGENT_REQUIREMENTS:
+        if requirement not in normalized_section:
+            errors.append(f"agents:{requirement}")
+    for requirement in IRREVERSIBLE_AGENT_GLOBAL_REQUIREMENTS:
+        if requirement not in normalized_agents:
+            errors.append(f"agents-global:{requirement}")
+    for requirement in IRREVERSIBLE_CLAUDE_REQUIREMENTS:
+        if requirement not in normalized_claude:
+            errors.append(f"claude:{requirement}")
+    for requirement in IRREVERSIBLE_DEPLOY_REQUIREMENTS:
+        if requirement not in normalized_deploy:
+            errors.append(f"deploy:{requirement}")
+    for forbidden in IRREVERSIBLE_AGENT_FORBIDDEN:
+        if forbidden in normalized_agents:
+            errors.append(f"agents-contradiction:{forbidden}")
+    for forbidden in IRREVERSIBLE_CLAUDE_FORBIDDEN:
+        if forbidden in normalized_claude:
+            errors.append(f"claude-contradiction:{forbidden}")
+    for forbidden in IRREVERSIBLE_DEPLOY_FORBIDDEN:
+        if forbidden in normalized_deploy:
+            errors.append(f"deploy-contradiction:{forbidden}")
     return errors
 
 
@@ -460,6 +618,10 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         output / "docs" / "ENGINEERING_CONVENTIONS.md"
                     ).read_text(encoding="utf-8")
                     agents = (output / "AGENTS.md").read_text(encoding="utf-8")
+                    claude = (output / "CLAUDE.md").read_text(encoding="utf-8")
+                    deploy_policy = (
+                        output / "docs" / "DEPLOY_POLICY.md"
+                    ).read_text(encoding="utf-8")
                     contributing = (output / "CONTRIBUTING.md").read_text(
                         encoding="utf-8"
                     )
@@ -496,6 +658,13 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         self.assertNotIn(forbidden, conventions, answers.name)
                     self.assertEqual(
                         platform_precept_contract_errors(conventions, agents),
+                        [],
+                        answers.name,
+                    )
+                    self.assertEqual(
+                        irreversible_precept_contract_errors(
+                            agents, claude, deploy_policy
+                        ),
                         [],
                         answers.name,
                     )
@@ -682,6 +851,122 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                 mutated = remove_contract_phrase(agents, phrase)
                 self.assertNotEqual(
                     platform_precept_contract_errors(conventions, mutated), []
+                )
+
+    def test_irreversible_action_precept_is_mutation_proved(self) -> None:
+        agents = (ROOT / "template" / "AGENTS.md").read_text(encoding="utf-8")
+        claude = (ROOT / "template" / "CLAUDE.md").read_text(encoding="utf-8")
+        deploy_policy = (
+            ROOT / "template" / "docs" / "DEPLOY_POLICY.md"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(
+            irreversible_precept_contract_errors(agents, claude, deploy_policy),
+            [],
+        )
+
+        for phrase in (
+            IRREVERSIBLE_PRECEPT_START,
+            IRREVERSIBLE_PRECEPT_END,
+            *IRREVERSIBLE_AGENT_REQUIREMENTS,
+            *IRREVERSIBLE_AGENT_GLOBAL_REQUIREMENTS,
+        ):
+            with self.subTest(agent_phrase=phrase):
+                mutated = remove_contract_phrase(agents, phrase)
+                self.assertNotEqual(
+                    irreversible_precept_contract_errors(
+                        mutated, claude, deploy_policy
+                    ),
+                    [],
+                )
+
+        swapped_markers = agents.replace(
+            IRREVERSIBLE_PRECEPT_START, "temporary-irreversible-boundary", 1
+        ).replace(IRREVERSIBLE_PRECEPT_END, IRREVERSIBLE_PRECEPT_START, 1)
+        swapped_markers = swapped_markers.replace(
+            "temporary-irreversible-boundary", IRREVERSIBLE_PRECEPT_END, 1
+        )
+        self.assertNotEqual(
+            irreversible_precept_contract_errors(
+                swapped_markers, claude, deploy_policy
+            ),
+            [],
+        )
+
+        heading_outside = agents.replace(
+            IRREVERSIBLE_PRECEPT_HEADING, "removed-irreversible-heading", 1
+        )
+        heading_outside = f"{IRREVERSIBLE_PRECEPT_HEADING}\n" + heading_outside
+        self.assertNotEqual(
+            irreversible_precept_contract_errors(
+                heading_outside, claude, deploy_policy
+            ),
+            [],
+        )
+
+        trigger_mutations = {
+            "or-becomes-and": agents.replace(
+                "spends money or makes an external change",
+                "spends money and makes an external change",
+                1,
+            ),
+            "spend-trigger-removed": agents.replace("spends money or ", "", 1),
+            "effect-trigger-removed": remove_contract_phrase(
+                agents,
+                "or makes an external change that cannot be reliably undone",
+            ),
+        }
+        for name, trigger_mutation in trigger_mutations.items():
+            with self.subTest(trigger_mutation=name):
+                self.assertNotEqual(
+                    irreversible_precept_contract_errors(
+                        trigger_mutation, claude, deploy_policy
+                    ),
+                    [],
+                )
+
+        for phrase in IRREVERSIBLE_CLAUDE_REQUIREMENTS:
+            with self.subTest(claude_phrase=phrase):
+                mutated = remove_contract_phrase(claude, phrase)
+                self.assertNotEqual(
+                    irreversible_precept_contract_errors(
+                        agents, mutated, deploy_policy
+                    ),
+                    [],
+                )
+
+        for phrase in IRREVERSIBLE_DEPLOY_REQUIREMENTS:
+            with self.subTest(deploy_phrase=phrase):
+                mutated = remove_contract_phrase(deploy_policy, phrase)
+                self.assertNotEqual(
+                    irreversible_precept_contract_errors(agents, claude, mutated),
+                    [],
+                )
+
+        for forbidden in IRREVERSIBLE_AGENT_FORBIDDEN:
+            with self.subTest(agent_contradiction=forbidden):
+                self.assertNotEqual(
+                    irreversible_precept_contract_errors(
+                        f"{agents}\n{forbidden}\n", claude, deploy_policy
+                    ),
+                    [],
+                )
+
+        for forbidden in IRREVERSIBLE_CLAUDE_FORBIDDEN:
+            with self.subTest(claude_contradiction=forbidden):
+                self.assertNotEqual(
+                    irreversible_precept_contract_errors(
+                        agents, f"{claude}\n{forbidden}\n", deploy_policy
+                    ),
+                    [],
+                )
+
+        for forbidden in IRREVERSIBLE_DEPLOY_FORBIDDEN:
+            with self.subTest(deploy_contradiction=forbidden):
+                self.assertNotEqual(
+                    irreversible_precept_contract_errors(
+                        agents, claude, f"{deploy_policy}\n{forbidden}\n"
+                    ),
+                    [],
                 )
 
     def test_every_optional_overlay_and_all_enabled_composition_stays_green(self) -> None:
