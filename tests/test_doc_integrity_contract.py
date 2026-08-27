@@ -167,6 +167,116 @@ IRREVERSIBLE_DEPLOY_FORBIDDEN = (
     "Infrastructure rollback makes publication reversible",
     "All deploy substeps are self-authorized",
 )
+ROLLBACK_HEADING = "# Rollback decision frame"
+ROLLBACK_START = "<!-- rollback-decision-frame:start -->"
+ROLLBACK_END = "<!-- rollback-decision-frame:end -->"
+ROLLBACK_REQUIREMENTS = (
+    "Rollback is a recovery decision, not execution authority",
+    "Production database restores remain owner-gated",
+    "pause only affected deploys, migrations, writers, and repair attempts",
+    "Keep monitoring, containment, safety, and reconciliation workers running",
+    "Preserve privacy-safe evidence",
+    "Public or repository records use opaque identifiers",
+    "two primary recovery lanes",
+    "Promotion does not itself recover state",
+    "Treat disclosure and downstream effects separately",
+    "Neither lane retracts a disclosure",
+    "the exact target artifact is immutable, provenance-verified",
+    "reads and writes are proven against the current schema and data semantics",
+    "permissions, jobs, and queued messages",
+    "reviewed, bounded, production-safe probes that use synthetic identities",
+    "Do not run a generic API/E2E suite against production",
+    "must pass the preview-first irreversible-action gate",
+    "Do not cycle between artifacts while compatibility or the live outcome is "
+    "indeterminate",
+    "expand/transition/contract migration",
+    "current application with the current schema",
+    "previous application with the current schema",
+    "current application with the previous schema",
+    "Dual-write is optional; when used, prove idempotency and convergence",
+    "remove the old contract only after the rollback window closes",
+    "no supported release depends on it",
+    '"Additive" SQL can still break an older release',
+    "Prefer the forward-only repair",
+    "source environment, consistency boundary, migration head",
+    "artifact/config revision, format/engine version, checksum, key availability",
+    "retention through the rollback window",
+    "recovery-point objective (RPO)",
+    "recovery-time objective (RTO)",
+    "last successful isolated restore drill",
+    "A backup file or provider badge is not restore proof",
+    "Inventory app-owned and provider-managed dependencies needed for "
+    "application integrity",
+    "state the estimated write-loss window",
+    "obtain explicit owner acceptance of that loss/compensation plan",
+    "restore into an isolated target first",
+    "preview the exact source point, destination, scope, cutover, write-fence",
+    "drain or park affected queues and jobs, record a final high-water mark",
+    "verify affected writers reject new writes and fence stale writers",
+    "fresh one-use scope-bound owner authorization",
+    "sanitized write-ahead intent before the provider call",
+    "reconcile before any retry",
+    "Never substitute a generic `dump --clean`",
+    "prove the live artifact/configuration and database migration head",
+    "bounded production-safe read/write",
+    "reconcile messages, webhooks, payments",
+    "Do not infer statelessness from a DB-less stack",
+    "browser-local or synchronized state, queues, object storage, caches, "
+    "files, and third-party state",
+    "store review, gradual rollout, and mixed installed versions",
+)
+ROLLBACK_INTEGRATION_REQUIREMENTS = {
+    "agents": (
+        "[rollback decision frame](docs/ROLLBACK.md)",
+        "compatible with the current schema and configuration",
+        "a database restore remains owner-gated",
+    ),
+    "claude": (
+        "Choose the rollback lane; do not guess",
+        "[docs/ROLLBACK.md](docs/ROLLBACK.md)",
+        "neither lane retracts disclosure or downstream effects",
+    ),
+    "deploy": (
+        '"Mechanically reversible" requires an exact immutable prior artifact',
+        "evidence that it still works with the current schema, configuration, "
+        "and external contracts",
+        "Application rollback does not undo database writes, messages, webhooks, "
+        "payments, permissions, credentials, or disclosure",
+    ),
+    "go-live": (
+        "Recovery readiness proved",
+        "current application/current schema, previous application/current schema",
+        "current application/previous schema",
+        "classify the application, database, and external-effect lanes",
+    ),
+    "migration": (
+        "Read `docs/ROLLBACK.md` first",
+        "Forward-only or additive migrations do not prove",
+        "Production execution is owner-gated",
+        "Preview the exact SQL, target, scope, write-fence, recovery point, and "
+        "reconciliation path",
+        "an absent history row is not proof that a failed migration made no "
+        "changes",
+    ),
+}
+ROLLBACK_UNSAFE_CLAIMS = (
+    "rollback is instant",
+    "rollback has zero data loss",
+    "a snapshot makes restore reversible",
+    "additive means backward-compatible",
+    "the previous application is always compatible",
+    "almost always use application rollback",
+    "pause all workers",
+)
+ROLLBACK_CANONICAL_DISCLOSURE_MARKERS = (
+    "github.com/",
+    "source:",
+)
+ROLLBACK_DISCLOSURE_SENTINELS = (
+    "source-project-identity.example",
+    "provider-account-identifier.example",
+    "competitive-implementation-detail.example",
+)
 
 
 def platform_precept_contract_errors(conventions: str, agents: str) -> list[str]:
@@ -249,6 +359,67 @@ def irreversible_precept_contract_errors(
     for forbidden in IRREVERSIBLE_DEPLOY_FORBIDDEN:
         if forbidden in normalized_deploy:
             errors.append(f"deploy-contradiction:{forbidden}")
+    return errors
+
+
+def rollback_contract_errors(
+    rollback: str,
+    agents: str,
+    claude: str,
+    deploy_policy: str,
+    go_live: str,
+    migration_rollback: str,
+) -> list[str]:
+    errors: list[str] = []
+    for marker in (ROLLBACK_START, ROLLBACK_END):
+        if rollback.count(marker) != 1:
+            errors.append(f"marker:{marker}")
+    if rollback.count(ROLLBACK_HEADING) != 1:
+        errors.append("heading")
+    if errors:
+        return errors
+
+    start_index = rollback.index(ROLLBACK_START)
+    heading_index = rollback.index(ROLLBACK_HEADING)
+    end_index = rollback.index(ROLLBACK_END)
+    if not heading_index < start_index < end_index:
+        return ["boundary-order"]
+    section = rollback[start_index + len(ROLLBACK_START) : end_index]
+    normalized_section = " ".join(section.split())
+    for requirement in ROLLBACK_REQUIREMENTS:
+        if requirement not in normalized_section:
+            errors.append(f"rollback:{requirement}")
+
+    integrations = {
+        "agents": agents,
+        "claude": claude,
+        "deploy": deploy_policy,
+        "go-live": go_live,
+        "migration": migration_rollback,
+    }
+    for name, body in integrations.items():
+        normalized_body = " ".join(body.split())
+        for requirement in ROLLBACK_INTEGRATION_REQUIREMENTS[name]:
+            if requirement not in normalized_body:
+                errors.append(f"{name}:{requirement}")
+
+    combined_lower = "\n".join((
+        rollback,
+        agents,
+        claude,
+        deploy_policy,
+        go_live,
+        migration_rollback,
+    )).lower()
+    for forbidden in ROLLBACK_UNSAFE_CLAIMS:
+        if forbidden in combined_lower:
+            errors.append(f"unsafe:{forbidden}")
+    for disclosure in ROLLBACK_DISCLOSURE_SENTINELS:
+        if disclosure in combined_lower:
+            errors.append(f"disclosure:{disclosure}")
+    for disclosure in ROLLBACK_CANONICAL_DISCLOSURE_MARKERS:
+        if disclosure in rollback.lower():
+            errors.append(f"rollback-disclosure:{disclosure}")
     return errors
 
 
@@ -552,6 +723,27 @@ info\r
 
 class DocIntegrityGeneratorTests(unittest.TestCase):
     @staticmethod
+    def assert_rollback_contract(output: Path, context: str) -> None:
+        rollback_path = output / "docs" / "ROLLBACK.md"
+        if not rollback_path.exists():
+            raise AssertionError(f"{context}: generated docs/ROLLBACK.md is missing")
+        rollback = rollback_path.read_text(encoding="utf-8")
+        if "{{" in rollback:
+            raise AssertionError(f"{context}: rollback frame contains a raw token")
+        errors = rollback_contract_errors(
+            rollback,
+            (output / "AGENTS.md").read_text(encoding="utf-8"),
+            (output / "CLAUDE.md").read_text(encoding="utf-8"),
+            (output / "docs" / "DEPLOY_POLICY.md").read_text(encoding="utf-8"),
+            (output / "docs" / "GO_LIVE.md").read_text(encoding="utf-8"),
+            (output / "docs" / "migration-rollback.md").read_text(
+                encoding="utf-8"
+            ),
+        )
+        if errors:
+            raise AssertionError(f"{context}: rollback contract errors: {errors}")
+
+    @staticmethod
     def generate_and_check(output: Path, answers: Path, *settings: str) -> None:
         command = [
             "python3",
@@ -568,6 +760,9 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
             check=True,
             capture_output=True,
             text=True,
+        )
+        DocIntegrityGeneratorTests.assert_rollback_contract(
+            output, f"{answers.name} {settings}"
         )
         subprocess.run(["git", "init", "-q"], cwd=output, check=True)
         subprocess.run(["git", "add", "-A"], cwd=output, check=True)
@@ -601,6 +796,7 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         capture_output=True,
                         text=True,
                     )
+                    self.assert_rollback_contract(output, answers.name)
                     script = output / "scripts" / "check-docs.sh"
                     self.assertTrue(script.exists())
                     self.assertTrue(os.access(script, os.X_OK))
@@ -966,6 +1162,90 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                     irreversible_precept_contract_errors(
                         agents, claude, f"{deploy_policy}\n{forbidden}\n"
                     ),
+                    [],
+                )
+
+    def test_rollback_decision_frame_is_mutation_proved(self) -> None:
+        documents = {
+            "rollback": (ROOT / "template" / "docs" / "ROLLBACK.md").read_text(
+                encoding="utf-8"
+            ),
+            "agents": (ROOT / "template" / "AGENTS.md").read_text(
+                encoding="utf-8"
+            ),
+            "claude": (ROOT / "template" / "CLAUDE.md").read_text(
+                encoding="utf-8"
+            ),
+            "deploy": (
+                ROOT / "template" / "docs" / "DEPLOY_POLICY.md"
+            ).read_text(encoding="utf-8"),
+            "go-live": (ROOT / "template" / "docs" / "GO_LIVE.md").read_text(
+                encoding="utf-8"
+            ),
+            "migration": (
+                ROOT / "template" / "docs" / "migration-rollback.md"
+            ).read_text(encoding="utf-8"),
+        }
+
+        def errors(overrides: dict[str, str] | None = None) -> list[str]:
+            candidate = {**documents, **(overrides or {})}
+            return rollback_contract_errors(
+                candidate["rollback"],
+                candidate["agents"],
+                candidate["claude"],
+                candidate["deploy"],
+                candidate["go-live"],
+                candidate["migration"],
+            )
+
+        self.assertEqual(errors(), [])
+
+        for phrase in (ROLLBACK_START, ROLLBACK_END, *ROLLBACK_REQUIREMENTS):
+            with self.subTest(rollback_phrase=phrase):
+                self.assertNotEqual(
+                    errors({"rollback": remove_contract_phrase(
+                        documents["rollback"], phrase
+                    )}),
+                    [],
+                )
+
+        swapped_markers = documents["rollback"].replace(
+            ROLLBACK_START, "temporary-rollback-boundary", 1
+        ).replace(ROLLBACK_END, ROLLBACK_START, 1)
+        swapped_markers = swapped_markers.replace(
+            "temporary-rollback-boundary", ROLLBACK_END, 1
+        )
+        self.assertNotEqual(errors({"rollback": swapped_markers}), [])
+
+        heading_outside = documents["rollback"].replace(
+            ROLLBACK_HEADING, "removed-rollback-heading", 1
+        )
+        heading_outside = f"{heading_outside}\n{ROLLBACK_HEADING}\n"
+        self.assertNotEqual(errors({"rollback": heading_outside}), [])
+
+        for name, requirements in ROLLBACK_INTEGRATION_REQUIREMENTS.items():
+            for phrase in requirements:
+                with self.subTest(integration=name, phrase=phrase):
+                    self.assertNotEqual(
+                        errors({name: remove_contract_phrase(
+                            documents[name], phrase
+                        )}),
+                        [],
+                    )
+
+        for forbidden in (*ROLLBACK_UNSAFE_CLAIMS, *ROLLBACK_DISCLOSURE_SENTINELS):
+            for name, body in documents.items():
+                with self.subTest(document=name, unsafe_or_disclosure=forbidden):
+                    self.assertNotEqual(
+                        errors({name: f"{body}\n{forbidden}\n"}),
+                        [],
+                    )
+        for disclosure in ROLLBACK_CANONICAL_DISCLOSURE_MARKERS:
+            with self.subTest(canonical_disclosure=disclosure):
+                self.assertNotEqual(
+                    errors({
+                        "rollback": f"{documents['rollback']}\n{disclosure}\n"
+                    }),
                     [],
                 )
 

@@ -42,12 +42,18 @@ separately; see [engineering conventions](ENGINEERING_CONVENTIONS.md#ci-integrit
 - [ ] **Deploy path rehearsed:** `make up && make deploy` opens a public Cloudflare
       quick-tunnel (no account, no secrets) — see `DEPLOY.md` when the selected
       stack supplies it.
-- [ ] **Backups decided** before real data lands — see
-      [docs/OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) ("database backup & restore
-      strategy") and [docs/migration-rollback.md](migration-rollback.md).
+- [ ] **Recovery readiness proved** before real data lands or a production
+      migration runs — use [docs/ROLLBACK.md](ROLLBACK.md). A backup is not ready
+      until its app-owned scope, freshness, access/retention, RPO/RTO, and an
+      isolated restore drill are known; choose the provider strategy in
+      [docs/OPEN_QUESTIONS.md](OPEN_QUESTIONS.md).
+- [ ] **Mixed-version compatibility proved** before a production migration:
+      current application/current schema, previous application/current schema,
+      and—when a mixed rollout needs it—current application/previous schema.
 
 ## 4. If something goes wrong
 
-Undo a bad migration the forward-only way — see
-[docs/migration-rollback.md](migration-rollback.md) — and write a blameless
-postmortem under `docs/postmortems/`.
+First classify the application, database, and external-effect lanes with
+[docs/ROLLBACK.md](ROLLBACK.md). Prefer a forward corrective migration when the
+database is involved—see [docs/migration-rollback.md](migration-rollback.md)—and
+write a blameless postmortem under `docs/postmortems/`.

@@ -68,6 +68,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   A flag only arms execution; it is not consent. See *Irreversible external
   actions are preview-first* in [AGENTS.md](AGENTS.md); confirmation never grants
   missing owner authority.
+- **Choose the rollback lane; do not guess.** Use
+  [docs/ROLLBACK.md](docs/ROLLBACK.md): re-promote a prior application artifact
+  only with current-schema compatibility evidence. Database restore is a
+  separate, owner-gated, potentially write-losing action, and neither lane
+  retracts disclosure or downstream effects.
 - **Conventional commits, required.** `type(scope): subject`. Types:
   `feat fix refactor chore docs test ci build`. Subject ≤ 100 chars.
 - **Forward-only migrations.** Never edit an applied migration except for
