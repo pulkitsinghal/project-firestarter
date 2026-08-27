@@ -6,6 +6,15 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Supabase cloud database recovery: bounded role-neutral app-schema snapshots to
+  private HTTPS S3-compatible storage, mandatory pre-snapshot incremental cloud
+  migrations from staged approved bytes, and exact-snapshot replay drills only
+  against attested empty isolated targets. True no-op defaults, detached owner
+  signatures, authenticated TLS, same-connection database identity, exported
+  dump snapshots, a transaction-escape SQL guard, sanitized journals, bounded
+  checksums/read-back proof, and digest-pinned tools fail closed. Replay remains
+  pending until project-specific application/data/
+  security verification; production restore remains project-specific.
 - Fail-closed Docker gate source-visibility proof across every stack: a shared
   `make gate-selftest` invokes the exact real runner definitions before local
   and hosted gates, distinguishing current-source success, observed stale-source
