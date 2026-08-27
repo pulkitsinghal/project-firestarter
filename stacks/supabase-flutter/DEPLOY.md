@@ -38,6 +38,15 @@ It then deploys on every push that touches `backend/supabase/functions/**`, or o
 demand (Actions → *Deploy edge functions* → *Run workflow*). Until
 `SUPABASE_PROJECT_REF` is set the job **skips**, so a fresh stamp stays green.
 
+## Cloud database migrations and recovery
+
+The optional Docker-only cloud database path is documented in
+[`docs/CLOUD_DATABASE_RECOVERY.md`](docs/CLOUD_DATABASE_RECOVERY.md). It keeps
+local `make migrate` separate, creates and verifies an immutable app-schema
+snapshot before any incremental cloud migration, and provides an isolated
+restore drill. It has no pre-snapshot bypass and intentionally provides no
+generic production-restore command.
+
 ## Notes
 - The quick-tunnel URL is **ephemeral** — changes each run, for short-lived beta
   sharing only.

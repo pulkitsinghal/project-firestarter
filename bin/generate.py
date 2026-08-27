@@ -37,6 +37,7 @@ CONFIG_PATH = ROOT / "firestarter.config.json"
 GITHUB_REPOSITORY_RE = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$"
 )
+PROJECT_SLUG_RE = re.compile(r"^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 
 
 def load_config() -> dict:
@@ -64,7 +65,7 @@ def derive(values: dict) -> dict:
     """Compute tokens that are functions of the user's answers, so templates
     can stay free of conditionals."""
     slug = values["project_slug"]
-    values["migrations_table"] = f"{slug}_migrations"
+    values["migrations_table"] = f"{slug.replace('-', '_')}_migrations"
     values["pgdata_volume"] = f"{slug}_pgdata"
     values["container_prefix"] = slug
 
@@ -83,6 +84,12 @@ def derive(values: dict) -> dict:
 
 def validate_values(values: dict) -> None:
     """Reject values whose syntax is security-sensitive in generated output."""
+    slug = values.get("project_slug")
+    if not isinstance(slug, str) or not PROJECT_SLUG_RE.fullmatch(slug):
+        raise ValueError(
+            "project_slug must be 1-40 lowercase letters, digits, or hyphens; "
+            "it must start with a letter and end with a letter or digit"
+        )
     repository = values.get("trusted_workstation_repo")
     if not isinstance(repository, str) or not GITHUB_REPOSITORY_RE.fullmatch(repository):
         raise ValueError(

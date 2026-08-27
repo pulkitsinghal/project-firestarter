@@ -31,6 +31,42 @@ logs: ## Tail all service logs
 migrate: ## Apply forward-only DB migrations (idempotent)
 	cd backend && bash scripts/migrate.sh
 
+.PHONY: cloud-snapshot cloud-snapshot-prepare cloud-snapshot-list cloud-snapshot-execute
+cloud-snapshot: ## Preview a verified public-schema cloud snapshot (true no-op)
+	bash scripts/cloud-snapshot.sh create
+
+cloud-snapshot-prepare: ## Bind the exact database target and print the read-only snapshot plan
+	bash scripts/cloud-snapshot.sh create --prepare
+
+cloud-snapshot-list: ## List published readiness evidence from the private archive (read-only)
+	bash scripts/cloud-snapshot.sh list
+
+cloud-snapshot-execute: ## Create the exact owner-authorized snapshot (fresh scope env required)
+	bash scripts/cloud-snapshot.sh create --execute
+
+.PHONY: cloud-migrate cloud-migrate-prepare cloud-migrate-execute
+cloud-migrate: ## Preview local cloud-migration inputs (true no-op)
+	bash scripts/cloud-migrate.sh
+
+cloud-migrate-prepare: ## Resolve pending cloud migrations and print the exact read-only plan
+	bash scripts/cloud-migrate.sh --prepare
+
+cloud-migrate-execute: ## Snapshot, then apply the exact owner-authorized cloud migration set
+	bash scripts/cloud-migrate.sh --execute
+
+.PHONY: cloud-restore cloud-restore-prepare cloud-restore-drill
+cloud-restore: ## Preview an isolated restore drill (SNAPSHOT=exact-name)
+	@test -n "$(SNAPSHOT)" || { echo "SNAPSHOT is required" >&2; exit 2; }
+	bash scripts/cloud-restore.sh "$(SNAPSHOT)"
+
+cloud-restore-prepare: ## Validate archive/empty drill target and print exact plan (SNAPSHOT=...)
+	@test -n "$(SNAPSHOT)" || { echo "SNAPSHOT is required" >&2; exit 2; }
+	bash scripts/cloud-restore.sh "$(SNAPSHOT)" --prepare
+
+cloud-restore-drill: ## Run the exact owner-authorized isolated drill (never production)
+	@test -n "$(SNAPSHOT)" || { echo "SNAPSHOT is required" >&2; exit 2; }
+	bash scripts/cloud-restore.sh "$(SNAPSHOT)" --execute
+
 .PHONY: pgrst-reload
 pgrst-reload: ## Reload PostgREST schema cache (run after every migrate)
 	$(DC) restart postgrest

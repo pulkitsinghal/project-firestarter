@@ -52,6 +52,9 @@ build/
 # ── Mutation-check private crash-recovery journal ────────────────────────────
 .mutation-check.lock/
 
+# ── Cloud DB recovery one-use authorization + outcome journal ───────────────
+.firestarter/cloud-db-recovery/
+
 # ── Storyboard output (generated screenshots) ────────────────────────────────
 storyboard/output/*.png
 storyboard/output/*.mp4
