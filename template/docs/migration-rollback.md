@@ -28,10 +28,15 @@ Two artifacts:
 ## Procedure
 
 ### 1. Decide whether to roll back
+- Read `docs/ROLLBACK.md` first to separate application promotion,
+  database/state recovery, and disclosure/downstream-effect reconciliation.
+  Forward-only or additive migrations do not prove that any application/schema
+  pairing remains compatible.
 - Is the system actually broken in production, or just behaving unexpectedly?
 - Can a forward *fix* land faster than a revert? Often yes.
 - If the migration only ADDED objects (tables, columns, indexes, functions), a
-  forward "drop" is mechanically simple.
+  forward revert may be smaller, but removing those objects can still destroy
+  data or break a live application; prove the exact app/schema pairings first.
 - If it DROPPED objects or rewrote data, recovery may require a backup restore.
   **Stop and consult your backup procedure first** (see `docs/OPEN_QUESTIONS.md`
   — "database backup & restore strategy").
@@ -79,14 +84,20 @@ data steps in one migration only if the data source is queryable from SQL;
 otherwise split them.
 
 ### 5. Emergency database surgery (last resort)
-If production is on fire and you cannot wait to write a clean revert, connect
-directly and apply SQL by hand:
+Production execution is owner-gated under `docs/ROLLBACK.md`. The local Docker
+command below only opens a shell in the development database; it is not a
+production command or authorization to improvise one.
+
+Reproduce and rehearse the smallest corrective SQL locally first:
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d {{ db_name }}
 ```
 
-Then IMMEDIATELY converge every environment:
+For production, stop if the project has no reviewed access runbook. Preview the
+exact SQL, target, scope, write-fence, recovery point, and reconciliation path;
+obtain fresh one-use owner authorization; then apply through that runbook and
+immediately converge every environment:
 
 1. Commit the equivalent migration to `backend/migrations/` so other
    environments apply it the normal way.
@@ -97,9 +108,12 @@ Then IMMEDIATELY converge every environment:
    ```
 3. Open a PR for the migration file with a Test plan referencing the incident.
 
-If a migration applied only partially (crashed mid-run): manually undo the
-partial side effects, then re-run `make migrate` — it skips the versions already
-recorded and picks up where it left off.
+If a migration applied only partially, preserve evidence and classify the
+observed side effects before retry. In production, do not manually undo or rerun
+until the corrective scope has passed the same preview, write-fence,
+authorization, and reconciliation gate. The runner skips versions already
+recorded, but an absent history row is not proof that a failed migration made no
+changes.
 
 ### 6. Write the postmortem
 Land a blameless postmortem under `docs/postmortems/<date>-<slug>.md` (see
@@ -110,6 +124,8 @@ Land a blameless postmortem under `docs/postmortems/<date>-<slug>.md` (see
 - What invariant was violated, and what guardrail now blocks recurrence?
 
 ## See also
+- `docs/ROLLBACK.md` — decide between application rollback, forward database
+  repair, destructive restore, and external-effect reconciliation.
 - `AGENTS.md` — commit / branch / push policy and the "never edit an applied
   migration" rule.
 - `backend/scripts/migrate.sh` — the runner that records versions in

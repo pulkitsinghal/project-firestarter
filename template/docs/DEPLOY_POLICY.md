@@ -15,7 +15,10 @@ Execution safety is a separate boundary from deploy authorization. A deploy may
 keep the self-authorized path only when it satisfies this policy, is cost-neutral
 and mechanically reversible, its audience/content class is already authorized,
 and it is not a first disclosure of private, regulated, or competitively
-sensitive material. Infrastructure rollback cannot retract a disclosure.
+sensitive material. "Mechanically reversible" requires an exact immutable prior
+artifact plus evidence that it still works with the current schema,
+configuration, and external contracts; see
+[`ROLLBACK.md`](ROLLBACK.md). Infrastructure rollback cannot retract a disclosure.
 Classify every substep independently; migrations, DNS/IAM, messages/webhooks,
 billing, and first disclosure may still be gated. If a step spends money or makes
 an external change that cannot be reliably undone, follow *Irreversible external
@@ -62,8 +65,11 @@ reviewer, or competitively sensitive material requires a real access boundary. S
 [`UNLISTED_PUBLISHING.md`](UNLISTED_PUBLISHING.md).
 
 When 1–3 hold, the deploy is complete — rollback is **not** a precondition, and
-none is expected. If the post-deploy check *fails*, redeploy the previous good
-commit.
+none is expected. If the post-deploy check *fails*, use
+[`ROLLBACK.md`](ROLLBACK.md). Re-promote a previous artifact only when its
+current-schema compatibility is proved; otherwise use a forward fix or a
+coordinated recovery. Application rollback does not undo database writes,
+messages, webhooks, payments, permissions, credentials, or disclosure.
 
 ## Still human-gated, regardless of the above
 

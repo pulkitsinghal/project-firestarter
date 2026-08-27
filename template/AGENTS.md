@@ -308,9 +308,12 @@ required, or the user-test hold in the push policy applies:
    with a fast-forward, then rerun the affected tests plus a proportionate
    post-merge smoke/E2E check.
 6. Deploy only when [the deploy policy](docs/DEPLOY_POLICY.md) permits it. Verify
-   the live artifact immediately. If that check fails, redeploy the previous
-   known-good app or revert the merge; production data/schema rollback follows
-   the separate forward-only migration runbook.
+   the live artifact immediately. If that check fails, use the
+   [rollback decision frame](docs/ROLLBACK.md): re-promote the exact previous
+   immutable artifact only with evidence that it remains compatible with the
+   current schema and configuration. Treat production data, disclosure, and
+   downstream effects as separate recovery lanes; a database restore remains
+   owner-gated.
 7. Record the result and residual risk, then remove the merged worktree and
    delete the merged branch. Never declare success without the test, review,
    merge, and (when applicable) live evidence.
