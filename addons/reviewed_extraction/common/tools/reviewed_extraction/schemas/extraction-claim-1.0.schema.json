@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:reviewed-extraction:extraction-claim:1.0",
+  "title": "Human-reviewed structured extraction claim",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "claimId",
+    "fieldPath",
+    "value",
+    "state",
+    "actorId",
+    "purpose",
+    "recipientId",
+    "evidence",
+    "sequence",
+    "supersedes"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "claimId": {"$ref": "#/$defs/opaqueId"},
+    "fieldPath": {"$ref": "#/$defs/fieldPath"},
+    "value": {"$ref": "#/$defs/valueToken"},
+    "state": {
+      "enum": [
+        "proposed",
+        "confirmed",
+        "corrected",
+        "unknown",
+        "omitted",
+        "conflicted",
+        "superseded"
+      ]
+    },
+    "actorId": {"$ref": "#/$defs/opaqueId"},
+    "purpose": {
+      "enum": ["treatment", "payment", "operations", "research", "patient-access"]
+    },
+    "recipientId": {"$ref": "#/$defs/opaqueId"},
+    "evidence": {"$ref": "#/$defs/evidence"},
+    "sequence": {"type": "integer", "minimum": 0},
+    "supersedes": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/opaqueId"}
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "fieldPath": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?:\\.[A-Za-z0-9][A-Za-z0-9_-]{0,63}){0,15}$"
+    },
+    "valueToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "sourceDigest", "startOffset", "endOffset"],
+      "properties": {
+        "sourceId": {"$ref": "#/$defs/opaqueId"},
+        "sourceDigest": {"$ref": "#/$defs/digest"},
+        "startOffset": {"type": "integer", "minimum": 0, "maximum": 2147483648},
+        "endOffset": {"type": "integer", "minimum": 0, "maximum": 2147483648}
+      }
+    }
+  }
+}

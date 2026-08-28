@@ -27,6 +27,10 @@
   "include_cross_host_agent": ["no", "yes"],
   "include_version_changelog": ["no", "yes"],
   "include_trusted_workstation": ["no", "yes"],
+  "include_agent_eval_harness": ["no", "yes"],
+  "include_reviewed_extraction": ["no", "yes"],
+  "include_mcp_security_gate": ["no", "yes"],
+  "include_architecture_manifest": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",

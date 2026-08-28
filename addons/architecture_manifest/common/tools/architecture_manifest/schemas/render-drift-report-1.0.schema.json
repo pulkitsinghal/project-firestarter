@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:architecture-manifest:render-drift-report:1.0",
+  "title": "Render drift report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "toolVersion",
+    "artifactKind",
+    "status",
+    "manifestId",
+    "expectedDigest",
+    "actualDigest"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "toolVersion": {"const": "0.1.0"},
+    "artifactKind": {"enum": ["mermaid", "anatomy"]},
+    "status": {"enum": ["current", "stale", "malformed"]},
+    "manifestId": {
+      "anyOf": [
+        {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"},
+        {"type": "null"}
+      ]
+    },
+    "expectedDigest": {
+      "anyOf": [
+        {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        {"type": "null"}
+      ]
+    },
+    "actualDigest": {
+      "anyOf": [
+        {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        {"type": "null"}
+      ]
+    }
+  }
+}

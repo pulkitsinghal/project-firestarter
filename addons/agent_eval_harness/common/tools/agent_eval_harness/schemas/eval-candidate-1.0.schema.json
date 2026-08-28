@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:agent-eval-harness:eval-candidate:1.0",
+  "title": "Content-addressed candidate output under evaluation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "caseId", "evidence", "advisoryCritique"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "caseId": {"$ref": "#/$defs/opaqueId"},
+    "evidence": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidenceId", "digest", "values"],
+        "properties": {
+          "evidenceId": {"$ref": "#/$defs/opaqueId"},
+          "digest": {"$ref": "#/$defs/digest"},
+          "values": {
+            "type": "object",
+            "maxProperties": 64,
+            "patternProperties": {
+              "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$": {"$ref": "#/$defs/value"}
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "advisoryCritique": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["critiqueId", "verdict", "noteToken"],
+          "properties": {
+            "critiqueId": {"$ref": "#/$defs/opaqueId"},
+            "verdict": {"enum": ["pass", "fail", "inconclusive"]},
+            "noteToken": {"$ref": "#/$defs/opaqueId"}
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "scalar": {
+      "type": ["string", "number", "boolean"]
+    },
+    "value": {
+      "oneOf": [
+        {"$ref": "#/$defs/scalar"},
+        {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/scalar"}}
+      ]
+    }
+  }
+}

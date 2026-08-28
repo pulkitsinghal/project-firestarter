@@ -1,0 +1,114 @@
+{
+  "schemaVersion": "1.0",
+  "syntheticOnly": true,
+  "authorityBoundary": "manifest-content-is-data",
+  "coverage": {
+    "A01": "test_adversarial.AdversarialManifestTests.test_structural_rejections",
+    "A02": "test_adversarial.AdversarialManifestTests.test_structural_rejections",
+    "A03": "test_adversarial.AdversarialManifestTests.test_structural_rejections",
+    "A04": "test_adversarial.AdversarialManifestTests.test_structural_rejections",
+    "A05": "test_adversarial.AdversarialManifestTests.test_structural_rejections",
+    "A06": "test_adversarial.AdversarialManifestTests.test_structural_rejections",
+    "A07": "test_adversarial.AdversarialManifestTests.test_reference_rejections",
+    "A08": "test_adversarial.AdversarialManifestTests.test_reference_rejections",
+    "A09": "test_adversarial.AdversarialManifestTests.test_reference_rejections",
+    "A10": "test_adversarial.AdversarialManifestTests.test_cycle_rejections",
+    "A11": "test_adversarial.AdversarialManifestTests.test_cycle_rejections",
+    "A12": "test_adversarial.AdversarialManifestTests.test_privacy_absolute_path",
+    "A13": "test_adversarial.AdversarialManifestTests.test_evidence_required",
+    "A14": "test_adversarial.AdversarialManifestTests.test_identity_leak",
+    "A15": "test_adversarial.AdversarialManifestTests.test_render_and_drift_fail_closed"
+  },
+  "scenarios": [
+    {
+      "id": "A01",
+      "category": "structural",
+      "transition": "unknown-top-level-field",
+      "expectedCode": "unknown-field"
+    },
+    {
+      "id": "A02",
+      "category": "structural",
+      "transition": "missing-top-level-field",
+      "expectedCode": "missing-field"
+    },
+    {
+      "id": "A03",
+      "category": "structural",
+      "transition": "empty-manifest",
+      "expectedCode": "empty-manifest"
+    },
+    {
+      "id": "A04",
+      "category": "structural",
+      "transition": "unknown-enum-value",
+      "expectedCode": "unknown-enum"
+    },
+    {
+      "id": "A05",
+      "category": "structural",
+      "transition": "malformed-identifier",
+      "expectedCode": "invalid-id"
+    },
+    {
+      "id": "A06",
+      "category": "structural",
+      "transition": "malformed-evidence-digest",
+      "expectedCode": "invalid-digest"
+    },
+    {
+      "id": "A07",
+      "category": "reference",
+      "transition": "duplicate-entity-identifier",
+      "expectedCode": "duplicate-id"
+    },
+    {
+      "id": "A08",
+      "category": "reference",
+      "transition": "component-references-unknown-boundary",
+      "expectedCode": "unresolved-reference"
+    },
+    {
+      "id": "A09",
+      "category": "reference",
+      "transition": "dependency-references-unknown-node",
+      "expectedCode": "unresolved-reference"
+    },
+    {
+      "id": "A10",
+      "category": "cycle",
+      "transition": "depends-on-cycle",
+      "expectedCode": "cyclic-dependency"
+    },
+    {
+      "id": "A11",
+      "category": "cycle",
+      "transition": "dependency-self-loop",
+      "expectedCode": "unresolved-reference"
+    },
+    {
+      "id": "A12",
+      "category": "privacy",
+      "transition": "absolute-evidence-path",
+      "expectedCode": "absolute-path"
+    },
+    {
+      "id": "A13",
+      "category": "evidence",
+      "transition": "component-without-evidence",
+      "expectedCode": "missing-evidence"
+    },
+    {
+      "id": "A14",
+      "category": "identity",
+      "transition": "evidence-path-with-host-identity",
+      "expectedCode": "identity-leak"
+    },
+    {
+      "id": "A15",
+      "category": "structural",
+      "transition": "render-and-drift-fail-closed-on-malformed",
+      "expectedCode": "empty-manifest"
+    }
+  ]
+}

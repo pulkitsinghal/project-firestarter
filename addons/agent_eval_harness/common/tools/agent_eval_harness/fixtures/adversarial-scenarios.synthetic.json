@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "1.0",
+  "syntheticOnly": true,
+  "authorityBoundary": "checks-decide-critique-is-advisory",
+  "coverage": {
+    "SC-PASS": "test_harness.HarnessReducerTests.test_all_blocking_satisfied_passes",
+    "SC-FAIL": "test_harness.HarnessReducerTests.test_blocking_violation_fails",
+    "SC-REVIEW": "test_harness.HarnessReducerTests.test_non_blocking_signal_needs_review",
+    "SC-INPUT-MISSING": "test_harness.HarnessReducerTests.test_missing_input_fixture_is_unavailable",
+    "SC-RESULT-DIGEST": "test_harness.HarnessReducerTests.test_result_digest_is_canonical",
+    "CK-EXACT": "test_checks.CheckFunctionTests.test_exact_equals",
+    "CK-SUBSET": "test_checks.CheckFunctionTests.test_subset",
+    "CK-REGEX": "test_checks.CheckFunctionTests.test_regex_match",
+    "CK-NUMERIC": "test_checks.CheckFunctionTests.test_numeric_threshold",
+    "CK-ORDERED": "test_checks.CheckFunctionTests.test_ordered_contains",
+    "CK-TYPEMISMATCH": "test_checks.CheckFunctionTests.test_type_mismatch_violates",
+    "AD-DIGEST": "test_adversarial.AdversarialTests.test_digest_mismatch_makes_evidence_unavailable",
+    "AD-FIELD": "test_adversarial.AdversarialTests.test_missing_evidence_field_is_unavailable",
+    "AD-CRITIQUE": "test_adversarial.AdversarialTests.test_advisory_critique_cannot_flip_verdict",
+    "AD-UNKNOWNKIND": "test_adversarial.AdversarialTests.test_unknown_check_kind_is_rejected",
+    "AD-UNKNOWNFIELD": "test_adversarial.AdversarialTests.test_unknown_field_is_rejected",
+    "AD-UNKNOWNCMP": "test_adversarial.AdversarialTests.test_unknown_comparator_is_rejected"
+  },
+  "scenarios": [
+    {
+      "id": "SC-PASS",
+      "category": "scoring",
+      "transition": "all-blocking-checks-satisfied",
+      "expectedOutcome": "passed",
+      "sideEffects": 0
+    },
+    {
+      "id": "SC-FAIL",
+      "category": "scoring",
+      "transition": "one-blocking-check-violated",
+      "expectedOutcome": "failed",
+      "sideEffects": 0
+    },
+    {
+      "id": "SC-REVIEW",
+      "category": "scoring",
+      "transition": "blocking-pass-nonblocking-signal",
+      "expectedOutcome": "needs_review",
+      "sideEffects": 0
+    },
+    {
+      "id": "SC-INPUT-MISSING",
+      "category": "scoring",
+      "transition": "required-input-fixture-absent",
+      "expectedOutcome": "unavailable",
+      "sideEffects": 0
+    },
+    {
+      "id": "SC-RESULT-DIGEST",
+      "category": "scoring",
+      "transition": "result-digest-is-content-addressed",
+      "expectedOutcome": "passed",
+      "sideEffects": 0
+    },
+    {
+      "id": "CK-EXACT",
+      "category": "checks",
+      "transition": "exact-equals-scalar-and-list",
+      "expectedOutcome": "passed",
+      "sideEffects": 0
+    },
+    {
+      "id": "CK-SUBSET",
+      "category": "checks",
+      "transition": "subset-of-observed-list",
+      "expectedOutcome": "passed",
+      "sideEffects": 0
+    },
+    {
+      "id": "CK-REGEX",
+      "category": "checks",
+      "transition": "regex-fullmatch-on-string",
+      "expectedOutcome": "passed",
+      "sideEffects": 0
+    },
+    {
+      "id": "CK-NUMERIC",
+      "category": "checks",
+      "transition": "numeric-threshold-comparators",
+      "expectedOutcome": "passed",
+      "sideEffects": 0
+    },
+    {
+      "id": "CK-ORDERED",
+      "category": "checks",
+      "transition": "ordered-subsequence-present",
+      "expectedOutcome": "passed",
+      "sideEffects": 0
+    },
+    {
+      "id": "CK-TYPEMISMATCH",
+      "category": "checks",
+      "transition": "wrong-shaped-value-violates",
+      "expectedOutcome": "failed",
+      "sideEffects": 0
+    },
+    {
+      "id": "AD-DIGEST",
+      "category": "evidence",
+      "transition": "tampered-evidence-digest",
+      "expectedOutcome": "unavailable",
+      "sideEffects": 0
+    },
+    {
+      "id": "AD-FIELD",
+      "category": "evidence",
+      "transition": "referenced-field-absent",
+      "expectedOutcome": "unavailable",
+      "sideEffects": 0
+    },
+    {
+      "id": "AD-CRITIQUE",
+      "category": "critique",
+      "transition": "critique-pass-on-failing-case",
+      "expectedOutcome": "failed",
+      "sideEffects": 0
+    },
+    {
+      "id": "AD-UNKNOWNKIND",
+      "category": "malformed",
+      "transition": "unknown-check-kind",
+      "expectedOutcome": "rejected",
+      "sideEffects": 0
+    },
+    {
+      "id": "AD-UNKNOWNFIELD",
+      "category": "malformed",
+      "transition": "unknown-contract-field",
+      "expectedOutcome": "rejected",
+      "sideEffects": 0
+    },
+    {
+      "id": "AD-UNKNOWNCMP",
+      "category": "malformed",
+      "transition": "unknown-numeric-comparator",
+      "expectedOutcome": "rejected",
+      "sideEffects": 0
+    }
+  ]
+}

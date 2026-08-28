@@ -1,0 +1,222 @@
+{
+  "schemaVersion": "1.0",
+  "syntheticOnly": true,
+  "authorityBoundary": "blocking-checks-decide-verdict",
+  "vectors": [
+    {
+      "id": "SC-PASS",
+      "expectedState": "passed",
+      "inputFixtures": {"fixture-1": {"seed": 7}},
+      "case": {
+        "schemaVersion": "1.0",
+        "caseId": "case-pass",
+        "inputFixtureRef": {"fixtureId": "fixture-1", "digest": "AUTO"},
+        "checks": [
+          {
+            "checkId": "chk-answer",
+            "kind": "exact-equals",
+            "blocking": true,
+            "evidenceId": "ev-1",
+            "fieldToken": "answer",
+            "params": {"expected": "north"}
+          },
+          {
+            "checkId": "chk-steps",
+            "kind": "numeric-threshold",
+            "blocking": true,
+            "evidenceId": "ev-1",
+            "fieldToken": "steps",
+            "params": {"comparator": "le", "bound": 5}
+          }
+        ]
+      },
+      "candidate": {
+        "schemaVersion": "1.0",
+        "caseId": "case-pass",
+        "evidence": [
+          {
+            "evidenceId": "ev-1",
+            "digest": "AUTO",
+            "values": {"answer": "north", "steps": 3}
+          }
+        ],
+        "advisoryCritique": null
+      }
+    },
+    {
+      "id": "SC-FAIL",
+      "expectedState": "failed",
+      "inputFixtures": {"fixture-1": {"seed": 7}},
+      "case": {
+        "schemaVersion": "1.0",
+        "caseId": "case-fail",
+        "inputFixtureRef": {"fixtureId": "fixture-1", "digest": "AUTO"},
+        "checks": [
+          {
+            "checkId": "chk-answer",
+            "kind": "exact-equals",
+            "blocking": true,
+            "evidenceId": "ev-1",
+            "fieldToken": "answer",
+            "params": {"expected": "north"}
+          }
+        ]
+      },
+      "candidate": {
+        "schemaVersion": "1.0",
+        "caseId": "case-fail",
+        "evidence": [
+          {
+            "evidenceId": "ev-1",
+            "digest": "AUTO",
+            "values": {"answer": "south"}
+          }
+        ],
+        "advisoryCritique": null
+      }
+    },
+    {
+      "id": "SC-REVIEW",
+      "expectedState": "needs_review",
+      "inputFixtures": {"fixture-1": {"seed": 7}},
+      "case": {
+        "schemaVersion": "1.0",
+        "caseId": "case-review",
+        "inputFixtureRef": {"fixtureId": "fixture-1", "digest": "AUTO"},
+        "checks": [
+          {
+            "checkId": "chk-answer",
+            "kind": "exact-equals",
+            "blocking": true,
+            "evidenceId": "ev-1",
+            "fieldToken": "answer",
+            "params": {"expected": "north"}
+          },
+          {
+            "checkId": "chk-tone",
+            "kind": "regex-match",
+            "blocking": false,
+            "evidenceId": "ev-1",
+            "fieldToken": "tone",
+            "params": {"pattern": "concise"}
+          }
+        ]
+      },
+      "candidate": {
+        "schemaVersion": "1.0",
+        "caseId": "case-review",
+        "evidence": [
+          {
+            "evidenceId": "ev-1",
+            "digest": "AUTO",
+            "values": {"answer": "north", "tone": "verbose"}
+          }
+        ],
+        "advisoryCritique": null
+      }
+    },
+    {
+      "id": "SC-INPUT-MISSING",
+      "expectedState": "unavailable",
+      "inputFixtures": {},
+      "case": {
+        "schemaVersion": "1.0",
+        "caseId": "case-input-missing",
+        "inputFixtureRef": {
+          "fixtureId": "fixture-1",
+          "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "checks": [
+          {
+            "checkId": "chk-answer",
+            "kind": "exact-equals",
+            "blocking": true,
+            "evidenceId": "ev-1",
+            "fieldToken": "answer",
+            "params": {"expected": "north"}
+          }
+        ]
+      },
+      "candidate": {
+        "schemaVersion": "1.0",
+        "caseId": "case-input-missing",
+        "evidence": [
+          {
+            "evidenceId": "ev-1",
+            "digest": "AUTO",
+            "values": {"answer": "north"}
+          }
+        ],
+        "advisoryCritique": null
+      }
+    },
+    {
+      "id": "SC-DIGEST-MISMATCH",
+      "expectedState": "unavailable",
+      "inputFixtures": {"fixture-1": {"seed": 7}},
+      "case": {
+        "schemaVersion": "1.0",
+        "caseId": "case-digest-mismatch",
+        "inputFixtureRef": {"fixtureId": "fixture-1", "digest": "AUTO"},
+        "checks": [
+          {
+            "checkId": "chk-answer",
+            "kind": "exact-equals",
+            "blocking": true,
+            "evidenceId": "ev-1",
+            "fieldToken": "answer",
+            "params": {"expected": "north"}
+          }
+        ]
+      },
+      "candidate": {
+        "schemaVersion": "1.0",
+        "caseId": "case-digest-mismatch",
+        "evidence": [
+          {
+            "evidenceId": "ev-1",
+            "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "values": {"answer": "north"}
+          }
+        ],
+        "advisoryCritique": null
+      }
+    },
+    {
+      "id": "SC-CRITIQUE-CANNOT-FLIP",
+      "expectedState": "failed",
+      "inputFixtures": {"fixture-1": {"seed": 7}},
+      "case": {
+        "schemaVersion": "1.0",
+        "caseId": "case-critique",
+        "inputFixtureRef": {"fixtureId": "fixture-1", "digest": "AUTO"},
+        "checks": [
+          {
+            "checkId": "chk-answer",
+            "kind": "exact-equals",
+            "blocking": true,
+            "evidenceId": "ev-1",
+            "fieldToken": "answer",
+            "params": {"expected": "north"}
+          }
+        ]
+      },
+      "candidate": {
+        "schemaVersion": "1.0",
+        "caseId": "case-critique",
+        "evidence": [
+          {
+            "evidenceId": "ev-1",
+            "digest": "AUTO",
+            "values": {"answer": "south"}
+          }
+        ],
+        "advisoryCritique": {
+          "critiqueId": "crit-1",
+          "verdict": "pass",
+          "noteToken": "looks-fine"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,212 @@
+{
+  "schemaVersion": "1.0",
+  "manifestId": "sample-platform",
+  "trustBoundaries": [
+    {"boundaryId": "edge", "name": "edge-tier", "tier": "perimeter"},
+    {"boundaryId": "app", "name": "application-tier", "tier": "internal"},
+    {"boundaryId": "data", "name": "data-tier", "tier": "restricted"}
+  ],
+  "components": [
+    {
+      "componentId": "ui-01",
+      "name": "web-ui",
+      "kind": "ui",
+      "boundaryId": "edge",
+      "ownerRole": "application",
+      "ownerToken": "team-app",
+      "evidence": [
+        {"evidenceId": "ev-ui-doc", "kind": "doc", "path": "docs/ui.md", "digest": null}
+      ]
+    },
+    {
+      "componentId": "gateway-01",
+      "name": "edge-gateway",
+      "kind": "gateway",
+      "boundaryId": "edge",
+      "ownerRole": "platform",
+      "ownerToken": "team-platform",
+      "evidence": [
+        {"evidenceId": "ev-gw-cfg", "kind": "config", "path": "deploy/gateway.yaml"}
+      ]
+    },
+    {
+      "componentId": "api-01",
+      "name": "core-api",
+      "kind": "service",
+      "boundaryId": "app",
+      "ownerRole": "application",
+      "ownerToken": "team-app",
+      "evidence": [
+        {
+          "evidenceId": "ev-api-test",
+          "kind": "test",
+          "path": "tests/test_core_api.py",
+          "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    },
+    {
+      "componentId": "worker-01",
+      "name": "async-worker",
+      "kind": "job",
+      "boundaryId": "app",
+      "ownerRole": "application",
+      "ownerToken": "team-app",
+      "evidence": [
+        {"evidenceId": "ev-worker-doc", "kind": "doc", "path": "docs/worker.md"}
+      ]
+    },
+    {
+      "componentId": "lib-01",
+      "name": "shared-lib",
+      "kind": "library",
+      "boundaryId": "app",
+      "ownerRole": "platform",
+      "ownerToken": "team-platform",
+      "evidence": [
+        {"evidenceId": "ev-lib-schema", "kind": "schema", "path": "schemas/shared.schema.json"}
+      ]
+    },
+    {
+      "componentId": "vendor-01",
+      "name": "payments-vendor",
+      "kind": "external-system",
+      "boundaryId": "edge",
+      "ownerRole": "integration",
+      "ownerToken": "team-integration",
+      "evidence": [
+        {"evidenceId": "ev-vendor-run", "kind": "runbook", "path": "docs/runbooks/vendor.md"}
+      ]
+    }
+  ],
+  "dataStores": [
+    {
+      "storeId": "primary-db",
+      "name": "primary-store",
+      "kind": "relational",
+      "boundaryId": "data",
+      "ownerRole": "data",
+      "ownerToken": "team-data",
+      "dataClass": "confidential",
+      "evidence": [
+        {"evidenceId": "ev-db-doc", "kind": "doc", "path": "docs/data-model.md"}
+      ]
+    },
+    {
+      "storeId": "cache-01",
+      "name": "read-cache",
+      "kind": "cache",
+      "boundaryId": "app",
+      "ownerRole": "platform",
+      "ownerToken": "team-platform",
+      "dataClass": "internal",
+      "evidence": [
+        {"evidenceId": "ev-cache-cfg", "kind": "config", "path": "deploy/cache.yaml"}
+      ]
+    },
+    {
+      "storeId": "events-01",
+      "name": "event-bus",
+      "kind": "queue",
+      "boundaryId": "app",
+      "ownerRole": "platform",
+      "ownerToken": "team-platform",
+      "dataClass": "internal",
+      "evidence": [
+        {"evidenceId": "ev-events-doc", "kind": "doc", "path": "docs/events.md"}
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "dependencyId": "dep-01",
+      "source": "ui-01",
+      "target": "gateway-01",
+      "relation": "calls",
+      "dataClass": "public",
+      "evidence": []
+    },
+    {
+      "dependencyId": "dep-02",
+      "source": "gateway-01",
+      "target": "api-01",
+      "relation": "calls",
+      "dataClass": "internal",
+      "evidence": []
+    },
+    {
+      "dependencyId": "dep-03",
+      "source": "api-01",
+      "target": "primary-db",
+      "relation": "reads",
+      "dataClass": "confidential",
+      "evidence": [
+        {"evidenceId": "ev-dep-read", "kind": "doc", "path": "docs/data-model.md"}
+      ]
+    },
+    {
+      "dependencyId": "dep-04",
+      "source": "api-01",
+      "target": "primary-db",
+      "relation": "writes",
+      "dataClass": "confidential",
+      "evidence": []
+    },
+    {
+      "dependencyId": "dep-05",
+      "source": "api-01",
+      "target": "events-01",
+      "relation": "publishes",
+      "dataClass": "internal",
+      "evidence": []
+    },
+    {
+      "dependencyId": "dep-06",
+      "source": "worker-01",
+      "target": "events-01",
+      "relation": "subscribes",
+      "dataClass": "internal",
+      "evidence": []
+    },
+    {
+      "dependencyId": "dep-07",
+      "source": "worker-01",
+      "target": "primary-db",
+      "relation": "writes",
+      "dataClass": "confidential",
+      "evidence": []
+    },
+    {
+      "dependencyId": "dep-08",
+      "source": "api-01",
+      "target": "cache-01",
+      "relation": "reads",
+      "dataClass": "internal",
+      "evidence": []
+    },
+    {
+      "dependencyId": "dep-09",
+      "source": "api-01",
+      "target": "lib-01",
+      "relation": "depends-on",
+      "dataClass": "public",
+      "evidence": []
+    },
+    {
+      "dependencyId": "dep-10",
+      "source": "worker-01",
+      "target": "lib-01",
+      "relation": "depends-on",
+      "dataClass": "public",
+      "evidence": []
+    },
+    {
+      "dependencyId": "dep-11",
+      "source": "api-01",
+      "target": "vendor-01",
+      "relation": "calls",
+      "dataClass": "confidential",
+      "evidence": []
+    }
+  ]
+}

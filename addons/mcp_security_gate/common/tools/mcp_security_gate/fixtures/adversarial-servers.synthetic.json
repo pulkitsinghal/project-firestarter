@@ -1,0 +1,475 @@
+{
+  "schemaVersion": "1.0",
+  "syntheticOnly": true,
+  "kind": "adversarial",
+  "authorityBoundary": "manifest-is-static-data",
+  "coverage": {
+    "A01": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A02": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A03": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A04": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A05": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A06": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A07": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A08": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A09": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A10": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A11": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A12": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A13": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A14": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed",
+    "A15": "test_adversarial.AdversarialGateTests.test_targeted_failure_blocks_fail_closed"
+  },
+  "cases": [
+    {
+      "id": "A01",
+      "category": "effect",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "tool",
+      "expectedCheck": "effect-soundness",
+      "expectedReason": "effect-reversibility-mismatch",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a01",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "destructive",
+            "reversibility": "reversible",
+            "requiresConfirmation": true,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A02",
+      "category": "effect",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "tool",
+      "expectedCheck": "effect-soundness",
+      "expectedReason": "effect-undeclared",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a02",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "unknown",
+            "reversibility": "unknown",
+            "requiresConfirmation": true,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A03",
+      "category": "confirmation",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "tool",
+      "expectedCheck": "confirmation-required",
+      "expectedReason": "confirmation-missing-for-irreversible",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a03",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "destructive",
+            "reversibility": "irreversible",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A04",
+      "category": "annotation",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "tool",
+      "expectedCheck": "untrusted-annotation-handling",
+      "expectedReason": "annotations-trusted-as-instructions",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a04",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "trusted-as-instructions",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A05",
+      "category": "annotation",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "tool",
+      "expectedCheck": "untrusted-annotation-handling",
+      "expectedReason": "annotation-posture-unknown",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a05",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "unknown",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A06",
+      "category": "token",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "server",
+      "expectedCheck": "token-audience",
+      "expectedReason": "token-blind-passthrough",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a06",
+        "tokenPosture": "blind-passthrough",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A07",
+      "category": "token",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "server",
+      "expectedCheck": "token-audience",
+      "expectedReason": "token-audience-mismatch",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a07",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-other",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A08",
+      "category": "token",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "server",
+      "expectedCheck": "token-audience",
+      "expectedReason": "token-posture-unknown",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a08",
+        "tokenPosture": "unknown",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A09",
+      "category": "output",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "tool",
+      "expectedCheck": "output-sanitization",
+      "expectedReason": "output-unsanitized",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a09",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "absent",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A10",
+      "category": "secret",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "server",
+      "expectedCheck": "secret-leakage",
+      "expectedReason": "secret-in-logs",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a10",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "absent",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A11",
+      "category": "timeout",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "tool",
+      "expectedCheck": "timeout-present",
+      "expectedReason": "timeout-absent",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a11",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": null,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A12",
+      "category": "ratelimit",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "tool",
+      "expectedCheck": "rate-limit-present",
+      "expectedReason": "rate-limit-absent",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a12",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": null,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A13",
+      "category": "sizecap",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "tool",
+      "expectedCheck": "size-cap-present",
+      "expectedReason": "size-cap-absent",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a13",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-closed",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "A14",
+      "category": "degraded",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "server",
+      "expectedCheck": "degraded-fail-closed",
+      "expectedReason": "degraded-fails-open",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a14",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "fail-open",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    },
+    {
+      "id": "A15",
+      "category": "degraded",
+      "expectedDisposition": "block",
+      "expectedSubjectKind": "server",
+      "expectedCheck": "degraded-fail-closed",
+      "expectedReason": "degraded-posture-unknown",
+      "manifest": {
+        "schemaVersion": "1.0",
+        "serverId": "srv-a15",
+        "tokenPosture": "audience-bound",
+        "grantedAudienceId": "aud-app",
+        "upstreamAudienceId": "aud-app",
+        "secretLogPosture": "enforced",
+        "degradedBehavior": "unknown",
+        "tools": [
+          {
+            "toolId": "tool-read",
+            "effect": "read-only",
+            "reversibility": "read-only",
+            "requiresConfirmation": false,
+            "annotationHandling": "treated-as-data",
+            "outputSanitization": "enforced",
+            "timeoutMs": 3000,
+            "rateLimitPerMinute": 60,
+            "maxResponseBytes": 65536
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:architecture-manifest:manifest:1.0",
+  "title": "Architecture manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "manifestId",
+    "trustBoundaries",
+    "components",
+    "dataStores",
+    "dependencies"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "manifestId": {"$ref": "#/$defs/opaqueId"},
+    "trustBoundaries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/trustBoundary"}
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/component"}
+    },
+    "dataStores": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/dataStore"}
+    },
+    "dependencies": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {"$ref": "#/$defs/dependency"}
+    }
+  },
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "repoPath": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_./-]{0,199}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "dataClass": {"enum": ["public", "internal", "confidential", "regulated"]},
+    "evidenceLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "kind", "path"],
+      "properties": {
+        "evidenceId": {"$ref": "#/$defs/opaqueId"},
+        "kind": {"enum": ["doc", "test", "schema", "config", "diagram", "runbook"]},
+        "path": {"$ref": "#/$defs/repoPath"},
+        "digest": {
+          "anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]
+        }
+      }
+    },
+    "evidenceArray": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {"$ref": "#/$defs/evidenceLink"}
+    },
+    "trustBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boundaryId", "name", "tier"],
+      "properties": {
+        "boundaryId": {"$ref": "#/$defs/opaqueId"},
+        "name": {"$ref": "#/$defs/opaqueId"},
+        "tier": {
+          "enum": ["public", "perimeter", "internal", "restricted", "isolated"]
+        }
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "componentId",
+        "name",
+        "kind",
+        "boundaryId",
+        "ownerRole",
+        "ownerToken",
+        "evidence"
+      ],
+      "properties": {
+        "componentId": {"$ref": "#/$defs/opaqueId"},
+        "name": {"$ref": "#/$defs/opaqueId"},
+        "kind": {
+          "enum": [
+            "service",
+            "library",
+            "job",
+            "gateway",
+            "ui",
+            "cli",
+            "adapter",
+            "external-system"
+          ]
+        },
+        "boundaryId": {"$ref": "#/$defs/opaqueId"},
+        "ownerRole": {
+          "enum": [
+            "platform",
+            "application",
+            "data",
+            "security",
+            "integration",
+            "unassigned"
+          ]
+        },
+        "ownerToken": {"$ref": "#/$defs/opaqueId"},
+        "evidence": {
+          "allOf": [{"$ref": "#/$defs/evidenceArray"}],
+          "minItems": 1
+        }
+      }
+    },
+    "dataStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "storeId",
+        "name",
+        "kind",
+        "boundaryId",
+        "ownerRole",
+        "ownerToken",
+        "dataClass",
+        "evidence"
+      ],
+      "properties": {
+        "storeId": {"$ref": "#/$defs/opaqueId"},
+        "name": {"$ref": "#/$defs/opaqueId"},
+        "kind": {
+          "enum": [
+            "relational",
+            "document",
+            "key-value",
+            "graph",
+            "object-store",
+            "cache",
+            "search-index",
+            "queue",
+            "secret-store"
+          ]
+        },
+        "boundaryId": {"$ref": "#/$defs/opaqueId"},
+        "ownerRole": {
+          "enum": [
+            "platform",
+            "application",
+            "data",
+            "security",
+            "integration",
+            "unassigned"
+          ]
+        },
+        "ownerToken": {"$ref": "#/$defs/opaqueId"},
+        "dataClass": {"$ref": "#/$defs/dataClass"},
+        "evidence": {
+          "allOf": [{"$ref": "#/$defs/evidenceArray"}],
+          "minItems": 1
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dependencyId",
+        "source",
+        "target",
+        "relation",
+        "dataClass",
+        "evidence"
+      ],
+      "properties": {
+        "dependencyId": {"$ref": "#/$defs/opaqueId"},
+        "source": {"$ref": "#/$defs/opaqueId"},
+        "target": {"$ref": "#/$defs/opaqueId"},
+        "relation": {
+          "enum": [
+            "calls",
+            "reads",
+            "writes",
+            "publishes",
+            "subscribes",
+            "depends-on",
+            "derives-from"
+          ]
+        },
+        "dataClass": {"$ref": "#/$defs/dataClass"},
+        "evidence": {"$ref": "#/$defs/evidenceArray"}
+      }
+    }
+  }
+}

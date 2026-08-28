@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firestarter:reviewed-extraction:egress-request:1.0",
+  "title": "Allowlisted egress request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "purpose", "recipientId", "requestedFieldPaths"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "purpose": {
+      "enum": ["treatment", "payment", "operations", "research", "patient-access"]
+    },
+    "recipientId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$"
+    },
+    "requestedFieldPaths": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?:\\.[A-Za-z0-9][A-Za-z0-9_-]{0,63}){0,15}$"
+      }
+    }
+  }
+}
