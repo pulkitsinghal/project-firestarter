@@ -8,7 +8,7 @@ RUN_FLAGS :=
 RUN     := $(COMPOSE) --profile tools run --rm $(RUN_FLAGS) node-tools
 
 .DEFAULT_GOAL := help
-.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e smoke docs-check repo-hygiene mutation-check gate-selftest gate-selftest-run verify-env verify-live release-parity hook-install
+.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e e2e-prepare browser-artifact-prepare smoke docs-check repo-hygiene mutation-check gate-selftest gate-selftest-run verify-env verify-live release-parity hook-install
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -88,13 +88,20 @@ migrate: ## No-op — this stack has no database
 	@echo "No database in the chrome-extension stack; nothing to migrate."
 
 # ── Storyboard (planned-vs-implemented; a firestarter precept) ────────────────
-storyboard: build ## Screenshot the side panel + render docs/STORYBOARD.md
+browser-artifact-prepare: ## Serially install, clean, then build exact extension/dist bytes
+	$(MAKE) --no-print-directory install
+	$(MAKE) --no-print-directory clean
+	$(MAKE) --no-print-directory build
+
+storyboard: browser-artifact-prepare ## Fresh-build, then render docs/STORYBOARD.md
 	$(COMPOSE) --profile storyboard run --rm storyboard
 
 # ── E2E (host-only: needs a real headed Chromium) ─────────────────────────────
-e2e: ## Playwright e2e — runs on the HOST (see e2e/README.md)
+e2e-prepare: browser-artifact-prepare ## Rebuild exact dist before headed e2e
+
+e2e: e2e-prepare ## Prepare exact dist; Playwright itself runs on the HOST
 	@echo "E2E needs a real browser and runs on the host, not the tools container:"
-	@echo "  make build && cd e2e && npm install && npm run playwright:install && npm run test:e2e"
+	@echo "  cd e2e && npm install && npm run playwright:install && npm run test:e2e"
 
 # ── Git hooks (opt-in) ────────────────────────────────────────────────────────
 hook-install: ## Activate the opt-in git hooks in .githooks/

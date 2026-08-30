@@ -6,6 +6,15 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- Production-artifact storyboard/browser fidelity across all four stacks:
+  FastAPI preserves its development/HMR service while storyboard drives a
+  freshly built `next start` target; Supabase serves a freshly compiled splash
+  through lock-backed `npm ci` and Vite preview with readiness; Node Notifier
+  remains locked to its production runtime; and Chrome cleans/rebuilds
+  `extension/dist` before both
+  storyboard and headed E2E while keeping its hostile-page server classified as
+  fixture input. A generated four-stack meta-contract rejects dev/stale routing
+  and requires every future stack to declare an artifact strategy.
 - Supabase cloud database recovery: bounded role-neutral app-schema snapshots to
   private HTTPS S3-compatible storage, mandatory pre-snapshot incremental cloud
   migrations from staged approved bytes, and exact-snapshot replay drills only

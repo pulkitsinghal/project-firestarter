@@ -2,7 +2,7 @@
 # {{ project_name }} frontend — Next.js. Image bakes source + deps so it serves
 # the app (default command) and the `node` profile (tsc/eslint/next build,
 # command overridden at call time).
-FROM node:22-alpine
+FROM node:22-alpine AS base
 
 WORKDIR /app
 
@@ -16,4 +16,15 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 COPY . .
 
 EXPOSE 3000
+
+# Keep the interactive local loop on Next's development renderer. Storyboard
+# and browser evidence use the separate production target below so HMR
+# convenience can never be mistaken for shipped-artifact proof.
+FROM base AS development
 CMD ["npm", "run", "dev"]
+
+FROM base AS production
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+CMD ["npm", "run", "start"]

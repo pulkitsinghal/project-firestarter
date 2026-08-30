@@ -19,6 +19,9 @@ on:
       - "splash/**"
       - "storyboard/**"
       - "backend/**"
+      - "docker-compose.yml"
+      - "Makefile"
+      - ".github/workflows/storyboard.yml"
   workflow_dispatch:
 
 jobs:
@@ -29,21 +32,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Start stack
-        run: docker compose up -d --build
-
-      - name: Wait for PostgreSQL
-        run: timeout 90 bash -c 'until docker compose exec -T postgres pg_isready -U postgres -d {{ db_name }}; do sleep 2; done'
-
-      - name: Apply migrations
-        working-directory: backend
-        run: bash scripts/migrate.sh
-
-      - name: Restart app (pick up migrated schema)
-        run: docker compose restart || true
-
       - name: Generate storyboard
-        run: docker compose --profile storyboard run --rm storyboard
+        # The stack-owned target rebuilds, prepares, and boots the exact
+        # production artifact. Do not duplicate a dev-server command here.
+        run: make storyboard
 
       - name: Upload storyboard artifacts
         if: always()

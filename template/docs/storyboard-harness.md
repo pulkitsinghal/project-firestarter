@@ -1,8 +1,11 @@
 # Storyboard — visual regression aid + planned-vs-implemented map
 
-The storyboard boots the running app and drives it with Playwright (in Docker —
-no host Node), capturing a sequence of screenshots **and** rendering a living
-"planned vs implemented" doc. It runs:
+The storyboard freshly rebuilds the **production-built** or packaged application
+artifact, waits for that artifact's serving path, and drives it with Playwright
+(in Docker — no host Node), capturing a sequence of screenshots **and**
+rendering a living "planned vs implemented" doc. A development renderer or
+stale output is not valid storyboard evidence, even when its screenshots look
+right. It runs:
 
 - **Locally:** `make storyboard` → writes PNGs to `storyboard/output/` and
   regenerates [STORYBOARD.md](STORYBOARD.md) + committed previews under
@@ -12,6 +15,15 @@ no host Node), capturing a sequence of screenshots **and** rendering a living
 
 It is intentionally **non-blocking** — it never fails a PR. It exists so a human
 (or agent) can *see* what changed without booting the stack locally.
+
+`make storyboard` is the canonical seam. Server-backed stacks keep their normal
+HMR service for local development but give the storyboard a separate
+production-build/start target with readiness. Static/package stacks clean and
+rebuild their output immediately before capture. A fixture-only HTTP server may
+still serve synthetic pages that a compiled extension or content script acts
+on; it is test input and must never be mistaken for the application artifact.
+The root artifact-fidelity contract locks every declared stack to one explicit
+strategy and blocks a future stack from silently inheriting none.
 
 ## The manifest (planned vs implemented)
 

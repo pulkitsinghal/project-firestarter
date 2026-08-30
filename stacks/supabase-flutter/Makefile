@@ -96,11 +96,11 @@ flutter-test: ## flutter test
 # ── Splash (React + Vite, in Docker) ─────────────────────────────────────────
 .PHONY: splash-check
 splash-check: ## Type-check the splash page
-	$(SPLASH_RUN) sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm check"
+	$(SPLASH_RUN) sh -c "npm ci --no-audit --no-fund && npm run check"
 
 .PHONY: splash-build
 splash-build: ## Production build of the splash page
-	$(SPLASH_RUN) sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build"
+	$(SPLASH_RUN) sh -c "npm ci --no-audit --no-fund && npm run build"
 
 # ── Aggregate gates ──────────────────────────────────────────────────────────
 .PHONY: test
@@ -140,7 +140,9 @@ precommit: gate-selftest repo-hygiene smoke flutter-analyze flutter-format-check
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────
 .PHONY: storyboard
-storyboard: ## Generate UI storyboard screenshots (Playwright in Docker → storyboard/output/)
+storyboard: ## Rebuild compiled splash output, then generate storyboard screenshots
+	$(DC) --profile storyboard build storyboard
+	$(DC) --profile storyboard rm -sf splash-storyboard
 	$(DC) --profile storyboard run --rm storyboard
 
 .PHONY: hook-install
