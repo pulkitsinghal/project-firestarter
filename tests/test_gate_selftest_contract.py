@@ -57,8 +57,8 @@ EXPECTED_REAL_TARGET_RECIPES = {
         "flutter-analyze": '$(FLUTTER_RUN) sh -c "flutter pub get && flutter analyze --fatal-infos"',
         "flutter-format-check": '$(FLUTTER_RUN) sh -c "dart format --output=none --set-exit-if-changed ."',
         "flutter-test": '$(FLUTTER_RUN) sh -c "flutter pub get && flutter test"',
-        "splash-check": '$(SPLASH_RUN) sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm check"',
-        "splash-build": '$(SPLASH_RUN) sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build"',
+        "splash-check": '$(SPLASH_RUN) sh -c "npm ci --no-audit --no-fund && npm run check"',
+        "splash-build": '$(SPLASH_RUN) sh -c "npm ci --no-audit --no-fund && npm run build"',
     },
 }
 
