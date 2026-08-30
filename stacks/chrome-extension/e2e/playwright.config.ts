@@ -10,6 +10,9 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
+  // Fixture-only server for pages the compiled content script acts on. The
+  // application artifact is extension/dist, loaded by fixtures/extension.ts;
+  // this server is deliberately not an app renderer or a development server.
   webServer: {
     command: 'node scripts/static-server.mjs',
     url: 'http://127.0.0.1:4175/navigation/index.html',

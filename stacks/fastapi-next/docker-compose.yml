@@ -57,7 +57,9 @@ services:
       - "{{ port_api }}:8000"
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: development
     environment:
       # The browser calls same-origin /api/*; Next proxies it to the backend
       # service over the compose network (see frontend/next.config.mjs).
@@ -85,7 +87,9 @@ services:
 
   frontend-tools:
     profiles: ["node"]
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: development
     # Mount live source over the baked image so typecheck/build run against the
     # WORKING TREE (not stale baked source). The anonymous volume preserves the
     # image's /app/node_modules (the host has none — no host SDKs).
@@ -94,16 +98,43 @@ services:
       - /app/node_modules
     command: ["npm", "run", "typecheck"]
 
-  # Storyboard runner (Playwright). Drives the live frontend over the compose
-  # network and writes screenshots to ./storyboard/output.
+  # Exact production-built frontend used by browser/storyboard evidence. It has
+  # no host port and does not replace the HMR-friendly `frontend` service.
+  frontend-storyboard:
+    profiles: ["storyboard"]
+    build:
+      context: ./frontend
+      target: production
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+    depends_on:
+      - backend
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  # Storyboard runner (Playwright). Drives the production-built frontend over
+  # the compose network and writes screenshots to ./storyboard/output.
   storyboard:
     profiles: ["storyboard"]
     build: ./storyboard
     environment:
-      FRONTEND_URL: http://frontend:3000
+      FRONTEND_URL: http://frontend-storyboard:3000
       OUT_DIR: /out
     depends_on:
-      - frontend
+      frontend-storyboard:
+        condition: service_healthy
     volumes:
       - ./storyboard/output:/out
       # ./docs is mounted so the harness can (re)generate docs/STORYBOARD.md and

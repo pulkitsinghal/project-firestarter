@@ -128,6 +128,9 @@ jobs:
       - name: Verify the deployed-artifact contract
         run: python3 -B -m unittest -v tests.test_verify_live_contract
 
+      - name: Verify storyboard and browser artifact fidelity
+        run: python3 -B -m unittest -v tests.test_storyboard_artifact_fidelity_contract
+
       - name: Verify the documentation-integrity contract
         run: python3 -B -m unittest -v tests.test_doc_integrity_contract
 

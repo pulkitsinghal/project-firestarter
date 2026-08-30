@@ -54,6 +54,33 @@ stale candidate, or silently skipped layer is not equivalent. A local pass never
 overrides an executed hosted failure and never claims to satisfy or bypass the
 repository host's merge policy.
 
+### Browser/E2E artifact fidelity
+
+A browser, E2E, or storyboard gate must exercise the artifact the project would
+ship: a production build served through its production start path, or the exact
+compiled/package output for a static app or extension. A successful browser run
+against a development renderer, source-only static server, or stale build output
+is **unexecuted for artifact fidelity**. It may prove the flow works in
+development; it does not prove the candidate artifact works.
+
+Keep the interactive development service separate so HMR and fast feedback are
+not sacrificed. The evidence target must freshly rebuild the current candidate,
+start only the production/package path, expose a real readiness signal, and make
+the browser runner depend on that ready target. Do not let an already-running
+development service satisfy the same URL. For extensions and other static
+packages, remove stale output before rebuilding and fail if the expected package
+entry point is absent. A small fixture server used by a content script is test
+input, not the application renderer; name and lock that boundary explicitly.
+
+Use the stack-owned `make storyboard` / E2E preparation target from local and
+hosted paths so build, readiness, and browser routing cannot drift. Keep a
+meta-test that fails when a declared stack lacks an artifact strategy or when a
+runner is repointed to development/source output. See
+[storyboard-harness.md](storyboard-harness.md) for the shipped visual-evidence
+path. Artifact fidelity is distinct from post-deploy verification: this gate
+proves the candidate package before promotion; `make verify-live` proves the
+intended build is what collaborators can fetch after promotion.
+
 ### Quality gate ≠ side-effect gate
 
 Clearing this gate authorizes **merging code**. It does **not** authorize the

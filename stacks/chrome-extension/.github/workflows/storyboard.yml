@@ -13,6 +13,8 @@ on:
     paths:
       - "extension/**"
       - "storyboard/**"
+      - "docker-compose.yml"
+      - "Makefile"
       - ".github/workflows/storyboard.yml"
   workflow_dispatch:
 
@@ -27,12 +29,9 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Install deps (in container)
-        run: make install
-      - name: Build the extension
-        run: make build
-      - name: Render storyboard
-        run: docker compose --profile storyboard run --rm storyboard
+      - name: Build and render storyboard
+        # The Make target builds extension/dist before Playwright opens it.
+        run: make storyboard
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -110,7 +110,11 @@ precommit: gate-selftest repo-hygiene smoke backend-lint backend-test frontend-t
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────
 .PHONY: storyboard
-storyboard: ## Generate UI storyboard screenshots (Playwright in Docker → storyboard/output/)
+storyboard: ## Rebuild the production frontend, then generate storyboard screenshots
+	$(DC) up -d --build postgres redis backend
+	cd backend && bash scripts/migrate.sh
+	$(DC) --profile storyboard build frontend-storyboard storyboard
+	$(DC) --profile storyboard rm -sf frontend-storyboard
 	$(DC) --profile storyboard run --rm storyboard
 
 .PHONY: hook-install

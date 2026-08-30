@@ -14,7 +14,11 @@ on:
       - "src/**"
       - "public/**"
       - "storyboard/**"
+      - "package.json"
+      - "package-lock.json"
+      - "Dockerfile"
       - "docker-compose.yml"
+      - "Makefile"
       - ".github/workflows/storyboard.yml"
   workflow_dispatch:
 

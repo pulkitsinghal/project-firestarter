@@ -20,6 +20,8 @@ x-app-environment: &app-environment
 x-app: &app
   build:
     context: .
+    # Storyboard inherits this exact production runtime target through api and
+    # worker; it never substitutes a watch/development command.
     target: runtime
   environment: *app-environment
   depends_on:

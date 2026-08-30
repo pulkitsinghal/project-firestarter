@@ -96,26 +96,60 @@ services:
 
   splash:
     profiles: ["splash"]
-    image: node:20-alpine
+    image: node:22-alpine
     working_dir: /splash
     # GOTCHA (Docker file-watching on macOS/Windows/WSL2): inotify events don't
     # propagate into a container over a bind mount, so a Vite/webpack dev server
-    # (`pnpm dev`) won't hot-reload without polling. These make HMR fire; they're
-    # inert for the default one-shot `pnpm build` below, so it's safe to keep.
+    # (`npm run dev`) won't hot-reload without polling. These make HMR fire;
+    # they're inert for the default one-shot build below, so it's safe to keep.
     environment:
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
     volumes:
       - ./splash:/splash
       - splash_node_modules:/splash/node_modules
-    command: ["sh", "-c", "corepack enable && pnpm install && pnpm build"]
+    command: ["sh", "-c", "npm ci --no-audit --no-fund && npm run build"]
+
+  # Browser evidence must drive compiled output, never Vite's development
+  # renderer. This service rebuilds the exact splash candidate, then serves its
+  # dist/ bytes through Vite's production-preview path on the Compose network.
+  splash-storyboard:
+    profiles: ["storyboard"]
+    image: node:22-alpine
+    working_dir: /splash
+    volumes:
+      - ./splash:/splash
+      - splash_storyboard_node_modules:/splash/node_modules
+    command:
+      [
+        "sh",
+        "-c",
+        "npm ci --no-audit --no-fund && npm run build && npm run preview -- --host 0.0.0.0 --port 4173",
+      ]
+    expose:
+      - "4173"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4173').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
 
   storyboard:
     profiles: ["storyboard"]
     build: ./storyboard
     environment:
-      FRONTEND_URL: http://splash:5173
+      FRONTEND_URL: http://splash-storyboard:4173
       OUT_DIR: /out
+    depends_on:
+      splash-storyboard:
+        condition: service_healthy
     volumes:
       - ./storyboard/output:/out
       # ./docs is mounted so the harness can (re)generate docs/STORYBOARD.md and
@@ -138,3 +172,4 @@ volumes:
   {{ pgdata_volume }}:
   flutter_pub_cache:
   splash_node_modules:
+  splash_storyboard_node_modules:
