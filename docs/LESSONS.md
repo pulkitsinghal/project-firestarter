@@ -269,6 +269,60 @@ container and fails loud on "Missing from lock file".
 
 ---
 
+## Troubleshooting: success signals that lie
+
+Every entry here cost real time on a real incident. The common shape is a system
+that reports success, or reports nothing wrong, while actively failing. Reach for
+these first when a symptom and its apparent cause do not line up.
+
+**A 200 is not a yes.** Static hosts commonly serve a fallback page for a path
+that does not exist, so a missing asset answers `200 OK` with a body that is not
+your file. Any code that fetches and writes to disk on `if status == 200` will
+happily save that fallback as data. One restore did this eleven times and wrote
+byte-identical copies of a placeholder page over real CSVs and HTML, after which
+the tree looked complete and passed every count-based check. Fetch the host's own
+miss page once, then reject any response body equal to it. **Identical file sizes
+across files of different types is the tell:** CSV, HTML and JSON do not all come
+to exactly 671 bytes by coincidence.
+
+**An empty list can mean "you cannot see", not "nothing exists".** Some APIs
+answer an unauthorized-but-authenticated list request with `200` and `[]` rather
+than `403`. That reads as "nothing is configured" and sends you off building what
+is already there. Prove it by requesting one resource **by known id**: a `403`
+there tells you it is a permissions gap, while the list endpoint would have let
+you conclude the opposite. Never report "there is none" from an empty list alone.
+
+**A captured subprocess that can prompt will hang forever, and silently.** With
+`capture_output=True` and stdin inherited, an interactive prompt goes into a pipe
+nobody reads while the child waits on input that will never come. The operator
+sees a command that simply stopped, with no question to answer. This cost nine
+minutes on a first run of a CLI whose telemetry opt-in prompt was invisible.
+**Close stdin as well as stdout** (`stdin=DEVNULL`), pass the tool's
+non-interactive flag or `CI=1`, and always set a timeout so a block announces
+itself.
+
+**Frozen CPU time with rising elapsed time means blocked, not working.** `ps -p
+<pid> -o time,etime` separates the two in one command. **An established socket is
+not evidence of progress:** a process hung on a prompt can hold its connection
+open indefinitely, which is exactly how the hang above disguised itself as a slow
+upload.
+
+**Presence is not completeness, and a guard must check at the granularity of the
+damage.** A deploy that mirrors a directory guarded against a *missing* item and
+so ignored a *gutted* one: the item existed with 56 of its 62 files, the check
+passed, and the mirror deleted the other six from production. If the operation is
+destructive at file level, verify at file level, against a manifest rather than
+against a count. **Verify unconditionally,** before the work and before any
+irreversible token is advanced: a check that only runs when something already
+believes there is work to do is not a guard.
+
+**Ask for the screenshot before theorising.** A user reporting "I cannot see the
+page" was diagnosed as an expired session, and the fix was three paragraphs of
+sign-in troubleshooting that could not have worked. Their screenshot showed they
+were signed in and the page was simply absent from the build. One image resolved
+in seconds what the API could not, because the failure and its symptom lived in
+different systems.
+
 ## Testing & the harness as "eyes"
 
 **Run a Dockerized browser E2E harness against the real engine.** Run a
