@@ -345,6 +345,25 @@ network calls via route interception, and capture with the automation framework'
 built-in video recorder (Playwright `recordVideo`) rather than OS screen-grab
 (`ffmpeg x11grab` gave black frames on a bare virtual display).
 
+**Upload files by driving the hidden `<input type=file>`, never the native
+picker or an OS drag.** When browser automation (claude-in-chrome, Playwright,
+computer-use) must attach a local file, do not click the page's visible
+Attach/Upload/Browse control: it opens a native OS file dialog the automation
+cannot see or drive. Do not fall back to an OS-level drag-and-drop onto a drop
+zone either; it needs pixel-precise coordinates, fails silently, and an in-app
+browser has no Finder at all. Instead set the files on the `<input type=file>`
+directly (Playwright `setInputFiles`; claude-in-chrome `file_upload` with the
+element ref). The input is usually present but `display:none`, so reveal it
+first (set `display:block` plus an `aria-label`) to get an addressable ref,
+skip the `accept="image/*"` inline-image inputs (the attachment input has
+`accept` empty and `multiple`), pass every file in one call so one change
+event attaches them all, then assert the attachment chips rendered before
+submitting. This converts a flaky, vision-dependent OS interaction into a
+deterministic DOM write. On surfaces like Outlook web the recipient
+people-picker also drops the first keystroke after focus and coordinate clicks
+mis-map (page viewport differs from screenshot scale), so select dropdown
+options by ref there too.
+
 **Distinguish synthetic users with a flag, and simulate through the real RPC
 path.** Mark test/synthetic users with an explicit boolean column as the source of
 truth (not a mutable, user-facing username convention); make analytics and
