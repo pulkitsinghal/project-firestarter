@@ -1,13 +1,13 @@
-# secret-vault-lib.ps1 — shared helpers for the secret_vault add-on (Windows).
+# secret-vault-lib.ps1 - shared helpers for the secret_vault add-on (Windows).
 #
 # DOT-SOURCED, not run: `. "$PSScriptRoot\secret-vault-lib.ps1"`. Provides the
 # durable-store adapters for Windows and the sha256 fingerprint helper.
 #
 # Durable stores on Windows:
-#   1. 1Password           — `op document` titled <name>            (cross-platform CLI)
-#   2. Windows Credential  — Credential Manager (generic) via advapi32 P/Invoke
+#   1. 1Password           - `op document` titled <name>            (cross-platform CLI)
+#   2. Windows Credential  - Credential Manager (generic) via advapi32 P/Invoke
 #      Manager               (a REAL OS secret store; no external module needed)
-#   3. On-disk backup      — %USERPROFILE%\.secret-vault\backups\<slug>.secret,
+#   3. On-disk backup      - %USERPROFILE%\.secret-vault\backups\<slug>.secret,
 #                            DPAPI-encrypted at rest (CurrentUser) + ACL-locked.
 #
 # Guardrails (see docs/SECRETS.md): the secret value is never placed in a
@@ -18,7 +18,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ── Layout (override via env) ────────────────────────────────────────────────
+# -- Layout (override via env) ------------------------------------------------
 $script:SvHome      = if ($env:SECRET_VAULT_HOME)        { $env:SECRET_VAULT_HOME }        else { Join-Path $HOME '.secret-vault' }
 $script:SvBackupDir = if ($env:SECRET_VAULT_BACKUP_DIR)  { $env:SECRET_VAULT_BACKUP_DIR }  else { Join-Path $script:SvHome 'backups' }
 $script:SvIndexDir  = if ($env:SECRET_VAULT_INDEX_DIR)   { $env:SECRET_VAULT_INDEX_DIR }   else { Join-Path $script:SvHome 'index' }
@@ -37,7 +37,7 @@ function Sv-Slug([string]$name) {
 function Sv-BackupPath([string]$name) { Join-Path $script:SvBackupDir ((Sv-Slug $name) + '.secret') }
 function Sv-IndexPath([string]$name)  { Join-Path $script:SvIndexDir  ((Sv-Slug $name) + '.sha256') }
 
-# ── sha256 ───────────────────────────────────────────────────────────────────
+# -- sha256 -------------------------------------------------------------------
 function Sv-Sha256Hex([byte[]]$bytes) {
   $sha = [System.Security.Cryptography.SHA256]::Create()
   try { return (($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }) -join '') }
@@ -45,7 +45,7 @@ function Sv-Sha256Hex([byte[]]$bytes) {
 }
 function Sv-Sha256File([string]$path) { return Sv-Sha256Hex ([System.IO.File]::ReadAllBytes($path)) }
 
-# ── Windows Credential Manager (generic creds) via advapi32 ──────────────────
+# -- Windows Credential Manager (generic creds) via advapi32 ------------------
 if (-not ([System.Management.Automation.PSTypeName]'SvCredMan').Type) {
   Add-Type -Namespace '' -Name 'SvCredMan' -MemberDefinition @'
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -117,7 +117,7 @@ function Sv-CredGet([string]$name) {   # -> byte[] or $null
 function Sv-OsStoreAvailable { return $true }   # Credential Manager is always present on Windows
 function Sv-OsStoreLabel { return 'Credential Manager (Windows)' }
 
-# ── DPAPI (on-disk backup at rest) ───────────────────────────────────────────
+# -- DPAPI (on-disk backup at rest) -------------------------------------------
 # System.Security holds ProtectedData on Windows PowerShell 5.1; the type also
 # auto-resolves on modern Windows PowerShell. Swallow the load error on non-
 # Windows hosts (where DPAPI is unsupported anyway) so dot-sourcing never aborts.
@@ -149,7 +149,7 @@ function Sv-BackupGet([string]$name) {   # -> byte[] or $null
   return ,(Sv-Unprotect ([System.IO.File]::ReadAllBytes($src)))
 }
 
-# ── 1Password (op) adapter ───────────────────────────────────────────────────
+# -- 1Password (op) adapter ---------------------------------------------------
 function Sv-OpAvailable { return [bool](Get-Command op -ErrorAction SilentlyContinue) }
 function Sv-OpVaultArgs { if ($script:SvOpVault) { return @('--vault', $script:SvOpVault) } else { return @() } }
 
@@ -169,7 +169,7 @@ function Sv-OpGet([string]$name, [string]$outFile) {   # writes raw bytes to $ou
   return ($LASTEXITCODE -eq 0 -and (Test-Path $outFile) -and ((Get-Item $outFile).Length -gt 0))
 }
 
-# ── Fingerprint index (non-secret) ───────────────────────────────────────────
+# -- Fingerprint index (non-secret) -------------------------------------------
 function Sv-IndexSet([string]$name, [string]$fp) {
   if (-not (Test-Path $script:SvIndexDir)) { New-Item -ItemType Directory -Force -Path $script:SvIndexDir | Out-Null }
   Set-Content -Path (Sv-IndexPath $name) -Value $fp -NoNewline -Encoding ascii
@@ -179,7 +179,7 @@ function Sv-IndexGet([string]$name) {
   if (Test-Path $p) { return (Get-Content -Raw -Path $p).Trim() } else { return '' }
 }
 
-# ── Locked temp file ─────────────────────────────────────────────────────────
+# -- Locked temp file ---------------------------------------------------------
 function Sv-NewTemp {
   $p = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), 'secret-vault-' + [System.Guid]::NewGuid().ToString('N') + '.tmp')
   New-Item -ItemType File -Path $p -Force | Out-Null

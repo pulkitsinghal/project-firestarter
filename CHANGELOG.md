@@ -302,6 +302,11 @@ All notable changes to the firestarter template. See
   anonymous origin.
 - Made the documented and self-CI token-leak gate ignore binary storyboard
   assets so image bytes cannot produce a false token-leak failure.
+- The `secret_vault` PowerShell scripts run on Windows PowerShell 5.1 again.
+  Non-ASCII punctuation in comments made `secret-store.ps1` fail to parse,
+  because 5.1 reads scripts without a byte-order mark as ANSI. The scripts are
+  now ASCII-only, and a self-CI contract requires every PowerShell script to be
+  ASCII-only or saved with a UTF-8 BOM.
 
 ## [0.2.0] — 2026-07-06
 

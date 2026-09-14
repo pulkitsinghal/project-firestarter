@@ -1,5 +1,5 @@
 #requires -Version 5.1
-# secret-store.ps1 — store a NAMED secret redundantly across durable stores and
+# secret-store.ps1 - store a NAMED secret redundantly across durable stores and
 # verify every copy by sha256 fingerprint (defense-in-redundancy). Windows.
 #
 # The secret VALUE is never passed as an argument. Provide it via the pipeline
@@ -10,11 +10,11 @@
 #   .\secret-store.ps1 MY_API_KEY -Generate 32
 #
 # Writes to (all available; >=2 durable copies required):
-#   1. 1Password           — op document titled <name>            (needs op, signed in)
-#   2. Credential Manager  — Windows generic credential           (raw bytes)
-#   3. On-disk backup      — %USERPROFILE%\.secret-vault\backups   (DPAPI at rest)
+#   1. 1Password           - op document titled <name>            (needs op, signed in)
+#   2. Credential Manager  - Windows generic credential           (raw bytes)
+#   3. On-disk backup      - %USERPROFILE%\.secret-vault\backups   (DPAPI at rest)
 # then reads each back, hashes it, and ASSERTS every fingerprint matches. Prints
-# ONLY the fingerprint + per-store status — never the secret value.
+# ONLY the fingerprint + per-store status - never the secret value.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -42,7 +42,7 @@ Never pass the secret value as an argument.
 '@ | Write-Host
 }
 
-# ── Parse args ────────────────────────────────────────────────────────────────
+# -- Parse args ----------------------------------------------------------------
 $Name = $null; $InputMode = 'stdin'; $InputFile = $null; $GenBytes = 32
 $UseOp = $true; $UseOs = $true
 $i = 0
@@ -68,7 +68,7 @@ while ($i -lt $args.Count) {
 }
 if (-not $Name) { Show-Usage; exit 2 }
 
-# ── Acquire raw bytes ─────────────────────────────────────────────────────────
+# -- Acquire raw bytes ---------------------------------------------------------
 [byte[]]$Raw = $null
 switch ($InputMode) {
   'file' {
@@ -124,7 +124,7 @@ try {
     } else { $Lines.Add('  Credential Manager     : FAILED (stored or verified badly)') }
   } else { $Lines.Add('  Credential Manager     : skipped (-NoOs)') }
 
-  # On-disk backup (DPAPI at rest) — the recovery floor
+  # On-disk backup (DPAPI at rest) - the recovery floor
   Sv-BackupSet $Name $Raw
   if (Verify-Store { Sv-BackupGet $Name }) {
     $Lines.Add("  backup ($(Sv-BackupPath $Name)): ok"); $Durable++
@@ -144,7 +144,7 @@ Write-Host "fingerprint (sha256): $Fp"
 $Lines | ForEach-Object { Write-Host $_ }
 
 if ($Durable -lt 2) {
-  Sv-Die "only $Durable durable copy stored — need at least 2 (redundancy floor). Secret is NOT safely stored."
+  Sv-Die "only $Durable durable copy stored - need at least 2 (redundancy floor). Secret is NOT safely stored."
 }
 Write-Host ''
 Write-Host ("+ {0} durable copies, all fingerprints match ({1}...)" -f $Durable, $Fp.Substring(0, 12))
