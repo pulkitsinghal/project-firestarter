@@ -468,6 +468,24 @@ field-access site.
 
 ## Security
 
+**Contain the system-wide input tap that "computer use" agents install.** A
+desktop automation agent that types and clicks for you does it through a
+system-wide keyboard and mouse event tap (on macOS a `CGEventTap`, gated by the
+Accessibility permission), which lets it observe and re-inject every keystroke on
+the machine, in every app. A stale or buggy helper that re-posts the events it
+observes will double every physical keypress system-wide, and it hides unusually
+well: the tap sits above the HID layer, so only one keyboard enumerates, every
+keyboard setting looks normal, and quitting unrelated apps does nothing. Diagnose
+by enumerating the OS event taps and mapping each to its owning process (macOS:
+`CGGetEventTapList`, then read `tappingProcess`; the culprit taps key events, is
+enabled, and carries an option other than listen-only, while the OS assistant's
+own taps also appear and are harmless). Kill the owning process to release the tap
+at once. Prevent recurrence by revoking that helper's Accessibility grant
+(`tccutil reset Accessibility <bundle-id>`), which forces it down to listen-only
+and blocks re-posting, because you cannot patch a signed third-party binary and an
+update would overwrite the patch regardless. Observed with a signed third-party
+computer-use helper that held three active, re-posting key-event taps.
+
 **Treat capability-token inputs as untrusted amounts.** With anonymous
 capability-token auth (a bearer UUID), possession proves identity but never
 honesty or how-much. Any endpoint that mints points/currency/XP must server-derive
