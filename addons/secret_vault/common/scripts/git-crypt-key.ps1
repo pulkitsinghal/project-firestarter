@@ -1,16 +1,16 @@
 #requires -Version 5.1
-# git-crypt-key.ps1 — store / restore a repository's git-crypt symmetric key in
+# git-crypt-key.ps1 - store / restore a repository's git-crypt symmetric key in
 # the secret vault under the conventional name "git-crypt: <repo>". Windows.
 #
 # The Windows counterpart of git-crypt-key.sh: same "git-crypt: <repo>" naming
 # and 1Password + OS-store redundancy, now with a DPAPI-protected on-disk backup,
-# fingerprint verification, and cross-platform restore — via secret-store/get.
+# fingerprint verification, and cross-platform restore - via secret-store/get.
 #
 #   .\git-crypt-key.ps1 store   [repo] [-Key <path>]
 #   .\git-crypt-key.ps1 restore [repo] [-Out <path>] [-Unlock]
 #
 # <repo> defaults to the basename of the current git worktree. The key is
-# exported to an ACL-locked temp file, stored, then shredded — never printed,
+# exported to an ACL-locked temp file, stored, then shredded - never printed,
 # never passed as an argument.
 
 Set-StrictMode -Version Latest

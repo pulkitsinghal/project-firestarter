@@ -1,12 +1,12 @@
 #requires -Version 5.1
-# secret-get.ps1 — retrieve a named secret for RUNTIME use, with primary-store
+# secret-get.ps1 - retrieve a named secret for RUNTIME use, with primary-store
 # fallback and fingerprint verification. Windows.
 #
 # Prefer streaming straight into the consuming command so the value never lands
 # in a file or lingers in the environment beyond the child that needs it:
 #
 #   .\secret-get.ps1 MY_API_KEY -Exec API_KEY -- myserver.exe --port 8080
-#       ↑ fetches + verifies, sets $env:API_KEY for the child only, runs it,
+#       ^ fetches + verifies, sets $env:API_KEY for the child only, runs it,
 #         then clears the variable. The value never appears in argv.
 #
 # Other sinks:
@@ -72,7 +72,7 @@ if (-not $Name) { Show-Usage; exit 2 }
 if ($Sink -eq 'exec' -and (-not $ExecEnv -or $ExecCmd.Count -eq 0)) { Sv-Info '-Exec needs <ENVVAR> -- <cmd>'; Show-Usage; exit 2 }
 if ($Sink -eq 'file' -and -not $OutFile) { Show-Usage; exit 2 }
 
-# ── Fetch (with fallback) ─────────────────────────────────────────────────────
+# -- Fetch (with fallback) -----------------------------------------------------
 $From = $null
 [byte[]]$Bytes = $null
 
@@ -93,7 +93,7 @@ switch ($Source) {
   default  { Sv-Die "unknown -Source '$Source' (use auto|op|os|backup)" }
 }
 
-# ── Verify fingerprint ────────────────────────────────────────────────────────
+# -- Verify fingerprint --------------------------------------------------------
 if ($Verify) {
   $got = Sv-Sha256Hex $Bytes
   $want = Sv-IndexGet $Name
@@ -113,7 +113,7 @@ if ($Verify) {
 
 Sv-Info "-> retrieved '$Name' from $From"
 
-# ── Deliver ───────────────────────────────────────────────────────────────────
+# -- Deliver -------------------------------------------------------------------
 switch ($Sink) {
   'stdout' {
     $out = [Console]::OpenStandardOutput()
