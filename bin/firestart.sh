@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Project Firestarter — Dockerized entrypoint.
+# Project Firestarter: Dockerized entrypoint.
 #
 # Runs the generator inside a python:slim container so no Python is installed on
 # the host (honours the "no host SDKs" rule the templates themselves enforce).
@@ -12,6 +12,14 @@
 #   ./bin/firestart.sh --defaults
 #   ./bin/firestart.sh --set project_slug=acme --set stack=supabase-flutter
 #   ./bin/firestart.sh --values answers.json --output ../project-x
+#
+# Private overlay layers (addons + config fragment from a companion repo):
+#   ./bin/firestart.sh --overlay ../firestarter-private        # repeatable
+#   FIRESTARTER_PRIVATE=../firestarter-private ./bin/firestart.sh
+# A sibling overlay (under this repo's parent dir) is reachable as-is because the
+# parent is already mounted; reference it by a RELATIVE path (e.g.
+# ../firestarter-private) so it resolves the same inside the container. An
+# overlay outside the parent dir needs FIRESTARTER_NATIVE=1 or a custom mount.
 #
 # Escape hatch: FIRESTARTER_NATIVE=1 runs against a host Python 3 instead of
 # Docker (handy in CI images that already have Python).
@@ -37,5 +45,6 @@ TTY_FLAGS=""
 exec docker run --rm ${TTY_FLAGS} \
     -v "${PARENT_DIR}:/work" \
     -w "/work/$(basename "${REPO_DIR}")" \
+    -e FIRESTARTER_PRIVATE \
     python:3.12-slim \
     python /work/"$(basename "${REPO_DIR}")"/bin/generate.py "$@"

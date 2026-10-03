@@ -434,6 +434,9 @@ jobs:
           test ! -e "$OUT/off-by-default/tools/architecture_manifest"
           echo "✓ architecture_manifest is removable and off by default"
 
+      - name: External overlay hook contract
+        run: python3 -B -m unittest -v tests.test_overlay_hook_contract
+
   lint:
     name: Lint & Typecheck
     runs-on: ubuntu-latest
