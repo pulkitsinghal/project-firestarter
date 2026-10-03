@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Project Firestarter — cookiecutter-style generator (stdlib only, no pip).
+Project Firestarter: cookiecutter-style generator (stdlib only, no pip).
 
 Stamps a new project from `template/` (the universal meta-layer) overlaid with
 the chosen `stacks/<stack>/` profile, substituting `{{ token }}` placeholders
@@ -10,15 +10,25 @@ Honours the "no host SDKs" rule: this runs inside a python:slim container via
 `bin/firestart.sh`, so nothing is installed on the host. It can also be run
 directly with any Python 3.8+ if you already have one.
 
-Usage (via the wrapper — recommended):
+Usage (via the wrapper, recommended):
     ./bin/firestart.sh                         # interactive prompts
     ./bin/firestart.sh --defaults              # accept every default
     ./bin/firestart.sh --set project_name="Project Acme" --set stack=supabase-flutter
     ./bin/firestart.sh --values my-answers.json --output ../project-x
 
-Token safety: only the exact keys declared in firestarter.config.json are
-substituted, so GitHub Actions expressions like ${{ github.sha }} are never
-touched.
+Overlay roots (private companion layers):
+    ./bin/firestart.sh --overlay ../firestarter-private        # repeatable
+    FIRESTARTER_PRIVATE=../firestarter-private ./bin/firestart.sh
+Each overlay dir may carry its own `addons/<name>/{common,<stack>}/` trees and an
+optional `firestarter.config.json` *fragment*. Fragments are merged over the base
+config (overlay wins; later overlays win over earlier ones), and addon lookup
+searches the base `addons/` first, then each overlay's `addons/`. The content of
+every overlay stays out of this public repo; only this generic mechanism lives here.
+
+Token safety: only the exact keys declared in firestarter.config.json (or in a
+merged overlay fragment) are substituted, so GitHub Actions expressions like
+${{ github.sha }} are never touched. Overlay-declared keys become valid tokens
+without broadening the whitelist to "replace any {{ }}".
 """
 
 from __future__ import annotations
@@ -40,10 +50,85 @@ GITHUB_REPOSITORY_RE = re.compile(
 PROJECT_SLUG_RE = re.compile(r"^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 
 
-def load_config() -> dict:
-    raw = json.loads(CONFIG_PATH.read_text())
+# Optional add-ons shipped in this public repo. Overlay roots may declare more
+# via their own `include_<name>` config keys; those are discovered at runtime.
+BASE_ADDONS = (
+    "k8s",
+    "auth",
+    "bug_report",
+    "ssrf_fetch",
+    "scheduled_agent",
+    "kokoro_warm",
+    "secret_vault",
+    "orchestrator_session",
+    "service_supervisor",
+    "bounded_runner",
+    "browser_automation_policy",
+    "local_ollama",
+    "encrypted_local_areas",
+    "convergent_deploy",
+    "cross_host_agent",
+    "version_changelog",
+    "trusted_workstation",
+    "agent_eval_harness",
+    "reviewed_extraction",
+    "mcp_security_gate",
+    "architecture_manifest",
+)
+
+
+def load_config_file(path: Path) -> dict:
+    raw = json.loads(path.read_text())
     # Drop documentation keys (anything starting with "_").
     return {k: v for k, v in raw.items() if not k.startswith("_")}
+
+
+def load_config() -> dict:
+    return load_config_file(CONFIG_PATH)
+
+
+def resolve_overlays(args) -> list:
+    """Collect overlay roots from --overlay (repeatable) then the
+    FIRESTARTER_PRIVATE env (os.pathsep-separated). Relative paths resolve
+    against the current working directory; later overlays win over earlier."""
+    raw: list = list(args.overlay or [])
+    env = os.environ.get("FIRESTARTER_PRIVATE", "").strip()
+    if env:
+        raw += [part for part in env.split(os.pathsep) if part]
+
+    resolved: list = []
+    for entry in raw:
+        path = Path(entry).expanduser().resolve()
+        if not path.is_dir():
+            raise ValueError(f"overlay root not found: {entry} (resolved to {path})")
+        if path not in resolved:
+            resolved.append(path)
+    return resolved
+
+
+def merge_overlay_config(base: dict, overlays: list) -> dict:
+    """Merge each overlay's firestarter.config.json fragment over the base.
+    Overlay wins per key; keys new to an overlay are appended (so they become
+    valid tokens) while the whitelist-only substitution rule is preserved."""
+    config = dict(base)
+    for overlay in overlays:
+        fragment_path = overlay / "firestarter.config.json"
+        if fragment_path.is_file():
+            config.update(load_config_file(fragment_path))
+    return config
+
+
+def addon_names(config: dict) -> list:
+    """Base add-ons first (keeps their names as literals in this file for the
+    contract tests), then any extra `include_<name>` flags an overlay declared,
+    in config order."""
+    names = list(BASE_ADDONS)
+    for key in config:
+        if key.startswith("include_"):
+            name = key[len("include_"):]
+            if name not in names:
+                names.append(name)
+    return names
 
 
 def render(text: str, values: dict) -> str:
@@ -124,8 +209,8 @@ def collect(config: dict, args) -> dict:
     values: dict = {}
     interactive = (not args.defaults) and sys.stdin.isatty() and not overrides.get("__noninteractive__")
 
-    print("\nProject Firestarter — answer a few questions (Enter accepts the default):\n"
-          if interactive else "\nProject Firestarter — resolving values:\n")
+    print("\nProject Firestarter: answer a few questions (Enter accepts the default):\n"
+          if interactive else "\nProject Firestarter: resolving values:\n")
 
     for key, spec in config.items():
         choices = spec if isinstance(spec, list) else None
@@ -188,17 +273,29 @@ def stamp(src_root: Path, out_root: Path, values: dict) -> int:
 
 
 def main() -> int:
-    config = load_config()
-
     p = argparse.ArgumentParser(description="Stamp a new project from the firestarter template.")
     p.add_argument("--output", "-o", help="Output directory (default: ../<github_repo>)")
     p.add_argument("--values", help="JSON file of answers (overrides defaults/prompts)")
     p.add_argument("--set", action="append", metavar="key=value",
                    type=lambda kv: tuple(kv.split("=", 1)),
                    help="Set a single value (repeatable)")
+    p.add_argument("--overlay", action="append", metavar="DIR",
+                   help="Overlay root with its own addons/ and optional config "
+                        "fragment (repeatable; also FIRESTARTER_PRIVATE env)")
     p.add_argument("--defaults", action="store_true", help="Non-interactive; use all defaults")
     p.add_argument("--force", action="store_true", help="Allow writing into a non-empty output dir")
     args = p.parse_args()
+
+    try:
+        overlays = resolve_overlays(args)
+    except ValueError as exc:
+        print(f"\n✗ {exc}")
+        return 2
+    config = merge_overlay_config(load_config(), overlays)
+    if overlays:
+        print("Overlay roots (private layers, highest priority last):")
+        for overlay in overlays:
+            print(f"  · {overlay}")
 
     values = collect(config, args)
 
@@ -227,36 +324,21 @@ def main() -> int:
     # flag is "yes". Keeps opinionated/heavy modules (e.g. k8s) out of the default
     # scaffold. The `common/` overlay lets a stack-agnostic add-on live in one
     # place instead of being duplicated under every stack.
-    for addon in (
-        "k8s",
-        "auth",
-        "bug_report",
-        "ssrf_fetch",
-        "scheduled_agent",
-        "kokoro_warm",
-        "secret_vault",
-        "orchestrator_session",
-        "service_supervisor",
-        "bounded_runner",
-        "browser_automation_policy",
-        "local_ollama",
-        "encrypted_local_areas",
-        "convergent_deploy",
-        "cross_host_agent",
-        "version_changelog",
-        "trusted_workstation",
-        "agent_eval_harness",
-        "reviewed_extraction",
-        "mcp_security_gate",
-        "architecture_manifest",
-    ):
+    #
+    # Add-on lookup searches the base `addons/` first, then each overlay root's
+    # `addons/`, so an overlay can ship its own private add-ons (and, because a
+    # later root is stamped last, override files of a base add-on it shares a
+    # name with). `include_<name>` flags an overlay declared are honoured too.
+    addon_roots = [ROOT] + overlays
+    for addon in addon_names(config):
         if values.get(f"include_{addon}") == "yes":
             overlaid = False
-            for sub in ("common", stack):
-                addon_dir = ROOT / "addons" / addon / sub
-                if addon_dir.is_dir():
-                    n += stamp(addon_dir, out_root, values)
-                    overlaid = True
+            for root in addon_roots:
+                for sub in ("common", stack):
+                    addon_dir = root / "addons" / addon / sub
+                    if addon_dir.is_dir():
+                        n += stamp(addon_dir, out_root, values)
+                        overlaid = True
             if overlaid:
                 print(f"  + addon: {addon}")
             else:
