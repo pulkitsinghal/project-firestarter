@@ -6,6 +6,14 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- `work_registry` add-on (opt-in, default `no`): a shared, advisory noticeboard
+  so concurrent agents or sessions on one machine can see what each other is
+  touching. One stdlib-only JSON file, no daemon. `claim` / `check` / `heartbeat`
+  / `release` / `list` with atomic writes, expiring entries, and cross-process
+  identity. Deliberately not a lock or a lease (no fencing tokens, enforces
+  nothing, `--force` wins); when real mutual exclusion is needed, use
+  `orchestrator_session`. Ships `docs/WORK_REGISTRY.md` and a contract test plus
+  CI step asserting off-by-default and clean stamping on every stack.
 - `datastore_advisor` add-on (opt-in, default `no`): turns the datastore choice
   into an explicit AI-plus-user decision rather than whatever the scaffold
   happened to ship. Ships `docs/DATASTORE_ADVISOR.md` (the guide),
