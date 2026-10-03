@@ -6,6 +6,18 @@ All notable changes to the firestarter template. See
 ## [Unreleased]
 
 ### Added
+- `datastore_advisor` add-on (opt-in, default `no`): turns the datastore choice
+  into an explicit AI-plus-user decision rather than whatever the scaffold
+  happened to ship. Ships `docs/DATASTORE_ADVISOR.md` (the guide),
+  `docs/DATASTORE_DECISION.md` (the committed decision record) and a stdlib-only
+  `tools/datastore_advisor/` elicitation tool. Not a quiz: no weighted score,
+  disqualifications carry the rule and the answers that fired them, every
+  recommendation carries its own case against and an explicit "what would change
+  this answer", and "unknown" is a measurement task rather than a silent default.
+  Two verifications are unconditional: confirm the edition/plan you will actually
+  run has the feature you are choosing the engine for, and restore a backup into
+  a working system at least once. Contract test plus CI step assert off-by-default,
+  clean stamping on every stack, and those behaviours.
 - Production-artifact storyboard/browser fidelity across all four stacks:
   FastAPI preserves its development/HMR service while storyboard drives a
   freshly built `next start` target; Supabase serves a freshly compiled splash

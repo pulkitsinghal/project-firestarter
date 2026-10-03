@@ -74,6 +74,7 @@ BASE_ADDONS = (
     "reviewed_extraction",
     "mcp_security_gate",
     "architecture_manifest",
+    "datastore_advisor",
 )
 
 
