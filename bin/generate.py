@@ -75,6 +75,7 @@ BASE_ADDONS = (
     "mcp_security_gate",
     "architecture_manifest",
     "datastore_advisor",
+    "work_registry",
 )
 
 

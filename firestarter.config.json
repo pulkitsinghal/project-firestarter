@@ -32,6 +32,7 @@
   "include_mcp_security_gate": ["no", "yes"],
   "include_architecture_manifest": ["no", "yes"],
   "include_datastore_advisor": ["no", "yes"],
+  "include_work_registry": ["no", "yes"],
 
   "db_name": "{{ project_slug }}",
   "commit_scopes": "backend frontend migrations docs ci build",
