@@ -403,3 +403,43 @@ native lane. Current generated-stack toolchains remain containerized. Proposing
 an additional stack whose core toolchain cannot be containerized is a separate
 owner decision outside this convention.
 <!-- platform-locked-gate-precept:end -->
+
+## 10. Checkpoint work and verify the receiver before switching machines
+
+A machine or session switch must preserve the work and establish what the
+receiver can actually resume. A local commit proves source preservation; it
+does not prove publication, delivery, or readiness on the receiving machine.
+
+1. **Checkpoint eligible work before switching.** Review the intended changes,
+   stage explicit paths, and commit on the appropriate feature branch under the
+   repository's existing approval, test, and encryption requirements. Include
+   eligible untracked source; never sweep another worker's changes into a
+   checkpoint. If work cannot be committed, preserve it using an approved,
+   recoverable local checkpoint or protected patch/archive and record the
+   reason. Never put secrets or private records in plaintext Git or handoff
+   artifacts. If safe preservation is unavailable, report that gap before
+   switching; do not claim the work is preserved.
+2. **Record exact source and verification state.** Identify the repository,
+   branch, commit and tree, clean/dirty state, preserved uncommitted work, and
+   required artifacts. Record the exact test commands and results, including
+   failed, pending, unavailable, or unexecuted checks. Keep sensitive locations
+   and inventories in the approved private evidence surface.
+3. **Separate checkpoint, publication, and receipt.** State whether the commit
+   exists only locally, whether the exact revision was pushed to an authorized
+   remote, and whether the receiver has verified it. List local-only source,
+   missing artifacts, blocked transfers, and the reason for any held push.
+   Never bypass a required test, encryption, sharing, or approval gate just to
+   make the work transferable.
+4. **Verify from the receiving machine before declaring the handoff ready.**
+   The receiver must access and check out the exact intended revision, verify
+   its commit/tree and any separately preserved changes, and confirm access to
+   every required artifact through an authorized path. Record any environment
+   or test prerequisite still blocking continuation. A preserved source copy,
+   successful upload, or link alone is not a verified receiver receipt. Keep the
+   handoff marked **not ready to resume** until the required source, artifacts,
+   and continuation prerequisites are verified there.
+
+For example: "Committed locally; push held by a required gate; exact revision
+unavailable to the receiver; source preserved; handoff not ready to resume."
+Recheck receiver access after retrying the blocked step. This practice grants no
+new commit, push, transfer, merge, or deployment authority.

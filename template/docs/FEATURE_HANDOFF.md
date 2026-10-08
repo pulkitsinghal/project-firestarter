@@ -24,6 +24,18 @@ the behavior from a diff.
 6. **Self-contained handoff.** Lead with the outcome, identify known limits and
    rollback, and name the next action that requires user authority.
 
+## Work moving to another machine or session
+
+Apply the [machine-switch handoff practice](ENGINEERING_CONVENTIONS.md#10-checkpoint-work-and-verify-the-receiver-before-switching-machines)
+when another machine or session will continue the work. Record the exact
+commit/tree, clean/dirty state, safely preserved uncommitted work, required
+artifacts, and test status. Distinguish local checkpoint, authorized remote
+publication, and verified receiver receipt. Explicitly report local-only or
+missing items and held pushes/transfers with their reasons. The receiving
+machine must verify access to the exact source, required artifacts, and
+continuation prerequisites before the handoff is ready to resume. Preserve all
+existing test, encryption, sharing, and approval gates.
+
 ## Visible UI changes
 
 For a visible change:

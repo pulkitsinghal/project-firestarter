@@ -984,7 +984,7 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
         ):
             self.assertIn(required, normalized)
         self.assertIn(
-            "Nine reusable stack-neutral conventions",
+            "Ten reusable stack-neutral conventions",
             anatomy,
         )
 
