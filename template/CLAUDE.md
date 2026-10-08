@@ -36,6 +36,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   - Storyboard screenshots: `make storyboard`
 - **Validate locally before pushing.** Run `make precommit` via Docker before
   every push. Never push speculatively to see if CI catches it.
+- **Checkpoint before switching machines or sessions.** Follow the
+  [machine-switch handoff practice](docs/ENGINEERING_CONVENTIONS.md#10-checkpoint-work-and-verify-the-receiver-before-switching-machines):
+  commit eligible work under existing gates, safely preserve uncommittable work
+  with its reason, and record exact source and test status. Report local commit,
+  remote push, and receiver receipt separately. Verify the exact source,
+  required artifacts, and continuation prerequisites on the receiving machine
+  before declaring the handoff ready; list local-only or missing items.
 - **Hand features over with evidence.** Follow
   [docs/FEATURE_HANDOFF.md](docs/FEATURE_HANDOFF.md): every change needs exact
   acceptance, failure/recovery, and verification evidence. Visible UI work adds

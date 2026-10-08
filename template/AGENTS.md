@@ -251,6 +251,16 @@ state:
 - Never commit broken intermediate state on `master`. On a feature branch it's
   fine; squash on merge.
 
+### Before switching machines or sessions
+
+Follow the [machine-switch handoff practice](docs/ENGINEERING_CONVENTIONS.md#10-checkpoint-work-and-verify-the-receiver-before-switching-machines).
+Checkpoint eligible work under existing gates; safely preserve uncommittable
+work and record why. Record the exact commit/tree, clean/dirty state, and test
+status. Report local commit, remote push, and receiver receipt separately.
+Declare the handoff ready only after the receiving machine verifies the exact
+source, required artifacts, and continuation prerequisites; explicitly list
+local-only or missing items. Preservation alone does not establish resumability.
+
 ### Commit messages
 Use **Conventional Commits**:
 ```
