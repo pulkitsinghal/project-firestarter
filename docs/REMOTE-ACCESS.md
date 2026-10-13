@@ -73,6 +73,11 @@ not the desktop answer.
 Use `serve` (tailnet-only), not `funnel` (public), for private services. The owner's phone joins
 the tailnet via the Tailscale app (same account); the `*.ts.net` URL then works from any network.
 
+> **See also** [SECURE-REMOTE-ACCESS.md](SECURE-REMOTE-ACCESS.md) for hardening the machine that
+> hosts the service: key-only SSH, scoping the listener to the tailnet, keeping SSO/2FA/OTP
+> owner-held when a cloud token expires, and a least-privilege service account for unattended
+> automation. This doc gets the service reachable; that one keeps the box itself locked down.
+
 ## Fallback: Cloudflare quick-tunnel (PUBLIC, no client install)
 
 When a viewer **can't be on your tailnet** (lending access to someone who won't install Tailscale,

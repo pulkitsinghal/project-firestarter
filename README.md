@@ -127,5 +127,6 @@ whitelist-only, so GitHub Actions `${{ … }}` is never clobbered.
 - ➕ [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md) — author a new stack profile
 - ♻️ [docs/LIFT-LOG.md](docs/LIFT-LOG.md) — how learnings get harvested back into the template
 - 🔐 [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) — reach a stamped project's local/dev service from your phone anywhere, privately, via Tailscale (no domain, no registrar, no spend)
+- 🛡️ [docs/SECURE-REMOTE-ACCESS.md](docs/SECURE-REMOTE-ACCESS.md): harden the host behind it, with key-only SSH, tailnet-only reach, owner-held SSO/2FA reauth, and a least-privilege service account so unattended automation survives token expiry (plus a read-only audit checklist)
 - 🛡️ [docs/OPERATIONS-DASHBOARD.md](docs/OPERATIONS-DASHBOARD.md) — use the privacy-split native and sanitized-static operations dashboard references
 - 🤖 [AGENTS.md](AGENTS.md) — operating brief for any AI session

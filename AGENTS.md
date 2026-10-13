@@ -38,6 +38,7 @@ Follow [docs/LIFT-LOG.md](docs/LIFT-LOG.md): generalize with tokens, place it in
 as inline comments, add a row to `docs/ANATOMY.md` and the lift log.
 Adding a whole new stack: [docs/ADDING-A-STACK.md](docs/ADDING-A-STACK.md).
 Exposing a local/dev service remotely (phone, anywhere, private): [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) — default to Tailscale `serve` over public tunnels.
+Hardening the machine that hosts it (key-only SSH, tailnet-only reach, owner-held SSO/2FA, least-privilege automation account): [docs/SECURE-REMOTE-ACCESS.md](docs/SECURE-REMOTE-ACCESS.md).
 
 ## Hard rules (do not violate)
 
