@@ -1284,7 +1284,7 @@ class ControlPlaneTests(unittest.TestCase):
         }
         accepted_versions = [
             *(f"0.3.{patch}" for patch in range(7)),
-            *(f"0.4.{patch}" for patch in range(12)),
+            *(f"0.4.{patch}" for patch in range(13)),
         ]
         adoption_pattern = adoption_schema["properties"]["plugin_version"][
             "pattern"

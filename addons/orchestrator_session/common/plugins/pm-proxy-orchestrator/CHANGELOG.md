@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.12 - 2026-10-21
+
 - Expose one allowlisted `diagnostic_category` (`database`, `filesystem`, or
   `unknown`) on a `pm_proxy_doctor` failure so an operator can tell a corrupt or
   locked SQLite authority apart from a filesystem fault. The control CLI tags
@@ -10,8 +12,11 @@
   fail-closed behavior (code, message, exit status), every non-doctor response,
   and the doctor success response are unchanged, and no raw exception, path,
   SQL, state, secret, or runtime-pin summary is ever surfaced on failure.
-  Shipping this still requires a version-distinct plugin and control-bundle
-  release with a fresh runtime pin and covered-path adoption.
+- Bump the control bundle to `1.4.11` (no schema change: state schema stays
+  `1.4`) alongside this plugin version so source, cache, runtime pin, and
+  adoption evidence carry a version-distinct identity. Installing this release
+  requires a fresh runtime pin and covered-path adoption; the SQLite authority
+  is never edited or replaced.
 
 ## 0.4.11 - 2026-08-07
 

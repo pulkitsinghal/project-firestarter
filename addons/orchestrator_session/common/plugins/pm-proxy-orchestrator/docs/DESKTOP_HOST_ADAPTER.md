@@ -1,6 +1,6 @@
 # Codex Desktop host adapter
 
-Version `0.4.11` includes an opt-in desktop host adapter for one exact root task.
+Version `0.4.12` includes an opt-in desktop host adapter for one exact root task.
 It does not export `ROOT_ORCHESTRATOR_ROLE` to the normal desktop process and it
 does not infer root identity from a prompt, working directory, project, or
 model-visible field.
@@ -90,14 +90,14 @@ non-secret instance ID.
 ## Operator workflow
 
 Run these commands from an owner-controlled terminal, outside an enforced root
-task. First install the complete `0.4.11` plugin, recreate the runtime pin for the
+task. First install the complete `0.4.12` plugin, recreate the runtime pin for the
 reviewed clean Firestarter runtime, and run doctor. Keep any global
 `ROOT_ORCHESTRATOR_ROLE` export unset.
 
 Choose a private adapter instance directory and the intended ORC state. Use the
 adapter from either the exact local source path reported for the installed
 plugin or its matching versioned Codex cache. Preflight rejects another
-checkout—or a stale cache—with the same version string:
+checkout, or a stale cache, with the same version string:
 
 ```bash
 orc_adapter=/absolute/installed/pm-proxy-orchestrator/scripts/desktop_host_adapter.py
