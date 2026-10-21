@@ -68,6 +68,28 @@ OWNER_DECISION_END = "</pm_proxy_owner_decision_envelope>"
 class McpError(ValueError):
     """Bounded fail-closed MCP error."""
 
+    # Optional allowlisted fault family. Only the doctor path ever sets it, so
+    # every other tool's error body stays byte-identical to before.
+    diagnostic_category: str | None = None
+
+
+DIAGNOSTIC_CATEGORIES = frozenset({"database", "filesystem"})
+
+
+def diagnostic_category(details: Any) -> str:
+    """Reduce a control error's details to one allowlisted fault family.
+
+    Only the exact strings ``database`` and ``filesystem`` pass through; any
+    missing, malformed, hostile, or extra content collapses to ``unknown``.
+    Nothing else from ``details`` (raw exceptions, paths, SQL, state) is ever
+    read or surfaced.
+    """
+    if isinstance(details, dict):
+        value = details.get("diagnostic_category")
+        if isinstance(value, str) and value in DIAGNOSTIC_CATEGORIES:
+            return value
+    return "unknown"
+
 
 def strict_json(raw: str) -> Any:
     def no_duplicate(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -833,7 +855,7 @@ def request_files(
                 pass
 
 
-def invoke(argv: list[str], *, timeout: int = 30) -> dict[str, Any]:
+def invoke(argv: list[str], *, timeout: int = 30, classify: bool = False) -> dict[str, Any]:
     completed = subprocess.run(
         argv,
         text=True,
@@ -860,7 +882,14 @@ def invoke(argv: list[str], *, timeout: int = 30) -> dict[str, Any]:
         code = error.get("code") if isinstance(error, dict) else None
         if not isinstance(code, str) or OPAQUE.fullmatch(code) is None:
             code = "control-operation-denied"
-        raise McpError(code.lower().replace("_", "-"))
+        failure = McpError(code.lower().replace("_", "-"))
+        if classify:
+            # Opt-in only (the doctor path). Reduce the control's details to one
+            # allowlisted fault family and discard everything else.
+            failure.diagnostic_category = diagnostic_category(
+                error.get("details") if isinstance(error, dict) else None
+            )
+        raise failure
     return payload
 
 
@@ -1002,7 +1031,7 @@ def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
 
     if name == "pm_proxy_doctor":
         exact_keys(arguments, {"project_root", "state_dir"}, {"state_dir"})
-        payload = invoke(base + ["doctor"])
+        payload = invoke(base + ["doctor"], classify=True)
         payload_result(payload)["runtime_pin"] = runtime_pin_summary()
         return payload
     if name == "pm_proxy_status":
@@ -1822,7 +1851,10 @@ def handle(message: Mapping[str, Any]) -> dict[str, Any] | None:
             payload = control_call(name, arguments)
             tool_result = result(payload)
         except McpError as exc:
-            tool_result = result({"ok": False, "error": {"code": str(exc)}}, error=True)
+            error_body: dict[str, Any] = {"code": str(exc)}
+            if exc.diagnostic_category is not None:
+                error_body["diagnostic_category"] = exc.diagnostic_category
+            tool_result = result({"ok": False, "error": error_body}, error=True)
         return {"jsonrpc": "2.0", "id": request_id, "result": tool_result}
     raise McpError("unknown-method")
 

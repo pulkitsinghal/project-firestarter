@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Expose one allowlisted `diagnostic_category` (`database`, `filesystem`, or
+  `unknown`) on a `pm_proxy_doctor` failure so an operator can tell a corrupt or
+  locked SQLite authority apart from a filesystem fault. The control CLI tags
+  the fault family in the `STATE_FAIL_CLOSED` error `details`; the MCP doctor
+  path reduces it to the fixed allowlist and discards everything else. All
+  fail-closed behavior (code, message, exit status), every non-doctor response,
+  and the doctor success response are unchanged, and no raw exception, path,
+  SQL, state, secret, or runtime-pin summary is ever surfaced on failure.
+  Shipping this still requires a version-distinct plugin and control-bundle
+  release with a fresh runtime pin and covered-path adoption.
+
 ## 0.4.11 - 2026-08-07
 
 - Add a closed stale-present archive reconciliation for one exact terminal task
