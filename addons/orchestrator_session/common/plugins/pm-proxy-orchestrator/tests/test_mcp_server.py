@@ -1125,6 +1125,106 @@ class McpServerTest(unittest.TestCase):
             drifted["structuredContent"]["error"]["code"],
         )
 
+    def _corrupt_state_authority(self) -> None:
+        for suffix in ("", "-wal", "-shm"):
+            candidate = self.state / f"orchestrator.sqlite3{suffix}"
+            if candidate.exists():
+                candidate.unlink()
+        (self.state / "orchestrator.sqlite3").write_bytes(b"not sqlite")
+
+    def test_doctor_classifies_corrupt_state_as_database_fault(self) -> None:
+        # The doctor reaches control `status`, which fails closed on the
+        # corrupt SQLite authority. The MCP surfaces the same opaque code plus
+        # one allowlisted fault family, and nothing else.
+        self._corrupt_state_authority()
+        doctor = self.call("pm_proxy_doctor", self.common())["result"]
+        self.assertTrue(doctor["isError"])
+        error = doctor["structuredContent"]["error"]
+        self.assertEqual("state-fail-closed", error["code"])
+        self.assertEqual("database", error["diagnostic_category"])
+        self.assertEqual({"code", "diagnostic_category"}, set(error))
+
+    def test_doctor_success_response_carries_no_diagnostic_category(self) -> None:
+        doctor = self.call("pm_proxy_doctor", self.common())["result"]
+        self.assertIsNot(doctor.get("isError"), True, doctor)
+        payload = doctor["structuredContent"]
+        self.assertTrue(payload["ok"])
+        self.assertNotIn("error", payload)
+        self.assertIn("runtime_pin", payload["result"])
+        self.assertNotIn("diagnostic_category", json.dumps(payload))
+
+    def test_non_doctor_state_failure_omits_diagnostic_category(self) -> None:
+        # Classification is doctor-only; a non-doctor tool hitting the same
+        # corrupt authority fails closed with an unchanged error body.
+        self._corrupt_state_authority()
+        status = self.call(
+            "pm_proxy_status", {**self.common(), "now": iso()}
+        )["result"]
+        self.assertTrue(status["isError"])
+        self.assertNotIn(
+            "diagnostic_category", status["structuredContent"]["error"]
+        )
+
+    def test_doctor_runtime_pin_failure_omits_diagnostic_category(self) -> None:
+        # A pin fault is diagnosed before any state access, so it never gains a
+        # misleading state fault family.
+        pin = json.loads(self.pin_path.read_text(encoding="utf-8"))
+        pin["runtime_sha256"] = "0" * 64
+        self.pin_path.write_text(
+            json.dumps(pin, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        drifted = self.call(
+            "pm_proxy_doctor", {"state_dir": str(self.state)}
+        )["result"]
+        self.assertTrue(drifted["isError"])
+        error = drifted["structuredContent"]["error"]
+        self.assertEqual("runtime-pin-drift", error["code"])
+        self.assertNotIn("diagnostic_category", error)
+
+    def test_diagnostic_category_allowlist_redacts_hostile_control_detail(
+        self,
+    ) -> None:
+        # Pure redaction: only the exact allowlisted families pass through; any
+        # hostile, typed, mis-cased, extra, or missing content collapses to
+        # "unknown" and no other detail is ever returned.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("pm_proxy_mcp_server", SERVER)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        classify = module.diagnostic_category
+
+        self.assertEqual("database", classify({"diagnostic_category": "database"}))
+        self.assertEqual(
+            "filesystem", classify({"diagnostic_category": "filesystem"})
+        )
+        self.assertEqual(
+            "database",
+            classify(
+                {
+                    "diagnostic_category": "database",
+                    "sql": "SELECT * FROM synthetic_secrets",
+                    "path": "/synthetic/orchestrator-state/authority.sqlite3",
+                }
+            ),
+        )
+        for hostile in (
+            {"diagnostic_category": "sqlite3.OperationalError: /synthetic/x"},
+            {"diagnostic_category": "DATABASE"},
+            {"diagnostic_category": "network"},
+            {"diagnostic_category": 123},
+            {"diagnostic_category": True},
+            {"diagnostic_category": ["database"]},
+            {},
+            {"other": "database"},
+            None,
+            "not-a-dict",
+            123,
+        ):
+            self.assertEqual("unknown", classify(hostile), hostile)
+
     def test_capacity_reconfiguration_requires_covered_root_and_replays_truthfully(
         self,
     ) -> None:

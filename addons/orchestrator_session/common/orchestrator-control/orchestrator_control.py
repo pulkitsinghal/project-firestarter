@@ -8533,7 +8533,7 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
     )
     if (
         re.fullmatch(
-            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8|9|10|11))(?:\+codex\.\d{14})?",
+            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8|9|10|11|12))(?:\+codex\.\d{14})?",
             plugin_version,
         )
         is None
@@ -11181,12 +11181,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except ControlError as error:
         return emit_error(error)
-    except (sqlite3.DatabaseError, OSError):
+    except sqlite3.DatabaseError:
+        # Fail closed identically to before, but tag the family of the fault
+        # with a fixed enum so an operator can tell a corrupt/locked SQLite
+        # authority apart from a filesystem fault. Never attach the raw
+        # exception, path, SQL, or state: only the allowlisted category.
         return emit_error(
             ControlError(
                 "STATE_FAIL_CLOSED",
                 "local authority is unavailable or corrupt; writes stopped",
                 exit_status=EXIT_STATE,
+                details={"diagnostic_category": "database"},
+            )
+        )
+    except OSError:
+        return emit_error(
+            ControlError(
+                "STATE_FAIL_CLOSED",
+                "local authority is unavailable or corrupt; writes stopped",
+                exit_status=EXIT_STATE,
+                details={"diagnostic_category": "filesystem"},
             )
         )
     except Exception:

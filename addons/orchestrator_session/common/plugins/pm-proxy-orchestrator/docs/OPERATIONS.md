@@ -80,7 +80,7 @@ exact terminal archive proof to a receipted successor that has itself completed,
 keeps state schema and capacity unchanged, and accepts covered-dispatcher
 adoption from plugin `0.4.9`. That plugin repairs
 only its private hook lifecycle ledger; it does not migrate SQLite authority.
-Install the complete version-distinct plugin `0.4.11` before recreating the
+Install the complete version-distinct plugin `0.4.12` before recreating the
 runtime pin; do not
 overwrite an older cache under the same version identity. Then read
 `status` and capture its exact `revision` and

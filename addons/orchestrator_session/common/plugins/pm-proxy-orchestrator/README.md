@@ -1,10 +1,17 @@
 # PM Proxy Orchestrator
 
-Version `0.4.11` is a source-only agent-CLI plugin for Firestarter control-plane
-interface `1.0` and control bundle `1.4.10`. It makes typed configured-capacity
+Version `0.4.12` is a source-only agent-CLI plugin for Firestarter control-plane
+interface `1.0` and control bundle `1.4.11`. It makes typed configured-capacity
 compare-and-set, task reservation, policy receipts, approval routing, fenced
 handback, successor creation, and queue recycling operational without installing
 anything globally.
+
+Version `0.4.12` surfaces an allowlisted `pm_proxy_doctor` diagnostic category
+(`database`, `filesystem`, or `unknown`) on a `STATE_FAIL_CLOSED` failure so an
+operator can tell a corrupt or locked SQLite authority apart from a filesystem
+fault. It changes no fail-closed behavior, no non-doctor response, and the
+doctor success response, and surfaces no raw detail. It carries no schema
+change: state schema stays `1.4` and the control bundle is `1.4.11`.
 
 Version `0.4.11` adds a separate fail-closed reconciliation for an exact
 terminal `ARCHIVE_PENDING` task whose unique private transport ticket is still

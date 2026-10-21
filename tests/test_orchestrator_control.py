@@ -1284,7 +1284,7 @@ class ControlPlaneTests(unittest.TestCase):
         }
         accepted_versions = [
             *(f"0.3.{patch}" for patch in range(7)),
-            *(f"0.4.{patch}" for patch in range(12)),
+            *(f"0.4.{patch}" for patch in range(13)),
         ]
         adoption_pattern = adoption_schema["properties"]["plugin_version"][
             "pattern"
@@ -3979,6 +3979,38 @@ class ControlPlaneTests(unittest.TestCase):
             env=warning_strict_env,
         )
         self.assertEqual("STATE_FAIL_CLOSED", error["error"]["code"])
+
+    def test_state_fail_closed_tags_fault_family_without_leaking_detail(self) -> None:
+        # A corrupt SQLite authority and a filesystem fault both still fail
+        # closed as STATE_FAIL_CLOSED (exit 4) with the identical generic
+        # message. Only an allowlisted fault family is added; the details never
+        # carry a raw exception, path, SQL, or state.
+        strict = dict(os.environ)
+        strict["PYTHONWARNINGS"] = "error::ResourceWarning"
+        message = "local authority is unavailable or corrupt; writes stopped"
+
+        database = self.root / "database-fault-state"
+        database.mkdir(mode=0o700)
+        (database / "orchestrator.sqlite3").write_bytes(b"not sqlite")
+        os.chmod(database / "orchestrator.sqlite3", 0o600)
+        db_error = self.run_cli("status", expected=4, state=database, env=strict)
+        self.assertEqual("STATE_FAIL_CLOSED", db_error["error"]["code"])
+        self.assertEqual(message, db_error["error"]["message"])
+        self.assertEqual(
+            {"diagnostic_category": "database"}, db_error["error"]["details"]
+        )
+
+        # A state-dir path that is a regular file makes safe_state_dir's
+        # mkdir(exist_ok=True) raise FileExistsError (an OSError) before any
+        # database is touched.
+        filesystem = self.root / "state-dir-is-a-file"
+        filesystem.write_bytes(b"")
+        fs_error = self.run_cli("status", expected=4, state=filesystem, env=strict)
+        self.assertEqual("STATE_FAIL_CLOSED", fs_error["error"]["code"])
+        self.assertEqual(message, fs_error["error"]["message"])
+        self.assertEqual(
+            {"diagnostic_category": "filesystem"}, fs_error["error"]["details"]
+        )
 
     def test_blocked_queue_recycles_before_new_lower_value_work(self) -> None:
         prepared = self.run_cli(
