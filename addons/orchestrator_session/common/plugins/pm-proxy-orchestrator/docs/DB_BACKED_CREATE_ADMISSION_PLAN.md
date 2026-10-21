@@ -1,10 +1,13 @@
 # Plan: remove the private launch-ticket file from the create path
 
-Status: **design only, not implemented.** This change needs a control schema
-bump, new control commands, a new host-adapter RPC, and rewritten hook data
-sources. That is a schema/interface/version migration too broad to land as a
-safe patch now, and any partial slice weakens a live protection (see the last
-section). So this file is the code seam, not code.
+Status: **design only, not implemented. Determination: the smallest complete
+vertical slice is NOT safely supportable in one task without partial security
+semantics** (reasoned in "Determination and bounded decomposition" below). This
+change needs a control schema bump, two new control commands, two new
+host-adapter RPCs, a new adapter-vouched attestation provenance primitive, and
+rewritten PreToolUse/PostToolUse create handling. So this file is the code seam
+and the bounded order to land it later, not code. Nothing here is implemented;
+no gate is weakened and no dead code is landed.
 
 This is independent of the landed doctor diagnostic (commit `ab2a17a`), which
 is the near-term artifact for the live blocker. Ticket removal is **not** the
@@ -65,25 +68,42 @@ and `record_setup_failure`'s `expected_outbox_id` compare + guarded poison
     `external_thread_id`, persist `launches.receipt_json`, complete the
     CREATE_THREAD outbox) at `orchestrator_control.py:3269-3298`, but gated on a
     matching admission row instead of an orchestrator-supplied ticket.
-- **Host adapter (`desktop_host_adapter.py`):** a new attestation-socket RPC
-  (protocol interface 1.1 -> 1.2) so the adapter, which already answers
-  ROOT/WORKER per `session_id` at `1702-1713`, also vouches the runtime
-  attestation for a `commit-launch-receipt` bound to the attested root instance.
-  The attestation must not come from a model-visible field; today
-  `record-launch-receipt` takes it as a request field validated against the pin,
-  and PostToolUse has no attestation authority, so the adapter is the only
-  non-spoofable source.
-- **PostToolUse hook (`post_tool_use_lifecycle.py`):** observe the `create_thread`
-  tool call. It must now read `tool_use_id` (today it reads only
-  `session_id/tool_name/tool_input/tool_response`, `447-480`, and never handles
-  create) and `tool_response.external_thread_id`, correlate them with the
-  PreToolUse admission on `(outbox_id, tool_use_id)`, and call
-  `commit-launch-receipt` with the adapter-vouched attestation.
-- **PreToolUse hook (`pre_tool_use_root_guard.py`):** replace the ticket-file glob
-  (`matching_launch`, `active_admission_keys`, `fresh_unreceipted`,
-  `archive_ready`) with a bounded read query to the control plane for
-  pending-admission and receipt state, keeping the 5s timeout and fail-closed
-  behavior.
+- **Host adapter (`desktop_host_adapter.py`), attestation-socket protocol 1.1 ->
+  1.2, two new RPCs.** The hooks never touch the DB or run the control CLI
+  directly for the create path; they call the adapter, the only non-model-visible
+  authority:
+  - `admit_create` (served by the adapter's `AttestationServer`): PreToolUse
+    calls it for a covered `create_thread`, passing the `outbox_id` (parsed from
+    the verbatim launch envelope in the prompt) and the event `tool_use_id`. The
+    adapter verifies the caller is the attested ROOT session
+    (`session_id == root_thread_id`, `desktop_host_adapter.py:1708`) for this
+    exact instance, then invokes the control `admit-create` command, which runs a
+    `BEGIN IMMEDIATE` compare-and-set against the current pending
+    `outbox(CREATE_THREAD)` row keyed on `(outbox_id, tool_use_id)`: first writer
+    wins and is recorded in `create_admissions`; a replay with the same
+    `tool_use_id` is an idempotent `ADMITTED`; a replay with a different
+    `tool_use_id` is denied `CREATE_ADMISSION_REPLAY`. The adapter returns
+    ADMIT/DENY to the hook.
+  - `commit_launch_receipt` (served by the adapter): PostToolUse calls it after a
+    successful `create_thread`, passing the same `tool_use_id` and the observed
+    `external_thread_id`. The adapter vouches a runtime attestation from
+    non-model-visible state (next section) and invokes control
+    `commit-launch-receipt`, which fences `LAUNCH_PENDING -> RUNNING`, binds the
+    external thread, and persists the launch receipt, gated on the matching
+    `create_admissions` row.
+- **PostToolUse hook (`post_tool_use_lifecycle.py`).** It must now observe the
+  `create_thread` call (today it handles only observation and lifecycle tools,
+  `447-480`, and never reads `tool_use_id`): read `tool_use_id` and the stable
+  `external_thread_id` from `tool_response`, and call the adapter
+  `commit_launch_receipt` RPC with exactly those. It never computes or supplies
+  the attestation itself and never writes the receipt directly.
+- **PreToolUse hook (`pre_tool_use_root_guard.py`).** It must NOT be reduced to a
+  bounded read. The authoritative one-shot admission moves into the control DB:
+  the hook calls the adapter `admit_create` RPC, which performs the authoritative
+  `BEGIN IMMEDIATE` CAS. The hook keeps its verbatim-prompt envelope match (to
+  derive `outbox_id`), its 5s timeout, and fail-closed behavior, but it no longer
+  owns the one-shot (the DB CAS does); a missing, duplicate, or different-token
+  admission is denied by control, not by a local file or a local read.
 - **MCP + bridge:** `prepare_launch`/`record_launch_receipt` stop writing the
   ticket on the new path; the bridge retains legacy ticket read/write behind a
   version gate so in-flight legacy tickets still reconcile.
@@ -108,6 +128,91 @@ Invariants preserved, and how:
 - **Heartbeat/handback/archive untouched** until their ticket reads are replaced
   by equally authoritative control queries.
 
+## Adapter attestation vouching (exact mechanism)
+
+`commit-launch-receipt` must accept a runtime attestation only when it provably
+originated from the adapter, bound to the attested root and this exact create,
+never from a model-visible or worker-supplied field. The mechanism extends the
+existing host-attested, consume-before-dispatch bootstrap grant
+(`validate_bootstrap_grant` / `consume_bootstrap_grant` in `mcp_server.py`) to
+bind the create parameters:
+
+1. **Non-model-visible source.** The adapter derives the attestation values
+   (root/worker model, reasoning effort, service tier, fast_mode,
+   `service_tier_attestation`, `tier_provenance`, `auth_mode`, `history_mode`,
+   `parent_attestation_present`) from the pinned runtime policy
+   (`runtime-pin.json`, mode 0600) and its own launch configuration, both held
+   only in owner-only files and the adapter process. None come from the hook
+   event, the prompt, the tool input or result, or any model-reachable field.
+2. **Attested-root binding.** The adapter serves the RPC from its
+   `AttestationServer`, which decides ROOT vs WORKER by
+   `session_id == root_thread_id` (`desktop_host_adapter.py:1708`) and carries the
+   private `instance_id` from `session.json`. The commit is refused unless the
+   calling session is the attested ROOT for this exact instance.
+3. **Create-parameter binding.** The adapter loads the `create_admissions` row it
+   admitted (keyed `outbox_id + tool_use_id`) and refuses to vouch unless the
+   commit's `outbox_id`, `tool_use_id`, `task_id`, fence identity
+   (`policy_snapshot_revision`, `lease_epoch`, `fencing_token`), and
+   `external_thread_id` match that admission and the task's current pending
+   CREATE_THREAD outbox and fence.
+4. **Provenance to control.** The adapter emits a one-use attestation grant whose
+   `binding_sha256` canonically covers `{instance_id, root_thread_id, outbox_id,
+   task_id, tool_use_id, external_thread_id, runtime_attestation, plugin_version,
+   plugin_tree_sha256, runtime_sha256, source_commit_sha, base_sha, issued_at,
+   expires_at, nonce}`. Control validates the binding, re-resolves host
+   attestation (decision ROOT, control_grant PROMPT_FREE, matching instance_id)
+   exactly as the control-schema-hold path does, consumes the grant before
+   dispatch in a private revocation ledger (so a replay is a revoked-grant
+   denial), and only then performs the fenced commit. A model-supplied or forged
+   attestation has no valid consumed grant and is denied.
+5. **Fail-closed.** Socket loss, a disarmed or expired session, a binding or
+   host-attestation mismatch, a revoked or already-consumed grant, or an expired
+   `receipt_deadline` all deny the commit; the created worker stays read-only
+   through `require_external_receipt` (`launches.receipt_json IS NULL`).
+
+## Determination and bounded decomposition
+
+**Determination for this task: do not implement.** The smallest complete
+vertical slice cannot be landed in one task without partial security semantics.
+The decisive reason is step 4: the adapter-to-control attestation provenance is a
+new bootstrap-grant-class primitive, newly bound to the create parameters, that
+has to be designed, implemented, and adversarially proven non-spoofable to the
+confidence this fail-closed plane demands. The existing bootstrap grant took
+several hardening releases to reach that bar; a create-bound variant cannot reach
+it in one pass. The surrounding slice (schema 1.5, two commands, an adapter
+protocol bump, two hook rewrites, a dual path, and the full adversarial matrix
+across control + adapter + hooks) compounds the risk, and any subset either
+weakens a gate or lands code that is unwired on the live create path.
+
+The bounded order to land it later, each step independently testable and never
+leaving a half-open create path (legacy ticket admission stays authoritative
+until D5 cuts over):
+
+- **D1** Additive schema 1.5: `create_admissions` table + connect-time migration
+  + `SCHEMA_VERSION` bump + bridge `SUPPORTED_SCHEMA_VERSIONS` += "1.5". Legacy
+  1.4 stays fully functional. Ships only with the release that re-pins, since any
+  control-bundle change invalidates the runtime pin and adoption.
+- **D2** Control `admit-create` (the `BEGIN IMMEDIATE` CAS) + schemas + MCP typed
+  tool, proven at the control layer (CAS, idempotence, replay, concurrency).
+- **D3** Control `commit-launch-receipt` + schemas + the attestation-grant
+  provenance primitive, with its OWN adversarial proof (forged and model-supplied
+  denial, consume-before-dispatch, revocation, create-parameter binding) before
+  any hook or adapter calls it.
+- **D4** Adapter protocol 1.2 `admit_create` + `commit_launch_receipt` RPCs +
+  attestation derivation/vouching, with a live adapter fence test.
+- **D5** PreToolUse calls `admit_create`; PostToolUse observes `create_thread` and
+  calls `commit_launch_receipt`. The PostToolUse payload canary (proving
+  `tool_use_id` and stable `external_thread_id` extraction) is a prerequisite.
+- **D6** Dual-path cutover behind the version gate: the DB path becomes
+  authoritative only after adoption and canary; legacy ticket writing is removed
+  last. Heartbeat/handback/archive move off ticket reads only once their
+  replacements are equally authoritative.
+
+D1 and D2 must not land alone on the live tree: a schema bump with no consumer
+invalidates the pin for no behavior, and a command unwired to the create path is
+dead until D5. So this is the future sequencing for a dedicated release, not a
+slice to begin now.
+
 ## Affected modules
 
 - `orchestrator-control/orchestrator_control.py`: `SCHEMA_VERSION` 1.4 -> 1.5;
@@ -127,9 +232,14 @@ Invariants preserved, and how:
 - `scripts/desktop_host_adapter.py`: new socket RPC + protocol version bump;
   `PROMPT_FREE_CONTROL_TOOLS` add the new tools (task creation itself stays
   outside the grant per `DESKTOP_HOST_ADAPTER.md:40-42`).
-- `hooks/pre_tool_use_root_guard.py`, `hooks/post_tool_use_lifecycle.py`,
-  `hooks/host_attestation.py`: data-source change, create observation in
-  PostToolUse, attestation vouching.
+- `hooks/pre_tool_use_root_guard.py`: call the adapter `admit_create` RPC for
+  covered `create_thread` (no local one-shot; the control CAS owns it), keeping
+  the verbatim-envelope match, 5s timeout, and fail-closed behavior.
+- `hooks/post_tool_use_lifecycle.py`: observe `create_thread`, extract
+  `tool_use_id` + stable `external_thread_id`, call the adapter
+  `commit_launch_receipt` RPC; never supply the attestation itself.
+- `hooks/host_attestation.py` + `desktop_host_adapter.py`: socket protocol 1.1 ->
+  1.2 for the two RPCs and the attestation vouching above.
 
 ## Transaction and state-machine changes
 
