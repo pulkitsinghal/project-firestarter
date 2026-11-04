@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Accept the documented `+codex.<timestamp>` installation cachebuster in the
+  Desktop host adapter while continuing to bind source/cache parity to the full
+  manifest version and MCP/runtime policy to the base semantic plugin version.
+
 ## 0.4.12 - 2026-10-21
 
 - Expose one allowlisted `diagnostic_category` (`database`, `filesystem`, or
@@ -17,7 +21,6 @@
   adoption evidence carry a version-distinct identity. Installing this release
   requires a fresh runtime pin and covered-path adoption; the SQLite authority
   is never edited or replaced.
-
 ## 0.4.11 - 2026-08-07
 
 - Add a closed stale-present archive reconciliation for one exact terminal task

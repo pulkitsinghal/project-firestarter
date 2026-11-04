@@ -105,6 +105,12 @@ plugin-creator `update_plugin_cachebuster.py` helper for iterative local
 reinstalls rather than editing marketplace JSON by hand. Reinstall from the
 configured local marketplace name, then test in a new task.
 
+The Desktop adapter accepts only the exact optional
+`+codex.<14-digit-UTC-timestamp>` cachebuster. It binds installed source/cache
+parity to that full manifest version while comparing the typed MCP server and
+runtime pin against the unchanged base semantic version. Other build metadata
+fails closed.
+
 For the `0.3.6` to `0.4.0` rollout, first stop the exact `0.3.6` isolated host
 with its matching adapter. Install plugin `0.4.0` and control bundle `1.4.0` as
 one reviewed unit, run idempotent `init` to add authority metadata and transfer
