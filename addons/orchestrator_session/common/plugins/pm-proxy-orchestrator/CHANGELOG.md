@@ -15,6 +15,14 @@
   timestamp previously passed the adapter's `UTC` gate and then raised an
   unbounded `ValueError` from `parse_utc` instead of the bounded
   `AdapterError("timestamp-invalid")`; it now fails closed at the regex.
+- Restrict the sibling control CLI's `TIME_RE` and dispatcher-adoption version
+  gate to ASCII digits, and wrap `utc_instant` so a malformed or non-ASCII
+  timestamp fails closed with the bounded `ControlError` instead of a raw
+  `ValueError` escaping schema validation from `datetime.fromisoformat`. `\d`
+  also matches non-ASCII decimal digits (e.g. Arabic-Indic), which must never
+  reach a cache/source-identity path. This changes the pin-bound control bundle
+  (`runtime_sha256`), so it rides a deliberate runtime re-pin; the control
+  bundle version and all schemas/interfaces are unchanged.
 
 ## 0.4.12 - 2026-10-21
 
