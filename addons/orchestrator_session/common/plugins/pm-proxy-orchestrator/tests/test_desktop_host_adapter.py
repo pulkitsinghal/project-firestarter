@@ -79,6 +79,22 @@ class DesktopHostAdapterTest(unittest.TestCase):
             base, ADAPTER.plugin_base_version(f"{base}+codex.20260807230443")
         )
 
+    def test_parse_utc_rejects_non_ascii_digits(self):
+        # A non-ASCII-digit timestamp must fail closed at the UTC gate with the
+        # bounded AdapterError, not slip through to strptime and raise a raw
+        # ValueError (`\d` is Unicode-aware; the gate must be ASCII-only).
+        arabic = "2026-01-01T00:00:00Z".translate(
+            str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
+        )
+        self.assertIsNone(ADAPTER.UTC.fullmatch(arabic))
+        with self.assertRaisesRegex(ADAPTER.AdapterError, "timestamp-invalid"):
+            ADAPTER.parse_utc(arabic)
+        # An ASCII timestamp still parses.
+        self.assertEqual(
+            dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+            ADAPTER.parse_utc("2026-01-01T00:00:00Z"),
+        )
+
     def test_manifest_accepts_documented_cachebuster(self):
         version = ADAPTER.manifest()["version"]
         cachebusted = f"{version}+codex.20260807230443"

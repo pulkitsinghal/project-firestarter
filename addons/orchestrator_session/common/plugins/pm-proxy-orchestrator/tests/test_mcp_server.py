@@ -1526,6 +1526,13 @@ class McpAdoptionVersionAsciiTest(unittest.TestCase):
             self.MCP.ADOPTION_VERSION.fullmatch(f"{base}+codex." + "١" * 14)
         )
 
+    def test_utc_regex_rejects_non_ascii_digits(self) -> None:
+        arabic = "2026-01-01T00:00:00Z".translate(
+            str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
+        )
+        self.assertIsNone(self.MCP.UTC.fullmatch(arabic))
+        self.assertIsNotNone(self.MCP.UTC.fullmatch("2026-01-01T00:00:00Z"))
+
 
 if __name__ == "__main__":
     unittest.main()

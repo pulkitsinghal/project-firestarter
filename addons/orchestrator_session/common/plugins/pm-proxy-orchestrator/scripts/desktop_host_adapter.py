@@ -59,7 +59,10 @@ PLUGIN_VERSION = re.compile(
     r"(?:\+codex\.[0-9]{14})?$"
 )
 NONCE = re.compile(r"^[0-9a-f]{32}$")
-UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+# ASCII-only digits: `\d` also matches non-ASCII decimal digits, which pass this
+# gate and then make `parse_utc`'s strptime raise an unbounded ValueError rather
+# than the bounded AdapterError("timestamp-invalid").
+UTC = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 PLUGIN_ID = "pm-proxy-orchestrator@project-firestarter"
 MCP_SERVER_ID = "pm-proxy-orchestrator"
