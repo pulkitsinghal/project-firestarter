@@ -50,12 +50,19 @@ SESSION_TTL_SECONDS = 12 * 60 * 60
 MAX_JSON_BYTES = 2_000_000
 MAX_ATTESTATION_BYTES = 4096
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+# ASCII-only digits: this version string feeds cache/source-identity paths, so
+# `\d` (which also matches non-ASCII decimal digits such as Arabic-Indic) must
+# not be used here. Only the base plus an optional `+codex.<14 ASCII digits>`
+# cache-buster is a valid plugin version.
 PLUGIN_VERSION = re.compile(
-    r"^(?P<base>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))"
-    r"(?:\+codex\.\d{14})?$"
+    r"^(?P<base>(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))"
+    r"(?:\+codex\.[0-9]{14})?$"
 )
 NONCE = re.compile(r"^[0-9a-f]{32}$")
-UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+# ASCII-only digits: `\d` also matches non-ASCII decimal digits, which pass this
+# gate and then make `parse_utc`'s strptime raise an unbounded ValueError rather
+# than the bounded AdapterError("timestamp-invalid").
+UTC = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 PLUGIN_ID = "pm-proxy-orchestrator@project-firestarter"
 MCP_SERVER_ID = "pm-proxy-orchestrator"

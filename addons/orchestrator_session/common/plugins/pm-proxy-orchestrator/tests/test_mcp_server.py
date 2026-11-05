@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import sqlite3
@@ -1498,6 +1499,39 @@ class McpServerTest(unittest.TestCase):
         )["result"]
         self.assertTrue(unknown["isError"])
         self.assertEqual("invalid-fields", unknown["structuredContent"]["error"]["code"])
+
+
+class McpAdoptionVersionAsciiTest(unittest.TestCase):
+    """ADOPTION_VERSION must accept only ASCII cache-buster digits, mirroring
+    the adapter's PLUGIN_VERSION. A ``\\d`` suffix would admit non-ASCII decimal
+    digits (e.g. Arabic-Indic) into the adoption record's plugin version."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        spec = importlib.util.spec_from_file_location("mcp_server", SERVER)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cls.MCP = module
+
+    def test_accepts_base_and_ascii_cachebuster(self) -> None:
+        base = self.MCP.SERVER_VERSION
+        for accepted in (base, f"{base}+codex.20260807230443"):
+            with self.subTest(accepted=accepted):
+                self.assertIsNotNone(self.MCP.ADOPTION_VERSION.fullmatch(accepted))
+
+    def test_rejects_non_ascii_cachebuster_digits(self) -> None:
+        base = self.MCP.SERVER_VERSION
+        self.assertIsNone(
+            self.MCP.ADOPTION_VERSION.fullmatch(f"{base}+codex." + "١" * 14)
+        )
+
+    def test_utc_regex_rejects_non_ascii_digits(self) -> None:
+        arabic = "2026-01-01T00:00:00Z".translate(
+            str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
+        )
+        self.assertIsNone(self.MCP.UTC.fullmatch(arabic))
+        self.assertIsNotNone(self.MCP.UTC.fullmatch("2026-01-01T00:00:00Z"))
 
 
 if __name__ == "__main__":
