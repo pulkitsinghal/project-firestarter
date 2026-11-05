@@ -5,6 +5,11 @@
 - Accept the documented `+codex.<timestamp>` installation cachebuster in the
   Desktop host adapter while continuing to bind source/cache parity to the full
   manifest version and MCP/runtime policy to the base semantic plugin version.
+- Restrict the `+codex.<timestamp>` cachebuster, and the version base, to ASCII
+  digits in both the adapter `PLUGIN_VERSION` acceptor and the MCP
+  `ADOPTION_VERSION` gate. `\d` also matches non-ASCII decimal digits (e.g.
+  Arabic-Indic), which must never be admitted into a version that feeds
+  cache/source-identity paths. No version bump: pins and adoption are unchanged.
 
 ## 0.4.12 - 2026-10-21
 

@@ -46,8 +46,11 @@ MAX_MESSAGE_BYTES = 2_000_000
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# ASCII-only cache-buster digits, mirroring the adapter's PLUGIN_VERSION:
+# `\d` would also admit non-ASCII decimal digits, which must never be accepted
+# in the adoption record's plugin version.
 ADOPTION_VERSION = re.compile(
-    "^" + re.escape(SERVER_VERSION) + r"(?:\+codex\.\d{14})?$"
+    "^" + re.escape(SERVER_VERSION) + r"(?:\+codex\.[0-9]{14})?$"
 )
 RUNTIME_PIN_NAME = "runtime-pin.json"
 RUNTIME_PIN_VERSION = "1.0"
