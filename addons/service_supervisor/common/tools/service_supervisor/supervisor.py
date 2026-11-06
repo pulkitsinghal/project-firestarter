@@ -39,9 +39,28 @@ SERVICE_KEYS = frozenset(
         "drain_grace_ms",
         "never_stop",
         "retain",
+        "recovery",
     }
 )
 HEALTH_KEYS = frozenset({"path", "interval_ms"})
+RECOVERY_KEYS = frozenset({"liveness", "revive", "failover"})
+LIVENESS_KEYS = frozenset({"path", "interval_ms"})
+REVIVE_KEYS = frozenset({"enabled", "max_attempts", "cooldown_ms"})
+FAILOVER_KEYS = frozenset({"enabled", "target", "retest_interval_ms"})
+OBSERVATION_KEYS = frozenset(
+    {
+        "presence",
+        "liveness",
+        "alternative_liveness",
+        "attempts_made",
+        "cooldown_active",
+        "failed_over",
+        "retest_due",
+        "dry_run",
+    }
+)
+PRESENCE_VALUES = frozenset({"enumerated", "absent"})
+LIVENESS_VALUES = frozenset({"serving", "unreachable", "unknown"})
 
 
 class ManifestError(ValueError):
@@ -71,6 +90,69 @@ class HealthSpec:
 
 
 @dataclass(frozen=True)
+class LivenessSpec:
+    """The real-capability probe, declared separately from ``health``.
+
+    ``health`` answers "is it registered and link-up"; this answers "does it
+    actually serve". Registration is not readiness, so the two are distinct.
+    """
+
+    path: str
+    interval_ms: int
+
+
+@dataclass(frozen=True)
+class ReviveSpec:
+    """A bounded in-place revive, off unless explicitly enabled."""
+
+    enabled: bool
+    max_attempts: int
+    cooldown_ms: int
+
+
+@dataclass(frozen=True)
+class FailoverSpec:
+    """Demotion to an alternative, off unless enabled and never blind.
+
+    Failing over requires the alternative to be confirmed serving; the
+    ``retest_interval_ms`` is how often the primary is re-probed so demotion is
+    never permanent.
+    """
+
+    enabled: bool
+    target: str
+    retest_interval_ms: int
+
+
+@dataclass(frozen=True)
+class RecoverySpec:
+    """An opt-in recovery ladder: probe -> revive -> confirmed failover -> retest.
+
+    Declaring a probe is observe-only. ``revive`` and ``failover`` actions stay
+    off until their own ``enabled`` flag is set, and even then this module only
+    plans the ladder; it never executes a rung.
+    """
+
+    liveness: LivenessSpec
+    revive: ReviveSpec | None
+    failover: FailoverSpec | None
+
+
+@dataclass(frozen=True)
+class RecoveryObservation:
+    """A synthetic snapshot the planner reasons over; it mutates nothing."""
+
+    presence: str
+    liveness: str
+    alternative_liveness: str
+    attempts_made: int
+    cooldown_active: bool
+    failed_over: bool
+    retest_due: bool
+    dry_run: bool
+
+
+@dataclass(frozen=True)
 class ServiceSpec:
     service_id: str
     adapter: str
@@ -82,6 +164,7 @@ class ServiceSpec:
     drain_grace_ms: int
     never_stop: bool
     retain: bool
+    recovery: RecoverySpec | None = None
 
 
 def _exact_keys(value: dict, allowed: frozenset[str], context: str) -> None:
@@ -133,6 +216,148 @@ def _loopback_http_url(value: object, context: str) -> str:
         raise ManifestError(f"{context} must use a loopback IP literal")
     canonical_host = f"[{address.compressed}]" if address.version == 6 else str(address)
     return f"http://{canonical_host}:{port}"
+
+
+def _parse_recovery(value: object, context: str) -> RecoverySpec:
+    if not isinstance(value, dict):
+        raise ManifestError(f"{context} must be an object")
+    _exact_keys(value, RECOVERY_KEYS, context)
+    liveness = value.get("liveness")
+    if not isinstance(liveness, dict):
+        raise ManifestError(f"{context}.liveness must be an object")
+    _exact_keys(liveness, LIVENESS_KEYS, f"{context}.liveness")
+    liveness_path = liveness.get("path")
+    if not isinstance(liveness_path, str) or not SAFE_HEALTH_RE.fullmatch(liveness_path):
+        raise ManifestError(f"{context}.liveness.path is invalid")
+    liveness_spec = LivenessSpec(
+        path=liveness_path,
+        interval_ms=_bounded_int(
+            liveness.get("interval_ms"), f"{context}.liveness.interval_ms", 1, 10_000
+        ),
+    )
+
+    revive_spec: ReviveSpec | None = None
+    if "revive" in value:
+        revive = value.get("revive")
+        if not isinstance(revive, dict):
+            raise ManifestError(f"{context}.revive must be an object")
+        _exact_keys(revive, REVIVE_KEYS, f"{context}.revive")
+        revive_spec = ReviveSpec(
+            enabled=_strict_bool(
+                revive.get("enabled", False), f"{context}.revive.enabled"
+            ),
+            max_attempts=_bounded_int(
+                revive.get("max_attempts"), f"{context}.revive.max_attempts", 1, 16
+            ),
+            cooldown_ms=_bounded_int(
+                revive.get("cooldown_ms"),
+                f"{context}.revive.cooldown_ms",
+                1,
+                3_600_000,
+            ),
+        )
+
+    failover_spec: FailoverSpec | None = None
+    if "failover" in value:
+        failover = value.get("failover")
+        if not isinstance(failover, dict):
+            raise ManifestError(f"{context}.failover must be an object")
+        _exact_keys(failover, FAILOVER_KEYS, f"{context}.failover")
+        target = failover.get("target")
+        if not isinstance(target, str) or not SERVICE_ID_RE.fullmatch(target):
+            raise ManifestError(f"{context}.failover.target is invalid")
+        failover_spec = FailoverSpec(
+            enabled=_strict_bool(
+                failover.get("enabled", False), f"{context}.failover.enabled"
+            ),
+            target=target,
+            retest_interval_ms=_bounded_int(
+                failover.get("retest_interval_ms"),
+                f"{context}.failover.retest_interval_ms",
+                1,
+                86_400_000,
+            ),
+        )
+
+    return RecoverySpec(
+        liveness=liveness_spec, revive=revive_spec, failover=failover_spec
+    )
+
+
+def _observation_bool(value: object, context: str) -> bool:
+    if not isinstance(value, bool):
+        raise RefusalError(f"{context} must be a boolean")
+    return value
+
+
+def _observation_enum(value: object, allowed: frozenset[str], context: str) -> str:
+    if not isinstance(value, str) or value not in allowed:
+        raise RefusalError(f"{context} must be one of {sorted(allowed)}")
+    return value
+
+
+def _parse_observation(value: object) -> RecoveryObservation:
+    if not isinstance(value, dict):
+        raise RefusalError("observation must be an object")
+    unknown = sorted(set(value) - OBSERVATION_KEYS)
+    if unknown:
+        raise RefusalError(f"observation has unsupported keys: {', '.join(unknown)}")
+    for required in ("presence", "liveness"):
+        if required not in value:
+            raise RefusalError(f"observation.{required} is required")
+    attempts = value.get("attempts_made", 0)
+    if (
+        isinstance(attempts, bool)
+        or not isinstance(attempts, int)
+        or not 0 <= attempts <= 1_000_000
+    ):
+        raise RefusalError(
+            "observation.attempts_made must be a bounded non-negative integer"
+        )
+    return RecoveryObservation(
+        presence=_observation_enum(
+            value.get("presence"), PRESENCE_VALUES, "observation.presence"
+        ),
+        liveness=_observation_enum(
+            value.get("liveness"), LIVENESS_VALUES, "observation.liveness"
+        ),
+        alternative_liveness=_observation_enum(
+            value.get("alternative_liveness", "unknown"),
+            LIVENESS_VALUES,
+            "observation.alternative_liveness",
+        ),
+        attempts_made=attempts,
+        cooldown_active=_observation_bool(
+            value.get("cooldown_active", False), "observation.cooldown_active"
+        ),
+        failed_over=_observation_bool(
+            value.get("failed_over", False), "observation.failed_over"
+        ),
+        retest_due=_observation_bool(
+            value.get("retest_due", False), "observation.retest_due"
+        ),
+        dry_run=_observation_bool(
+            value.get("dry_run", False), "observation.dry_run"
+        ),
+    )
+
+
+def _read_observation(path: str | Path) -> dict:
+    observation_path = Path(path)
+    try:
+        stat = observation_path.stat()
+    except OSError as exc:
+        raise RefusalError("observation is not readable") from exc
+    if (
+        observation_path.is_symlink()
+        or not observation_path.is_file()
+        or stat.st_size > MAX_MANIFEST_BYTES
+    ):
+        raise RefusalError("observation must be a bounded regular file")
+    try:
+        return json.loads(observation_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RefusalError("observation must be valid UTF-8 JSON") from exc
 
 
 class Manifest:
@@ -228,6 +453,11 @@ class Manifest:
                         entry.get("never_stop", False), f"{context}.never_stop"
                     ),
                     retain=_strict_bool(entry.get("retain", False), f"{context}.retain"),
+                    recovery=(
+                        _parse_recovery(entry["recovery"], f"{context}.recovery")
+                        if "recovery" in entry
+                        else None
+                    ),
                 )
             )
         return cls(parsed)
@@ -267,6 +497,16 @@ class Manifest:
                     )
                 if dependency == service.service_id:
                     raise ManifestError(f"{service.service_id} cannot depend on itself")
+            if service.recovery is not None and service.recovery.failover is not None:
+                target = service.recovery.failover.target
+                if target not in self.services:
+                    raise ManifestError(
+                        f"{service.service_id} failover target is unknown: {target}"
+                    )
+                if target == service.service_id:
+                    raise ManifestError(
+                        f"{service.service_id} cannot fail over to itself"
+                    )
 
         visiting: set[str] = set()
         visited: set[str] = set()
@@ -594,6 +834,148 @@ class ServiceSupervisor:
             ],
         }
 
+    def plan_recovery(self, service_id: str, observation: object) -> dict:
+        """Return a non-executing recovery-ladder plan for one allowlisted id.
+
+        The ladder: probe the real capability, attempt a bounded in-place revive,
+        fail over only to a confirmed-working alternative, then retest and come
+        back. Enumeration is never read as readiness; failover to an unconfirmed
+        alternative is refused; revive is bounded and must not loop; and this
+        method mutates no lifecycle state.
+        """
+        if service_id not in self.manifest.services:
+            raise RefusalError("unknown service")
+        recovery = self.manifest.services[service_id].recovery
+        if recovery is None:
+            raise RefusalError("service declares no recovery policy")
+        observed = _parse_observation(observation)
+        armed = not observed.dry_run
+
+        steps: list[dict] = []
+
+        def add(action: str, **fields: object) -> None:
+            steps.append({"sequence": len(steps) + 1, "action": action, **fields})
+
+        # Rung 1: probe the real capability, not the registration. Recording the
+        # probe keeps the whole decision path auditable before it is trusted.
+        add(
+            "probe-liveness",
+            probe_path=recovery.liveness.path,
+            observed=observed.liveness,
+            note="registration is not readiness; this probes the real capability",
+        )
+
+        serving = observed.presence == "enumerated" and observed.liveness == "serving"
+        if serving:
+            diagnosis = "serving"
+            if observed.failed_over:
+                # Rung 4: demotion is never permanent.
+                if observed.retest_due:
+                    add(
+                        "repromote-primary",
+                        armed=armed,
+                        on_failure="stay-on-alternative",
+                        note="primary confirmed serving again; return to it in place",
+                    )
+                else:
+                    add(
+                        "hold-on-alternative",
+                        on_failure="stay-on-alternative",
+                        retest_interval_ms=(
+                            recovery.failover.retest_interval_ms
+                            if recovery.failover is not None
+                            else None
+                        ),
+                        note="primary looks healthy; wait out the retest interval",
+                    )
+        elif observed.presence == "absent":
+            # #40: a dead-plugged dependency is not an enumerated-but-unreachable
+            # one. Nothing is present to revive in place; only a confirmed
+            # failover can help.
+            diagnosis = "absent"
+            self._append_failover_rung(add, recovery, observed, armed, service_id)
+        else:
+            # The core case: enumerated, link-up, and still not serving.
+            diagnosis = "enumerated-unreachable"
+            if recovery.revive is not None and recovery.revive.enabled:
+                if observed.attempts_made >= recovery.revive.max_attempts:
+                    add(
+                        "revive-blocked",
+                        reason="max-attempts-exhausted",
+                        max_attempts=recovery.revive.max_attempts,
+                        on_failure="proceed-to-failover",
+                        note="do not loop; a revive that keeps failing is not a revive",
+                    )
+                elif observed.cooldown_active:
+                    add(
+                        "revive-blocked",
+                        reason="cooldown-active",
+                        cooldown_ms=recovery.revive.cooldown_ms,
+                        on_failure="proceed-to-failover",
+                        note="respect the cooldown before another in-place attempt",
+                    )
+                else:
+                    add(
+                        "revive-in-place",
+                        armed=armed,
+                        attempt=observed.attempts_made + 1,
+                        max_attempts=recovery.revive.max_attempts,
+                        cooldown_ms=recovery.revive.cooldown_ms,
+                        on_failure="reprobe-then-failover",
+                        note="reboot the wedged dependency in place; no replacement, bounded",
+                    )
+            self._append_failover_rung(add, recovery, observed, armed, service_id)
+
+        return {
+            "schema_version": 1,
+            "kind": "recovery-plan",
+            "target_service_id": service_id,
+            "mode": "dry-run" if observed.dry_run else "armed",
+            "diagnosis": diagnosis,
+            "steps": steps,
+        }
+
+    @staticmethod
+    def _append_failover_rung(
+        add: Callable[..., None],
+        recovery: RecoverySpec,
+        observed: RecoveryObservation,
+        armed: bool,
+        service_id: str,
+    ) -> None:
+        # Rung 3: fail over only when the alternative is confirmed working.
+        if recovery.failover is not None and recovery.failover.enabled:
+            if observed.alternative_liveness == "serving":
+                add(
+                    "failover-to",
+                    target=recovery.failover.target,
+                    armed=armed,
+                    retest_interval_ms=recovery.failover.retest_interval_ms,
+                    on_failure="stay-on-primary",
+                    note="alternative is confirmed serving; demote the primary",
+                )
+                add(
+                    "schedule-retest",
+                    target_service_id=service_id,
+                    retest_interval_ms=recovery.failover.retest_interval_ms,
+                    note="demotion is not permanent; retest the primary on this interval",
+                )
+            else:
+                add(
+                    "failover-refused",
+                    target=recovery.failover.target,
+                    reason="alternative-not-confirmed-healthy",
+                    observed_alternative=observed.alternative_liveness,
+                    on_failure="stay-on-primary",
+                    note="failing over to an untested alternative turns one outage into two",
+                )
+        else:
+            add(
+                "hold-degraded",
+                on_failure="stay-on-primary",
+                note="no confirmed-healthy failover enabled; remain in place and keep probing",
+            )
+
     def plan_idle(self, now: float | None = None) -> dict:
         """Return eligible idle transitions without mutating lifecycle state."""
         checked_at = self.clock() if now is None else now
@@ -744,6 +1126,10 @@ def main(argv: list[str] | None = None) -> int:
     plan_wake = subparsers.add_parser("plan-wake")
     plan_wake.add_argument("--manifest", required=True)
     plan_wake.add_argument("--service", required=True)
+    plan_recovery = subparsers.add_parser("plan-recovery")
+    plan_recovery.add_argument("--manifest", required=True)
+    plan_recovery.add_argument("--service", required=True)
+    plan_recovery.add_argument("--observation", required=True)
     args = parser.parse_args(argv)
 
     try:
@@ -761,9 +1147,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         supervisor = ServiceSupervisor(manifest, SyntheticAdapter())
+        if args.command == "plan-wake":
+            print(
+                json.dumps(
+                    supervisor.plan_wake(args.service),
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+            return 0
+        observation = _read_observation(args.observation)
         print(
             json.dumps(
-                supervisor.plan_wake(args.service),
+                supervisor.plan_recovery(args.service, observation),
                 separators=(",", ":"),
                 sort_keys=True,
             )

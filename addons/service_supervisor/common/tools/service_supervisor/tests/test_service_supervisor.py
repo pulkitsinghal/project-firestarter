@@ -13,7 +13,11 @@ from typing import ClassVar
 from urllib.parse import unquote, urlsplit
 
 from tools.service_supervisor.supervisor import (
+    FAILOVER_KEYS,
     HEALTH_KEYS,
+    LIVENESS_KEYS,
+    RECOVERY_KEYS,
+    REVIVE_KEYS,
     SERVICE_KEYS,
     TOP_LEVEL_KEYS,
     Manifest,
@@ -22,6 +26,7 @@ from tools.service_supervisor.supervisor import (
     ServiceSupervisor,
     SyntheticAdapter,
     WakeError,
+    main,
 )
 
 
@@ -999,6 +1004,330 @@ class ListenerAndSourceSafetyTests(unittest.TestCase):
             "create_server",
         ):
             self.assertNotIn(forbidden, source)
+
+
+def recovery_block(
+    *,
+    revive_enabled: bool = True,
+    max_attempts: int = 3,
+    cooldown_ms: int = 60000,
+    failover_enabled: bool = True,
+    target: str = "backup",
+    retest_interval_ms: int = 300000,
+) -> dict:
+    return {
+        "liveness": {"path": "/serves", "interval_ms": 5},
+        "revive": {
+            "enabled": revive_enabled,
+            "max_attempts": max_attempts,
+            "cooldown_ms": cooldown_ms,
+        },
+        "failover": {
+            "enabled": failover_enabled,
+            "target": target,
+            "retest_interval_ms": retest_interval_ms,
+        },
+    }
+
+
+def recovery_pair(**kwargs) -> Manifest:
+    primary = service("primary", port=18881)
+    primary["recovery"] = recovery_block(**kwargs)
+    return manifest(primary, service("backup", port=18882))
+
+
+class RecoveryLadderContractTests(unittest.TestCase):
+    """Adversarial coverage for the probe -> revive -> failover -> retest ladder.
+
+    The whole point is that a status label overstates reality: a dependency can
+    be enumerated, link-up, and dead. The planner must never read enumeration as
+    readiness, must refuse an unconfirmed failover, must bound revive, must
+    change nothing in dry-run, and must bring a demoted primary back.
+    """
+
+    def supervisor(self, **kwargs) -> ServiceSupervisor:
+        return ServiceSupervisor(recovery_pair(**kwargs), SyntheticAdapter())
+
+    def plan(self, supervisor: ServiceSupervisor, **observation) -> dict:
+        return supervisor.plan_recovery("primary", observation)
+
+    def actions(self, supervisor: ServiceSupervisor, **observation) -> list[str]:
+        return [step["action"] for step in self.plan(supervisor, **observation)["steps"]]
+
+    def test_recovery_schema_matches_runtime_exact_key_contract(self) -> None:
+        schema = json.loads(
+            (
+                Path(__file__).resolve().parents[1] / "service-catalog.schema.json"
+            ).read_text(encoding="utf-8")
+        )
+        defs = schema["$defs"]
+        self.assertIn("recovery", defs["service"]["properties"])
+        self.assertNotIn("recovery", defs["service"].get("required", []))
+        for name, keyset in (
+            ("recovery", RECOVERY_KEYS),
+            ("liveness", LIVENESS_KEYS),
+            ("revive", REVIVE_KEYS),
+            ("failover", FAILOVER_KEYS),
+        ):
+            self.assertFalse(defs[name]["additionalProperties"], name)
+            self.assertEqual(keyset, frozenset(defs[name]["properties"]), name)
+        self.assertEqual(["liveness"], defs["recovery"]["required"])
+
+    def test_enumerated_but_unreachable_is_never_read_as_healthy(self) -> None:
+        plan = self.plan(
+            self.supervisor(),
+            presence="enumerated",
+            liveness="unreachable",
+            alternative_liveness="serving",
+        )
+        self.assertEqual("enumerated-unreachable", plan["diagnosis"])
+        self.assertNotEqual("serving", plan["diagnosis"])
+        self.assertNotIn(
+            "repromote-primary", [step["action"] for step in plan["steps"]]
+        )
+        probe = plan["steps"][0]
+        self.assertEqual("probe-liveness", probe["action"])
+        self.assertEqual("unreachable", probe["observed"])
+
+    def test_failover_to_unconfirmed_alternative_is_refused(self) -> None:
+        supervisor = self.supervisor()
+        for alternative in ("unknown", "unreachable"):
+            with self.subTest(alternative=alternative):
+                plan = self.plan(
+                    supervisor,
+                    presence="enumerated",
+                    liveness="unreachable",
+                    alternative_liveness=alternative,
+                    attempts_made=3,
+                )
+                actions = [step["action"] for step in plan["steps"]]
+                self.assertIn("failover-refused", actions)
+                self.assertNotIn("failover-to", actions)
+                refused = next(
+                    step for step in plan["steps"] if step["action"] == "failover-refused"
+                )
+                self.assertEqual(
+                    "alternative-not-confirmed-healthy", refused["reason"]
+                )
+
+    def test_revive_is_bounded_and_does_not_loop(self) -> None:
+        supervisor = self.supervisor(max_attempts=3)
+        within = self.plan(
+            supervisor,
+            presence="enumerated",
+            liveness="unreachable",
+            alternative_liveness="unreachable",
+            attempts_made=0,
+        )
+        revive_steps = [s for s in within["steps"] if s["action"] == "revive-in-place"]
+        self.assertEqual(1, len(revive_steps))
+        self.assertEqual(1, revive_steps[0]["attempt"])
+
+        exhausted = self.plan(
+            supervisor,
+            presence="enumerated",
+            liveness="unreachable",
+            alternative_liveness="unreachable",
+            attempts_made=3,
+        )
+        exhausted_actions = [s["action"] for s in exhausted["steps"]]
+        self.assertNotIn("revive-in-place", exhausted_actions)
+        blocked = next(
+            s for s in exhausted["steps"] if s["action"] == "revive-blocked"
+        )
+        self.assertEqual("max-attempts-exhausted", blocked["reason"])
+
+        cooling_actions = self.actions(
+            supervisor,
+            presence="enumerated",
+            liveness="unreachable",
+            alternative_liveness="unreachable",
+            attempts_made=1,
+            cooldown_active=True,
+        )
+        self.assertNotIn("revive-in-place", cooling_actions)
+        self.assertIn("revive-blocked", cooling_actions)
+
+    def test_dry_run_changes_nothing_and_arms_nothing(self) -> None:
+        supervisor = self.supervisor()
+        before = supervisor.status()
+        observation = dict(
+            presence="enumerated",
+            liveness="unreachable",
+            alternative_liveness="serving",
+            dry_run=True,
+        )
+        plan = self.plan(supervisor, **observation)
+        self.assertEqual("dry-run", plan["mode"])
+        armed_flags = [s["armed"] for s in plan["steps"] if "armed" in s]
+        self.assertTrue(armed_flags)
+        self.assertTrue(all(flag is False for flag in armed_flags))
+        self.assertEqual(before, supervisor.status())
+        self.assertEqual(plan, self.plan(supervisor, **observation))
+        self.assertEqual(before, supervisor.status())
+
+    def test_retest_restores_the_demoted_primary(self) -> None:
+        supervisor = self.supervisor()
+        held = self.actions(
+            supervisor,
+            presence="enumerated",
+            liveness="serving",
+            failed_over=True,
+            retest_due=False,
+        )
+        self.assertIn("hold-on-alternative", held)
+        self.assertNotIn("repromote-primary", held)
+        restored = self.plan(
+            supervisor,
+            presence="enumerated",
+            liveness="serving",
+            failed_over=True,
+            retest_due=True,
+        )
+        self.assertEqual("serving", restored["diagnosis"])
+        self.assertIn(
+            "repromote-primary", [s["action"] for s in restored["steps"]]
+        )
+
+    def test_dead_plugged_differs_from_enumerated_unreachable(self) -> None:
+        absent = self.plan(
+            self.supervisor(),
+            presence="absent",
+            liveness="unknown",
+            alternative_liveness="serving",
+        )
+        actions = [s["action"] for s in absent["steps"]]
+        self.assertEqual("absent", absent["diagnosis"])
+        self.assertNotIn("revive-in-place", actions)
+        self.assertIn("failover-to", actions)
+
+    def test_serving_primary_needs_no_ladder(self) -> None:
+        plan = self.plan(
+            self.supervisor(), presence="enumerated", liveness="serving"
+        )
+        self.assertEqual("serving", plan["diagnosis"])
+        self.assertEqual(["probe-liveness"], [s["action"] for s in plan["steps"]])
+
+    def test_actions_stay_off_unless_enabled(self) -> None:
+        actions = self.actions(
+            self.supervisor(revive_enabled=False, failover_enabled=False),
+            presence="enumerated",
+            liveness="unreachable",
+            alternative_liveness="serving",
+        )
+        self.assertNotIn("revive-in-place", actions)
+        self.assertNotIn("failover-to", actions)
+        self.assertIn("hold-degraded", actions)
+
+    def test_recovery_is_optional_and_refuses_when_absent(self) -> None:
+        supervisor = self.supervisor()
+        with self.assertRaisesRegex(RefusalError, "no recovery policy"):
+            supervisor.plan_recovery(
+                "backup", {"presence": "enumerated", "liveness": "serving"}
+            )
+        with self.assertRaisesRegex(RefusalError, "unknown service"):
+            supervisor.plan_recovery(
+                "ghost", {"presence": "enumerated", "liveness": "serving"}
+            )
+
+    def test_observation_input_is_strictly_validated(self) -> None:
+        supervisor = self.supervisor()
+        bad = [
+            {"liveness": "serving"},
+            {"presence": "enumerated"},
+            {"presence": "maybe", "liveness": "serving"},
+            {"presence": "enumerated", "liveness": "serving", "extra": 1},
+            {"presence": "enumerated", "liveness": "serving", "attempts_made": -1},
+            {"presence": "enumerated", "liveness": "serving", "dry_run": "yes"},
+        ]
+        for observation in bad:
+            with self.subTest(observation=observation), self.assertRaises(RefusalError):
+                supervisor.plan_recovery("primary", observation)
+
+    def test_failover_target_must_exist_and_cannot_be_self(self) -> None:
+        self_target = service("primary", port=18881)
+        self_target["recovery"] = recovery_block(target="primary")
+        with self.assertRaisesRegex(ManifestError, "cannot fail over to itself"):
+            manifest(self_target, service("backup", port=18882))
+        unknown = service("primary", port=18881)
+        unknown["recovery"] = recovery_block(target="ghost")
+        with self.assertRaisesRegex(ManifestError, "failover target is unknown"):
+            manifest(unknown, service("backup", port=18882))
+
+    def test_default_manifest_without_recovery_stays_inert(self) -> None:
+        supervisor = ServiceSupervisor(manifest(service()), SyntheticAdapter())
+        self.assertIsNone(supervisor.manifest.services["api"].recovery)
+        with self.assertRaisesRegex(RefusalError, "no recovery policy"):
+            supervisor.plan_recovery(
+                "api", {"presence": "enumerated", "liveness": "serving"}
+            )
+
+    def test_cli_plan_recovery_is_pure_json_and_dry_run_first(self) -> None:
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            primary = service("primary", port=18881)
+            primary["recovery"] = recovery_block()
+            manifest_path = root / "catalog.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "services": [primary, service("backup", port=18882)],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            observation_path = root / "observation.json"
+            observation_path.write_text(
+                json.dumps(
+                    {
+                        "presence": "enumerated",
+                        "liveness": "unreachable",
+                        "alternative_liveness": "serving",
+                        "dry_run": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(
+                    [
+                        "plan-recovery",
+                        "--manifest",
+                        str(manifest_path),
+                        "--service",
+                        "primary",
+                        "--observation",
+                        str(observation_path),
+                    ]
+                )
+            self.assertEqual(0, code)
+            payload = json.loads(out.getvalue())
+            self.assertEqual("recovery-plan", payload["kind"])
+            self.assertEqual("dry-run", payload["mode"])
+            self.assertEqual("enumerated-unreachable", payload["diagnosis"])
+
+            link = root / "observation-link.json"
+            link.symlink_to(observation_path)
+            refused = io.StringIO()
+            with contextlib.redirect_stdout(refused):
+                code = main(
+                    [
+                        "plan-recovery",
+                        "--manifest",
+                        str(manifest_path),
+                        "--service",
+                        "primary",
+                        "--observation",
+                        str(link),
+                    ]
+                )
+            self.assertEqual(2, code)
+            self.assertIn("refused", refused.getvalue())
 
 
 def load_tests(loader, tests, _pattern):
