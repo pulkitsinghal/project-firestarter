@@ -134,6 +134,9 @@ jobs:
       - name: Verify the documentation-integrity contract
         run: python3 -B -m unittest -v tests.test_doc_integrity_contract
 
+      - name: Verify the auth add-on request-authenticity contract
+        run: python3 -B -m unittest -v tests.test_auth_csrf_contract
+
       - name: Verify deterministic release parity
         run: python3 -B -m unittest -v tests.test_release_parity_contract
 

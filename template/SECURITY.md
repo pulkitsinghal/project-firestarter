@@ -49,6 +49,24 @@ You'll get an acknowledgement and a coordinated disclosure timeline.
   keep human login separate from machine deploy credentials. See
   [docs/UNLISTED_PUBLISHING.md](docs/UNLISTED_PUBLISHING.md).
 
+## Request authenticity
+
+An `Origin` or `Referer` header is a hint, not a credential. Real mobile network
+paths (carrier proxies, in-app browsers, privacy intermediaries) strip those
+headers on same-origin POSTs, so a same-origin check built on them fails closed
+against your own users on cellular while stopping no attacker, and the breakage
+is invisible from a desktop or CI because it only reproduces on a real cellular
+path. Authenticate a request by something a forging site cannot supply, not by a
+header the network may remove. A credential the browser attaches automatically to
+cross-site requests (a session **cookie**) is the ambient authority CSRF rides; a
+credential the page must read and attach itself (a bearer token in `localStorage`
+sent as a request header) is not reachable cross-origin and needs no CSRF token.
+If a session must live in a cookie (server rendering, an OAuth browser redirect),
+pair it with a **sealed double-submit token**: a server-minted HMAC nonce in a
+`__Host-`-prefixed cookie, echoed in a request header or hidden field and verified
+with the session secret, never an `Origin` check. The optional `auth` add-on is
+already on the safe side of this.
+
 ## Scope
 
 The latest `master` is supported. Forward-only migrations mean fixes land as new

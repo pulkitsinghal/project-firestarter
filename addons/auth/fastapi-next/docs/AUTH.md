@@ -47,6 +47,32 @@ Pluggable; nothing paid required.
 - Session tokens are 256-bit url-safe randoms; only their SHA-256 is stored.
 - Requesting a code never reveals whether an account exists.
 
+## Request authenticity (CSRF)
+
+The session credential is a **bearer token**. The widget keeps it in
+`localStorage` and sends it as `X-Session-Token` (or `Authorization: Bearer`); it
+is never an ambient cookie, and the backend adds no permissive CORS. A browser
+does not attach that credential to a forged cross-site request: a cross-origin
+page cannot read your `localStorage`, cannot set the custom header without a CORS
+preflight the backend will not answer, and cannot send the JSON body through a
+simple form. So classic CSRF does not apply, and the add-on needs no CSRF token.
+
+**Do not "harden" the routes with an `Origin` or `Referer` same-origin check.** An
+origin header is a hint, not a credential. Real mobile network paths (carrier
+proxies, in-app browsers, privacy intermediaries) strip those headers on
+same-origin POSTs, so the check fails closed against your own users on cellular
+while stopping no attacker, and it is invisible from a desktop or CI because it
+only reproduces on a real cellular path. The routes therefore never read
+`Origin` or `Referer`: a request carrying neither is accepted on its bearer
+token alone.
+
+If you ever move the session onto a cookie (server rendering, an OAuth browser
+redirect), that reintroduces the ambient authority CSRF rides. Pair the cookie
+with a **sealed double-submit token**: a server-minted HMAC nonce in a
+`__Host-`-prefixed cookie, echoed in a request header or hidden field and
+verified with `AUTH_SECRET`, with a short TTL and expiry on state transition.
+Still never an `Origin` check.
+
 ## Durable sessions (Postgres)
 
 By default the store is **in-memory** (resets on restart, fine for dev/demo). For

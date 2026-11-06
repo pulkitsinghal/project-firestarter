@@ -4,6 +4,19 @@ Login *upgrades* the calling anonymous device (X-Device-Id) by linking it to an
 account, so state follows the account. Auth is never required; these routes are
 opt-in. The OAuth seam (identity linking) is in place in the store; the OAuth
 HTTP flow is a documented follow-up (see docs/AUTH.md).
+
+Request authenticity / CSRF. The session credential is a bearer token the client
+holds in localStorage and sends as the X-Session-Token (or Authorization)
+header, never an ambient cookie, and the backend adds no permissive CORS. A
+browser does not attach that credential to a forged cross-site request, so
+classic CSRF does not apply and no CSRF token is needed here. Do NOT "harden"
+these routes with an Origin or Referer same-origin check: those headers are
+stripped on real mobile network paths (carrier proxies, in-app browsers, privacy
+intermediaries), so the check would refuse your own users on cellular while
+stopping no attacker. If the session is ever moved onto a cookie (server
+rendering, an OAuth redirect), add a sealed double-submit CSRF token: a
+server-minted HMAC nonce in a __Host- prefixed cookie, echoed in a header and
+verified with AUTH_SECRET, never an Origin check. See docs/AUTH.md. (lift #179)
 """
 
 from __future__ import annotations
