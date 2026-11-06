@@ -41,7 +41,7 @@ jobs:
     steps:
       - name: Find candidate PR
         id: pr
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const ev = context.eventName;
@@ -66,7 +66,7 @@ jobs:
       - name: Check AI reviewer verdict
         if: steps.pr.outputs.number
         id: verdict
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const prNumber = parseInt('${{ steps.pr.outputs.number }}', 10);
@@ -110,7 +110,7 @@ jobs:
       - name: Verify all required checks are green
         if: steps.verdict.outputs.verdict == 'OK'
         id: checks
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const sha = '${{ steps.pr.outputs.head_sha }}';
@@ -155,7 +155,7 @@ jobs:
 
       - name: Checkout trusted closing-intent guard
         if: steps.verdict.outputs.verdict == 'OK' && steps.checks.outputs.ready == 'true'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
           path: trusted-base
@@ -164,7 +164,7 @@ jobs:
 
       - name: Revalidate fresh closing intent and squash-merge
         if: steps.verdict.outputs.verdict == 'OK' && steps.checks.outputs.ready == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');
