@@ -54,6 +54,23 @@ stale candidate, or silently skipped layer is not equivalent. A local pass never
 overrides an executed hosted failure and never claims to satisfy or bypass the
 repository host's merge policy.
 
+### Registration is not readiness
+
+A green status label overstates reality outside CI too: a dependency can be
+enumerated, link-up, and dead — in the catalog, a container `Up`, a pod
+`Running`, a connection pooled, a name resolving — with no capability behind any
+of it. Probe the real capability, not the registration, before you trust a
+dependency or build recovery on it.
+
+When a project supervises a fallible dependency that has an alternative, the
+recovery order is fixed: probe the real capability; attempt a **bounded** in-place
+revive before failing over; fail over **only** to an alternative confirmed working
+(an untested one turns one outage into two); then retest and come back, because
+demotion is never permanent. Distinguish enumerated-but-unreachable from absent —
+they recover differently. Keep the policy OS-neutral and ship it dry-run-first so
+its judgement is auditable before it is trusted. The opt-in `service_supervisor`
+add-on models this ladder, observe-only; see its `docs/RECOVERY_LADDER.md`.
+
 ### A test suite the gate does not name cannot exist
 
 The checks above ask whether a gate *ran*, saw *current* source, drove the

@@ -26,7 +26,17 @@ python -m tools.service_supervisor plan-wake \
   --service synthetic-api
 ```
 
-Neither command starts the synthetic adapter or opens a listener.
+Print a non-executing recovery-ladder plan (probe → revive → confirmed failover
+→ retest) for a service that declares a `recovery` policy:
+
+```bash
+python -m tools.service_supervisor plan-recovery \
+  --manifest tools/service_supervisor/services.example.json \
+  --service synthetic-api \
+  --observation tools/service_supervisor/recovery-observation.example.json
+```
+
+None of these commands start the synthetic adapter or open a listener.
 
 The permit verifier is an import-only control-plane API. It validates the
 strict local-ai plan/result seam, checks an HMAC-SHA256 PM permit against an
@@ -42,6 +52,12 @@ format, environment-variable convention, broker, or executor in this package.
 - IP-literal loopback targets only.
 - Acyclic dependency graph with deterministic topological wake and reverse
   idle planning.
+- Optional, default-inert recovery ladder. A declared `recovery.liveness` probe
+  is distinct from `health` (registration is not readiness); `revive` and
+  `failover` actions stay off unless enabled; `plan_recovery` only plans, never
+  executes. Enumerated-but-unreachable never reads healthy, failover to an
+  unconfirmed alternative is refused, revive is bounded and does not loop, and
+  demotion is reversed on a confirmed retest.
 - `STOPPED`, `STARTING`, `READY`, `DRAINING`, and `FAILED` states.
 - Concurrent wake singleflight, bounded readiness, dependency leases,
   cancellable drain grace, `never_stop`, retain pins, rollback, and shutdown
@@ -64,6 +80,11 @@ format, environment-variable convention, broker, or executor in this package.
 The test module contains a loopback-only GET/HEAD fixture to prove that a future
 data plane waits for readiness and never forwards refused body methods. It is
 test code, not an installation candidate.
+
+The [recovery ladder](docs/RECOVERY_LADDER.md) defines the
+probe/revive/confirmed-failover/retest policy, the fail direction at each rung,
+and the dry-run-first requirement. It is OS-neutral: the policy and evidence
+requirements are the lift, never a platform command.
 
 Read [the operator runbook](docs/OPERATOR_RUNBOOK.md) for the Caddy/local-ai
 boundary, test command, execution gate, and rollback conditions.
