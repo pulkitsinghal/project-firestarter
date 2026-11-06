@@ -955,6 +955,27 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         answers.name,
                     )
 
+                    safety_model = (
+                        output / "docs" / "SAFETY_MODEL.md"
+                    ).read_text(encoding="utf-8")
+                    normalized_safety = " ".join(safety_model.split())
+                    normalized_claude = " ".join(claude.split())
+                    for required in (
+                        "Known interaction gaps (dated, verified)",
+                        "pass through untouched",
+                        "Worked example (synthetic, illustrative",
+                        "No interaction gaps recorded yet",
+                    ):
+                        self.assertIn(required, normalized_safety, answers.name)
+                    self.assertIn(
+                        "record a discovered control interaction",
+                        normalized_agents,
+                        answers.name,
+                    )
+                    self.assertIn(
+                        "docs/SAFETY_MODEL.md", normalized_claude, answers.name
+                    )
+
                     subprocess.run(["git", "init", "-q"], cwd=output, check=True)
                     subprocess.run(["git", "add", "-A"], cwd=output, check=True)
                     result = subprocess.run(
