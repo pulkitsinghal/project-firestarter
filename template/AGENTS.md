@@ -66,6 +66,38 @@ evidence, **what it cost**, and the generalized rule there; keep task state in
 At project milestones, sweep recent findings, postmortems, review notes, and
 commits for stranded rules and promote the durable ones.
 
+## Policy vs. empirical claims — date what the world can change (a precept)
+
+A standing brief mixes two kinds of statement and must not treat them alike:
+
+- **Policy** is a decision — "branch off `master`, never push directly", "no
+  host SDKs". It is true because the project says so and needs no evidence.
+- **An empirical claim is an assertion about the world** — "this builds
+  headlessly", "that needs a GUI", "the API has no such field", "CI is
+  billing-blocked here", "Docker cannot reach the GPU". The world changes, so
+  the claim can go stale.
+
+An undated empirical claim here is uniquely dangerous: it is read at the start
+of every session, believed without question, and **actively prevents the
+experiment that would disprove it**. It does not decay into noise; it decays
+into a permanent false constraint whose cost compounds silently across every
+future session.
+
+So **an empirical invariant carries a verified-on date, the exact command that
+reproduces it, and any quirk that makes the naive attempt mislead** — or it is
+written as an open question in `docs/OPEN_QUESTIONS.md` instead of an invariant.
+The quirk is what matters most: the reason a wrong claim survives is usually
+that someone did try it once, hit a first-run or cold-state failure, and wrote
+down "can't". Record it in a form a reader can re-check, for example:
+
+> Builds headlessly, **verified 2026-01-15**: `make build`. Quirk: the first run
+> on a cold cache fails "input not found" because it just created the cache;
+> re-run the same command and it succeeds (two-pass).
+
+Policy needs no date. An empirical claim without one is a liability, so when you
+cannot verify a claim you are tempted to write as an invariant, send it to
+`docs/OPEN_QUESTIONS.md` rather than letting it harden into a false constraint.
+
 ## Never lose deferred work (a precept)
 
 Any pipeline that filters, skips, parks, blocks, or defers an item must record

@@ -4,6 +4,12 @@ A running log of things we've consciously *not* decided yet, and why. When a
 question is answered, move it to the "Resolved" section with the decision and
 date — don't delete it (the trail is the value).
 
+An **unverified empirical claim** — an assertion about the world (what builds,
+what a toolchain needs, what a tier permits) that no one has checked — belongs
+here as an open question, not in `AGENTS.md` as an invariant, until it carries a
+verified-on date and the exact command that reproduces it. See *Policy vs.
+empirical claims* in `AGENTS.md`.
+
 ## Format
 
 ```
