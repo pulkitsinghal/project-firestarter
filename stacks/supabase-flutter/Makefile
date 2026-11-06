@@ -104,7 +104,7 @@ splash-build: ## Production build of the splash page
 
 # ── Aggregate gates ──────────────────────────────────────────────────────────
 .PHONY: test
-test: gate-selftest repo-hygiene dart-test flutter-test ## Run the test suite (CI "Tests" job)
+test: gate-selftest repo-hygiene check-gate-coverage dart-test flutter-test ## Run the test suite (CI "Tests" job)
 
 .PHONY: lint
 lint: flutter-analyze flutter-format-check ## All lint/type checks (CI "Lint & Typecheck" job)
@@ -119,6 +119,16 @@ docs-check: ## Check required docs, local links, and Mermaid structure (no rende
 .PHONY: repo-hygiene
 repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
 	bash scripts/repo-hygiene.sh --staged
+
+# ── Gate coverage ────────────────────────────────────────────────────────────
+# A test-root directory that no runner names is an invisible suite:
+# green but never executed. check-gate-coverage.sh discovers every test
+# root and fails the Tests job on any that TEST_SUITES does not list.
+# See docs/ENGINEERING_CONVENTIONS.md.
+TEST_SUITES := scripts/tests app/test services/test
+.PHONY: check-gate-coverage
+check-gate-coverage: ## Fail if a test-root directory exists that no suite runs
+	bash scripts/check-gate-coverage.sh $(TEST_SUITES)
 
 .PHONY: mutation-check
 mutation-check: ## Prove configured focused tests fail under one exact source mutation
@@ -135,7 +145,7 @@ gate-selftest-run:
 	  --case splash splash /splash $(SPLASH_RUN)
 
 .PHONY: precommit
-precommit: gate-selftest repo-hygiene smoke flutter-analyze flutter-format-check dart-test flutter-test ## Mirror CI gates locally
+precommit: gate-selftest repo-hygiene check-gate-coverage smoke flutter-analyze flutter-format-check dart-test flutter-test ## Mirror CI gates locally
 	@echo "✓ precommit gates passed"
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────

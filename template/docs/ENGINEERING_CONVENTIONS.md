@@ -54,6 +54,23 @@ stale candidate, or silently skipped layer is not equivalent. A local pass never
 overrides an executed hosted failure and never claims to satisfy or bypass the
 repository host's merge policy.
 
+### A test suite the gate does not name cannot exist
+
+The checks above ask whether a gate *ran*, saw *current* source, drove the
+*shipped* artifact, and matched released *bytes*. None asks whether the gate
+covers **everything that exists**. A gate can satisfy every one of them and
+still be green because it was pointed at four of six test suites — and a suite
+nobody runs does not fail, it is invisible, so the hole is silent and compounds.
+
+So the gate **enumerates its own coverage and fails closed on any test root it
+does not name.** `scripts/check-gate-coverage.sh` discovers every test-root
+directory under the project and compares it against the suites the stack's
+Makefile declares in `TEST_SUITES`; an undeclared root fails the **Tests** job
+until it is wired into a runner and declared, or removed. The discovery half is
+*self-enumerating* on purpose — a hand-maintained list of suites decays exactly
+like a hand-maintained list of checks — so the guard finds the directories and
+the declaration only records which runner owns each one.
+
 ### Browser/E2E artifact fidelity
 
 A browser, E2E, or storyboard gate must exercise the artifact the project would
