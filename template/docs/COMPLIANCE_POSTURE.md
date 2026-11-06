@@ -34,6 +34,39 @@ code/config so the control is auditable — not aspirational:
 | secrets committed to the repo | gitleaks secret scan (required check) | `.github/workflows/secret-scan.yml` |
 | local/session output or PII-shaped content staged | immutable-index, content-suppressed offline tripwire | `scripts/repo-hygiene.sh` / `make repo-hygiene` |
 
+## Artifact policy (declared, not just scanned)
+
+`scripts/repo-hygiene.sh` scans for *suspicious shapes* — credentials, PII,
+forbidden paths. That answers "no bad shapes were found." It does **not** answer
+"every artifact is the class it was meant to be", and only the second claim
+survives encryption: once a path is git-crypt ciphertext, a shape scan sees
+random bytes and can neither confirm it is clean nor flag it.
+
+So this repo declares a disposition per artifact class in
+[`artifact-policy.json`](../artifact-policy.json) — `source`, `generated`,
+`encrypted-local`, `ignored-local` — and the hygiene gate enforces the
+encrypted-local class against `.gitattributes` (the index scan reads committed
+**blobs**, so an encrypted file arrives as ciphertext):
+
+| Committed blob | Declared `filter=git-crypt`? | Disposition |
+|---|---|---|
+| git-crypt ciphertext | yes | **covered-by-encryption** — a named class, neither clean nor a finding; never scanned as content |
+| git-crypt ciphertext | no | finding `encrypted-path-not-declared` — an undeclared encrypted artifact |
+| plaintext | yes | finding `plaintext-at-encrypted-path` — the protection the policy promised is not in force |
+| plaintext | no | the ordinary shape scan |
+
+This is why enabling `addons/encrypted_local_areas` does not quietly blind the
+gate rather than fix it: see `docs/ENCRYPTED_LOCAL_AREAS.md` when that add-on is
+enabled. A project with no git-crypt declaration and no ciphertext never leaves
+the ordinary scan, so the behaviour is inert until encryption is actually in use.
+
+## Dated classification audit
+
+"We looked at every artifact and each one is where it belongs" is worth little as
+a memory and a great deal as a committed, dated record. When you run a
+classification pass, write it to `audits/local-artifact-classification-<date>.json`
+and commit it, so the next audit is a diff rather than a fresh act of trust.
+
 ## Data handling
 
 - **At rest:** what's stored, where, and for how long (retention).

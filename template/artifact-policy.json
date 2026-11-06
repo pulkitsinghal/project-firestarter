@@ -1,0 +1,39 @@
+{
+  "policy_version": 1,
+  "doc": "docs/COMPLIANCE_POSTURE.md",
+  "description": "The declared disposition of every artifact class this repository tracks. A hygiene gate that only matches suspicious shapes answers 'no bad shapes were found'; this policy answers the stronger question 'every artifact is the class it was meant to be', which is the only claim that survives encryption. scripts/repo-hygiene.sh enforces the encrypted-local class from .gitattributes. This file is a template artifact copied verbatim, with no substitution tokens.",
+  "classes": [
+    {
+      "name": "source",
+      "intent": "Human-authored, inspectable code and documentation tracked in git.",
+      "disposition": "tracked-plaintext",
+      "declared_by": "default: anything not matched by another class",
+      "hygiene": "shape-scanned by scripts/repo-hygiene.sh"
+    },
+    {
+      "name": "generated",
+      "intent": "Build output and caches reproducible from source.",
+      "disposition": "not-tracked",
+      "declared_by": ".gitignore",
+      "hygiene": "forbidden-path rules reject it if staged"
+    },
+    {
+      "name": "encrypted-local",
+      "intent": "Sensitive data kept in-repo but encrypted at rest (addons/encrypted_local_areas).",
+      "disposition": "tracked-ciphertext",
+      "declared_by": ".gitattributes filter=git-crypt",
+      "hygiene": "reported covered-by-encryption; ciphertext at an undeclared path (encrypted-path-not-declared) or plaintext at a declared path (plaintext-at-encrypted-path) is a finding"
+    },
+    {
+      "name": "ignored-local",
+      "intent": "Local-only scratch, session output, and machine config that must never be committed.",
+      "disposition": "not-tracked",
+      "declared_by": ".gitignore",
+      "hygiene": "forbidden-path rules reject it if staged"
+    }
+  ],
+  "audit": {
+    "convention": "Record each classification pass as a dated, committed artifact (audits/local-artifact-classification-YYYY-MM-DD.json) so 'we looked' is checkable instead of remembered and the next audit is a diff.",
+    "see": "docs/COMPLIANCE_POSTURE.md"
+  }
+}
