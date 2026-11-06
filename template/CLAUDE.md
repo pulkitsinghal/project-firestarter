@@ -107,6 +107,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   yields a durable rule, record safe evidence, **what it cost**, and the
   generalized rule in `docs/PRACTICES.md`. At milestones, sweep recent findings,
   postmortems, review notes, and commits for rules stranded where they happened.
+- **Separate policy from empirical claims, and date the claims.** A decision
+  ("no host SDKs", "never push to `master`") needs no evidence; an assertion
+  about the world (what builds, what a toolchain needs, what a tier permits) is
+  trustworthy only with a verified-on date, the exact reproducing command, and
+  any misleading quirk. Otherwise it belongs in `docs/OPEN_QUESTIONS.md` as an
+  open question, not in the brief as an invariant. See *Policy vs. empirical
+  claims* in [AGENTS.md](AGENTS.md).
 - **Persist before declaring work deferred.** Pipelines that filter, skip, park,
   block, or defer must use `scripts/defer-work.sh`: the repository-safe leaf
   record in `docs/DEFERRED_WORK.md` must succeed first; the content-free GitHub

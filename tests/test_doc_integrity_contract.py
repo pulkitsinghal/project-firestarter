@@ -911,6 +911,7 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         "local gate passed; hosted CI unexecuted",
                         "never overrides an executed hosted failure or bypasses "
                         "merge policy",
+                        "an empirical invariant carries a verified-on date",
                     ):
                         self.assertIn(required, normalized_agents, answers.name)
                     for obsolete in (
