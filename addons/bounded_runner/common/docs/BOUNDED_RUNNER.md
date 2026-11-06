@@ -108,6 +108,12 @@ or non-negative integer progress where `chunks_total > 0` and
 `chunks_done >= chunks_total`. A partial, oversized, unreadable, or
 fingerprint-mismatched checkpoint is incomplete and never causes a skip.
 
+A checkpoint is content-trusted the same way a content-addressed cache entry
+is, so the child must write it with a same-directory temporary file renamed
+into place: a half-written checkpoint must never be readable as complete. This
+is the content-addressed atomic-publish precept from the project's
+`docs/ENGINEERING_CONVENTIONS.md`, applied to resume evidence.
+
 ## Outcomes and recovery
 
 State is local under `.bounded-runner/`; cross-run admission locks are fixed at
