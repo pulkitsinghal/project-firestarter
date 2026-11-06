@@ -249,6 +249,13 @@ if grep -Fqx "$record_id" "$seen_ids" 2>/dev/null; then
   grep -Fqx "$start_marker" "$ledger" 2>/dev/null || fail "record-id-conflict"
   local_result=replayed
 else
+  # Build the new ledger in a same-directory temp file, then rename it into
+  # place. A rename is atomic only within one filesystem, so a same-directory
+  # temp guarantees a concurrent reader sees either the old complete ledger or
+  # the new complete one, never a torn half-written file. A truncated file under
+  # a self-asserting name (a content hash, or this canonical ledger) would
+  # otherwise be trusted forever: see the content-addressed-cache precept in
+  # docs/ENGINEERING_CONVENTIONS.md.
   ledger_dir=${ledger%/*}
   temp_file=$(mktemp "$ledger_dir/.deferred-work.XXXXXX" 2>/dev/null) || fail "temporary-file"
   case "$temp_file" in "$ledger_dir"/.deferred-work.*) ;; *) fail "temporary-file" ;; esac

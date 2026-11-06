@@ -845,6 +845,7 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         "Separate **equivalence** from **improvement**",
                         "source-of-truth comparison table",
                         "digest manifest",
+                        "Content-addressed caches need a deterministic producer and an atomic publish",
                     ):
                         self.assertIn(required, normalized_conventions, answers.name)
                     for forbidden in (

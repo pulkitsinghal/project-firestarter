@@ -334,6 +334,33 @@ references that reveal no private repository relationship or internal path; if
 that would erase useful provenance, keep the detailed table in the private
 origin and publish only a generic adoption status.
 
+### Content-addressed caches need a deterministic producer and an atomic publish
+
+A cache or artifact store keyed by a content hash carries two failure modes an
+ordinary store does not, because the name is the assertion and nothing
+downstream re-derives the hash to check it.
+
+1. **Publish each entry atomically, or a torn file is trusted forever.** Writing
+   straight to the final hash-named path lets a crash or a second concurrent
+   writer leave a truncated file under a name that will never be validated again,
+   so the corruption is permanent, silent, and produces wrong output instead of a
+   crash. Write to a unique temporary name **in the same directory** and rename it
+   into place (`os.replace`, or the shell's `mv` within one filesystem): a rename
+   is atomic within a filesystem, so a reader sees either no file or a complete
+   one. `scripts/defer-work.sh` already relies on exactly this same-directory
+   rename.
+2. **Prove the producer is deterministic before you content-address its output.**
+   A non-deterministic step under a content-addressed key does not fail; it simply
+   never hits, and the only symptom is a cache that "works" and is always cold,
+   which reads as a performance disappointment rather than a bug. Pin or record
+   every volatile input (timings, ordering, synthesis seeds) so the same logical
+   input yields the same key, and treat a stray miss as a correctness alarm, not a
+   tuning problem.
+
+This is the write-path companion to the digest-locked vendoring above: that
+verifies a manifest; this governs how a hash-named entry is produced and
+published.
+
 <!-- platform-locked-gate-precept:start -->
 ## 9. Split platform-locked gates without hiding them
 
