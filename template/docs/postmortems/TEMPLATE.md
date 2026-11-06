@@ -22,7 +22,10 @@ Who/what was affected and for how long. Data loss? User-visible?
 - `HH:MM` — resolved
 
 ## Root cause
-The actual cause, not the symptom. Why did the safeguards not catch it?
+The actual cause, not the symptom. Why did the safeguards not catch it? Did this
+incident come from two controls interacting — each individually correct, but one
+defeating the other? If so, record it in the dated register in
+`docs/SAFETY_MODEL.md`.
 
 ## What went well / what didn't
 - Well:

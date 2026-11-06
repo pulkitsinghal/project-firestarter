@@ -98,6 +98,22 @@ Policy needs no date. An empirical claim without one is a liability, so when you
 cannot verify a claim you are tempted to write as an invariant, send it to
 `docs/OPEN_QUESTIONS.md` rather than letting it harden into a false constraint.
 
+## Controls compose — keep a safety model (a precept)
+
+Every per-control doc here answers "does a control exist for this risk". None
+asks whether the controls that exist **cohere** when several are enabled at once.
+A control that is individually correct can silently defeat another that is also
+individually correct, and that failure is invisible to any doc that looks at one
+control at a time.
+
+So before you add or change a control, read `docs/SAFETY_MODEL.md` and keep it
+current: name each layer's **resting state** (default on or off) and the
+direction it fails **safe** — "fail closed" is not universal, since on a metered
+or life-safety path the safe failure is often *pass through untouched*, not
+"deny" — state how the layers interact, and record a discovered control
+interaction in `docs/SAFETY_MODEL.md`, dated and verified, rather than in a
+commit message.
+
 ## Never lose deferred work (a precept)
 
 Any pipeline that filters, skips, parks, blocks, or defers an item must record
@@ -569,3 +585,5 @@ Adding a toolchain means: add a profiled Compose service, pin the image, add
 - Engineering conventions (quality gate, platform-locked CI splits, stacked
   PRs, forking work, decision briefs): `docs/ENGINEERING_CONVENTIONS.md`
 - Project-earned rules and their evidence: `docs/PRACTICES.md`
+- Whole-system safety model (per-layer resting state and failure direction, how
+  controls interact, dated interaction gaps): `docs/SAFETY_MODEL.md`

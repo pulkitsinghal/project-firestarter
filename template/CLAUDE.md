@@ -164,5 +164,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
 | `docs/FEATURE_HANDOFF.md` | Evidence bundle for user/dev feature review |
 | `docs/ENGINEERING_CONVENTIONS.md` | Quality gate, explicit platform-locked CI splits, stacked-PR recovery, decision briefs, and reversible canonical adoption with golden/release parity |
 | `docs/PRACTICES.md` | Project-earned rules, each grounded in safe evidence and what it cost |
+| `docs/SAFETY_MODEL.md` | Whole-system safety model: per-layer resting state and failure direction, how controls interact, and a dated, verified register of where "safe together" fails |
 | `Makefile` | All common dev commands (`make help`) |
 | `backend/migrations/` | Forward-only SQL migrations |
