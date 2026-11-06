@@ -40,6 +40,129 @@ def write_executable(path: Path, text: str) -> Path:
 
 
 class DesktopHostAdapterTest(unittest.TestCase):
+    def test_plugin_version_normalizes_documented_cachebuster(self):
+        version = ADAPTER.manifest()["version"]
+        self.assertEqual(version, ADAPTER.plugin_base_version(version))
+        self.assertEqual(
+            version,
+            ADAPTER.plugin_base_version(f"{version}+codex.20260807230443"),
+        )
+        for invalid in (
+            f"{version}+other.20260807230443",
+            f"{version}+codex.2026080723044",
+            f"{version}+codex.202608072304430",
+            "00.4.12",
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(
+                    ADAPTER.AdapterError, "plugin-version-invalid"
+                ):
+                    ADAPTER.plugin_base_version(invalid)
+
+    def test_plugin_version_rejects_non_ascii_digits(self):
+        # `\d` also matches non-ASCII decimal digits (e.g. Arabic-Indic,
+        # full-width). The version string feeds cache/source-identity paths, so
+        # only ASCII digits may be accepted in the base or the cache-buster.
+        base = ADAPTER.manifest()["version"]
+        for rejected in (
+            f"{base}+codex." + "١" * 14,  # Arabic-Indic suffix digits
+            "０.４.１２",  # full-width base digits
+        ):
+            with self.subTest(rejected=rejected):
+                self.assertIsNone(ADAPTER.PLUGIN_VERSION.fullmatch(rejected))
+                with self.assertRaisesRegex(
+                    ADAPTER.AdapterError, "plugin-version-invalid"
+                ):
+                    ADAPTER.plugin_base_version(rejected)
+        # The ASCII cache-buster remains accepted.
+        self.assertEqual(
+            base, ADAPTER.plugin_base_version(f"{base}+codex.20260807230443")
+        )
+
+    def test_parse_utc_rejects_non_ascii_digits(self):
+        # A non-ASCII-digit timestamp must fail closed at the UTC gate with the
+        # bounded AdapterError, not slip through to strptime and raise a raw
+        # ValueError (`\d` is Unicode-aware; the gate must be ASCII-only).
+        arabic = "2026-01-01T00:00:00Z".translate(
+            str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
+        )
+        self.assertIsNone(ADAPTER.UTC.fullmatch(arabic))
+        with self.assertRaisesRegex(ADAPTER.AdapterError, "timestamp-invalid"):
+            ADAPTER.parse_utc(arabic)
+        # An ASCII timestamp still parses.
+        self.assertEqual(
+            dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+            ADAPTER.parse_utc("2026-01-01T00:00:00Z"),
+        )
+
+    def test_manifest_accepts_documented_cachebuster(self):
+        version = ADAPTER.manifest()["version"]
+        cachebusted = f"{version}+codex.20260807230443"
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-version-manifest-") as raw:
+            manifest = Path(raw) / "plugin.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "name": "pm-proxy-orchestrator",
+                        "version": cachebusted,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.chmod(manifest, 0o600)
+            with mock.patch.object(ADAPTER, "MANIFEST_PATH", manifest):
+                self.assertEqual(
+                    cachebusted,
+                    ADAPTER.manifest()["version"],
+                )
+
+    def test_verify_accepts_cachebuster_manifest_with_base_mcp_version(self):
+        version = ADAPTER.manifest()["version"]
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-cachebuster-verify-") as raw:
+            root = private(Path(raw))
+            state = private(root / "state")
+            instance = root / "instance"
+            codex = write_executable(root / "codex", "#!/bin/sh\nexit 0\n")
+            cachebusted = f"{version}+codex.20260807230443"
+            args = argparse.Namespace(
+                instance_dir=str(instance),
+                state_dir=str(state),
+                codex_cli=str(codex),
+                timeout=30,
+            )
+            pin = {
+                "dispatcher_adoption_sha256": None,
+                "prompt_free_control_grant_verified": False,
+                "runtime_sha256": "a" * 64,
+            }
+            with (
+                mock.patch.object(
+                    ADAPTER,
+                    "manifest",
+                    return_value={
+                        "name": "pm-proxy-orchestrator",
+                        "version": cachebusted,
+                    },
+                ),
+                mock.patch.object(ADAPTER, "installed_plugin") as installed,
+                mock.patch.object(ADAPTER, "probe_hook"),
+                mock.patch.object(
+                    ADAPTER, "mcp_doctor", return_value=(version, pin)
+                ),
+                mock.patch.object(
+                    ADAPTER,
+                    "live_hook_canary",
+                    return_value=ADAPTER.DENIAL_MARKER,
+                ),
+            ):
+                result = ADAPTER.verify(args)
+            installed.assert_called_once_with(codex, cachebusted)
+            self.assertTrue(result["ok"])
+            self.assertEqual(version, result["result"]["plugin_version"])
+            self.assertFalse(
+                result["result"]["prompt_free_control_grant_verified"]
+            )
+
     def test_proxy_forwards_small_frame_while_input_pipe_stays_open(self):
         source_read, source_write = os.pipe()
         destination_read, destination_write = os.pipe()
@@ -659,8 +782,22 @@ for line in sys.stdin:
             self.assertTrue(pin["prompt_free_control_grant_verified"])
             self.assertRegex(pin["dispatcher_adoption_sha256"], r"^[0-9a-f]{64}$")
 
+            with mock.patch.object(
+                ADAPTER.subprocess,
+                "run",
+                return_value=completed(
+                    adoption_version=f"{version}+codex.20260807230443"
+                ),
+            ):
+                observed_version, cachebusted_pin = ADAPTER.mcp_doctor(state)
+            self.assertEqual(version, observed_version)
+            self.assertTrue(
+                cachebusted_pin["prompt_free_control_grant_verified"]
+            )
+
             for response in (
                 completed(adoption_version="0.3.4"),
+                completed(adoption_version=f"{version}+unexpected"),
                 completed(adoption_version=version, proof_value=False),
             ):
                 with mock.patch.object(

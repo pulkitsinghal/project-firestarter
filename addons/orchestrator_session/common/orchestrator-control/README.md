@@ -20,6 +20,11 @@ service and not a replacement policy source.
 - The caller selects a local state directory. The CLI enforces directory mode
   `0700`, database mode `0600`, current-user ownership, and no symlink path
   components.
+- Control bundle `1.4.11` keeps state schema `1.4` (no migration) and tags the
+  `STATE_FAIL_CLOSED` error `details` with one allowlisted `diagnostic_category`
+  (`database` or `filesystem`) so a corrupt or locked SQLite authority is
+  distinguishable from a filesystem fault. Fail-closed code, message, and exit
+  status are unchanged, and no raw exception, path, SQL, or state is surfaced.
 - Control bundle `1.4.10` retains state schema `1.4` and migrates an existing
   schema `1.0` through `1.3` database in place. This patch adds truthful local
   closure, receipt-fenced schema holds, and exact setup-failure repair. It also

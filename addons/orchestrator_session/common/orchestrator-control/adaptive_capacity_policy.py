@@ -30,8 +30,10 @@ MAX_INPUT_BYTES = 64 * 1024
 SOURCE_KINDS = {"synthetic-fixture", "untrusted-local-observation"}
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 EVIDENCE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,127}$")
+# ASCII-only digits: `\d` also matches non-ASCII decimal digits (e.g.
+# Arabic-Indic), which must never pass this timestamp gate.
 RFC3339_UTC = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?Z$"
 )
 
 

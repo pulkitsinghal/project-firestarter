@@ -50,8 +50,19 @@ SESSION_TTL_SECONDS = 12 * 60 * 60
 MAX_JSON_BYTES = 2_000_000
 MAX_ATTESTATION_BYTES = 4096
 OPAQUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+# ASCII-only digits: this version string feeds cache/source-identity paths, so
+# `\d` (which also matches non-ASCII decimal digits such as Arabic-Indic) must
+# not be used here. Only the base plus an optional `+codex.<14 ASCII digits>`
+# cache-buster is a valid plugin version.
+PLUGIN_VERSION = re.compile(
+    r"^(?P<base>(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))"
+    r"(?:\+codex\.[0-9]{14})?$"
+)
 NONCE = re.compile(r"^[0-9a-f]{32}$")
-UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+# ASCII-only digits: `\d` also matches non-ASCII decimal digits, which pass this
+# gate and then make `parse_utc`'s strptime raise an unbounded ValueError rather
+# than the bounded AdapterError("timestamp-invalid").
+UTC = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 PLUGIN_ID = "pm-proxy-orchestrator@project-firestarter"
 MCP_SERVER_ID = "pm-proxy-orchestrator"
@@ -312,14 +323,28 @@ def session_lock(instance_dir: Path) -> Iterator[None]:
         os.close(descriptor)
 
 
+def plugin_base_version(value: Any) -> str:
+    if not isinstance(value, str):
+        raise AdapterError("plugin-version-invalid")
+    matched = PLUGIN_VERSION.fullmatch(value)
+    if matched is None:
+        raise AdapterError("plugin-version-invalid")
+    return matched.group("base")
+
+
+def plugin_version_matches(value: Any, expected_base: str) -> bool:
+    try:
+        return plugin_base_version(value) == expected_base
+    except AdapterError:
+        return False
+
+
 def manifest() -> dict[str, Any]:
     secure_file(MANIFEST_PATH)
     value = strict_json(MANIFEST_PATH.read_text(encoding="utf-8"))
     if not isinstance(value, dict) or value.get("name") != "pm-proxy-orchestrator":
         raise AdapterError("plugin-manifest-invalid")
-    version = value.get("version")
-    if not isinstance(version, str) or OPAQUE.fullmatch(version) is None:
-        raise AdapterError("plugin-version-invalid")
+    plugin_base_version(value.get("version"))
     return value
 
 
@@ -653,7 +678,7 @@ def mcp_doctor(state_dir: Path) -> tuple[str, dict[str, Any]]:
         isinstance(adoption, dict)
         and isinstance(proofs, dict)
         and adoption.get("adoption_mode") == "COVERED_PATH_GUARDRAIL"
-        and adoption.get("plugin_version") == version
+        and plugin_version_matches(adoption.get("plugin_version"), version)
         and adoption.get("covered_path_dispatcher_enforcement") is True
         and adoption.get("universal_dispatcher_enforcement") is False
         and all(proofs.get(key) is True for key in ADOPTION_REQUIRED_TRUE)
@@ -764,7 +789,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
     installed_plugin(codex_cli, current_manifest["version"])
     probe_hook()
     server_version, pin = mcp_doctor(state_dir)
-    if server_version != current_manifest["version"]:
+    if server_version != plugin_base_version(current_manifest["version"]):
         raise AdapterError("plugin-version-mismatch")
     denial = live_hook_canary(codex_cli, instance_dir, args.timeout)
     now = utc_now()
@@ -975,7 +1000,10 @@ def issue_bootstrap_recovery_grant(args: argparse.Namespace) -> dict[str, Any]:
     current_manifest = manifest()
     installed_plugin(codex_cli, current_manifest["version"])
     version, pin = mcp_doctor(state_dir)
-    if version != current_manifest["version"] or pin.get("project_root") != str(project_root):
+    if (
+        version != plugin_base_version(current_manifest["version"])
+        or pin.get("project_root") != str(project_root)
+    ):
         raise AdapterError("bootstrap-source-path-invalid")
     source_plugin = source_plugin_root(project_root)
     source_plugin_digest = plugin_tree_digest(source_plugin)
@@ -1203,7 +1231,7 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
     installed_plugin(codex_cli, current_manifest["version"])
     probe_hook()
     server_version, pin = mcp_doctor(state_dir)
-    if server_version != current_manifest["version"]:
+    if server_version != plugin_base_version(current_manifest["version"]):
         raise AdapterError("plugin-version-mismatch")
     proof = validate_proof(instance_dir, codex_cli, state_dir, server_version, pin)
     adoption_sha256 = pin.get("dispatcher_adoption_sha256")
@@ -1583,7 +1611,8 @@ def validate_session_from_environment() -> tuple[Path, dict[str, Any]]:
         or session.get("codex_cli") != str(codex_path)
         or session.get("codex_cli_sha256") != digest(codex_path)
         or session.get("state_dir") != str(state_dir)
-        or session.get("plugin_version") != manifest().get("version")
+        or session.get("plugin_version")
+        != plugin_base_version(manifest().get("version"))
         or session.get("electron_data_dir") != str(electron_data_dir)
         or session.get("desktop_isolation_argument")
         != f"{USER_DATA_SWITCH}{electron_data_dir}"
