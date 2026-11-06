@@ -655,7 +655,7 @@ class WorkflowSupplyChainContract(unittest.TestCase):
                 with self.subTest(shape=shape):
                     workflow.write_text(
                         re.sub(
-                            r"- uses: actions/checkout@[0-9a-f]{40} # v4",
+                            r"- uses: actions/checkout@[0-9a-f]{40} # v[0-9][0-9.]*",
                             lambda _match: replacement,
                             original,
                             count=1,

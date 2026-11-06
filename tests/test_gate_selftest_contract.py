@@ -325,7 +325,7 @@ def assert_workflow_guard_first(workflow: str) -> None:
         raise AssertionError("Tests job must contain checkout and guard steps")
     if not all(isinstance(step, dict) for step in steps):
         raise AssertionError("every Tests step must be a mapping")
-    checkout_ref = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+    checkout_ref = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
     allowed_checkout_steps = (
         {"uses": checkout_ref},
         {"name": "Checkout", "uses": checkout_ref},
