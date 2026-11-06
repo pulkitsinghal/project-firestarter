@@ -15,6 +15,7 @@ SCRIPT = ROOT / "template" / "scripts" / "repo-hygiene.sh"
 DOC_SCRIPT = ROOT / "template" / "scripts" / "check-docs.sh"
 HOOK = ROOT / "template" / ".githooks" / "pre-commit"
 BASH = os.environ.get("REPO_HYGIENE_BASH", "bash")
+GITCRYPT_MAGIC = b"\x00GITCRYPT\x00"  # git-crypt's encrypted-blob header
 
 
 class RepoHygieneContract(unittest.TestCase):
@@ -812,6 +813,98 @@ exec "$REAL_GIT" "$@"
         missing_repo = self.run_hygiene(cwd=outside)
         self.assertEqual(missing_repo.returncode, 2, self.combined(missing_repo))
         self.assertIn("code=not-a-git-repository", missing_repo.stderr)
+
+    def enable_git_crypt_passthrough(self) -> None:
+        # Make the git-crypt clean/smudge filters pass-through so a test can
+        # stage either real git-crypt ciphertext (the magic header) or a
+        # deliberate plaintext leak at a declared path, without the git-crypt
+        # binary installed. check-attr still reports filter=git-crypt.
+        self.git("config", "filter.git-crypt.clean", "cat")
+        self.git("config", "filter.git-crypt.smudge", "cat")
+        self.git("config", "filter.git-crypt.required", "false")
+
+    def test_declared_git_crypt_ciphertext_is_covered_not_scanned(self) -> None:
+        self.enable_git_crypt_passthrough()
+        # Ciphertext that happens to contain a credential shape after the magic:
+        # it must be classified by its declaration, never read as content.
+        self.write(
+            "vault/secret.env",
+            GITCRYPT_MAGIC + b'password = "A1b2C3d4E5f6G7h8J9k0L1m2"\n',
+        )
+        self.write(".gitattributes", "vault/** filter=git-crypt diff=git-crypt\n")
+        self.git("add", ".gitattributes", "vault/secret.env")
+        result = self.run_hygiene("--staged")
+        output = self.combined(result)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn(
+            "covered scope=index class=covered-by-encryption paths=1", output
+        )
+        self.assertNotIn("credential-assignment", output)
+        self.assertIn("PASS scope=index", output)
+
+    def test_ciphertext_at_undeclared_path_fails_without_disclosure(self) -> None:
+        self.enable_git_crypt_passthrough()
+        self.write(
+            "UNDECLAREDSECRETNAME.bin", GITCRYPT_MAGIC + b"opaque body bytes\n"
+        )
+        self.git("add", "UNDECLAREDSECRETNAME.bin")
+        result = self.run_hygiene("--staged")
+        output = self.combined(result)
+        self.assertEqual(result.returncode, 1, output)
+        self.assertIn("rule=encrypted-path-not-declared", output)
+        self.assertIn("FAIL scope=index", output)
+        self.assertNotIn("UNDECLAREDSECRETNAME", output)
+
+    def test_plaintext_at_declared_encrypted_path_fails_without_disclosure(
+        self,
+    ) -> None:
+        self.enable_git_crypt_passthrough()
+        self.write("vault/leaked.env", "DECLAREDBUTUNENCRYPTED plaintext line\n")
+        self.write(".gitattributes", "vault/** filter=git-crypt diff=git-crypt\n")
+        self.git("add", ".gitattributes", "vault/leaked.env")
+        result = self.run_hygiene("--staged")
+        output = self.combined(result)
+        self.assertEqual(result.returncode, 1, output)
+        self.assertIn("rule=plaintext-at-encrypted-path", output)
+        self.assertNotIn("vault/leaked.env", output)
+        self.assertNotIn("DECLAREDBUTUNENCRYPTED", output)
+
+    def test_encrypted_area_matrix_covers_ciphertext_and_scans_clear_carveouts(
+        self,
+    ) -> None:
+        # hygiene x encrypted_local_areas: the area's ciphertext is covered,
+        # while the plaintext carve-out pointers (!filter) and files outside the
+        # area are scanned normally and stay clean.
+        self.enable_git_crypt_passthrough()
+        self.write(
+            "private/data.bin", GITCRYPT_MAGIC + b"\x12\x34 opaque \x7f\x00\n"
+        )
+        self.write(
+            "private/.gitattributes",
+            "* filter=git-crypt diff=git-crypt\n"
+            "README.md !filter !diff\n"
+            ".gitattributes !filter !diff\n",
+        )
+        self.write("private/README.md", "This area is encrypted at rest.\n")
+        self.write("src/app.js", 'export const ok = "value";\n')
+        self.git("add", "-A")
+        result = self.run_hygiene("--staged")
+        output = self.combined(result)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("class=covered-by-encryption paths=1", output)
+        self.assertIn("PASS scope=index", output)
+
+    def test_repository_without_git_crypt_shows_no_encryption_dispositions(
+        self,
+    ) -> None:
+        self.seed_safe_index()
+        result = self.run_hygiene("--staged")
+        output = self.combined(result)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("covered-by-encryption", output)
+        self.assertNotIn("encrypted-path-not-declared", output)
+        self.assertNotIn("plaintext-at-encrypted-path", output)
+        self.assertIn("PASS scope=index", output)
 
     def test_source_is_dependency_light_content_suppressed_and_parses(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")

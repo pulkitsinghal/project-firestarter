@@ -142,6 +142,22 @@ machine where git-crypt is missing. It runs on the **host** — nothing to run i
 Docker. Bypass only when you know the file is genuinely non-sensitive:
 `git commit --no-verify`.
 
+## The offline hygiene tripwire is encryption-aware
+
+`scripts/repo-hygiene.sh` (enabled by default) scans an immutable snapshot of
+the index, reading committed **blobs**. Once this add-on is on, a path under an
+encrypted area is stored as ciphertext, so the tripwire would either flag that
+ciphertext as suspicious bytes or skip it as an unexplained blind spot — and
+neither is right by default. It does neither: it reads the same `.gitattributes`
+declaration this add-on relies on and treats a `filter=git-crypt` path as a
+declared class, reporting it as **covered-by-encryption** rather than clean or as
+a finding. The same pass flags the two ways the declaration and the bytes can
+disagree — ciphertext at a path nothing declares encrypted
+(`encrypted-path-not-declared`), and plaintext at a path the declaration says
+must be encrypted (`plaintext-at-encrypted-path`, the same silent leak this guard
+blocks at commit time). The artifact-class policy behind this lives in
+`artifact-policy.json` and `docs/COMPLIANCE_POSTURE.md`.
+
 ## Adding more encrypted areas
 
 `{{ encrypted_paths }}/` is the default area. To add another, drop a `.gitattributes`

@@ -40,7 +40,7 @@ if [ "$#" -eq 1 ]; then
   esac
 fi
 
-for required_tool in git grep awk mktemp mkdir cp cmp rm; do
+for required_tool in git grep awk mktemp mkdir cp cmp rm od head tr; do
   command -v "$required_tool" >/dev/null 2>&1 || infra_error "missing-tool"
 done
 
@@ -56,7 +56,7 @@ case "$temp_root" in
   "$temp_base"/repo-hygiene.*) ;;
   *) infra_error "private-temp-path" ;;
 esac
-mkdir "$temp_root/counts" "$temp_root/seen" 2>/dev/null \
+mkdir "$temp_root/counts" "$temp_root/seen" "$temp_root/covered" 2>/dev/null \
   || infra_error "private-temp-create"
 
 cleanup() {
@@ -89,6 +89,59 @@ increment_rule() {
   esac
   printf '%s\n' $((current_count + increment)) > "$count_path" \
     || infra_error "count-write"
+}
+
+# ── git-crypt / encryption awareness ────────────────────────────────────────
+# repo-hygiene reads committed BLOBS, not working-tree files. When a project
+# enables git-crypt (see addons/encrypted_local_areas), a tracked path declared
+# with the git-crypt filter in .gitattributes is stored as ciphertext whose
+# first ten bytes are the magic string "\0GITCRYPT\0". Scanning that ciphertext
+# as if it were source produces false findings; silently skipping it leaves an
+# undeclared blind spot. Neither is right by default, so a blob is classified
+# against the declared policy: .gitattributes is the declaration, and a filtered
+# path is a named class (encrypted-local) reported as covered-by-encryption —
+# not clean, and not a finding. Ciphertext WITHOUT that declaration, or
+# plaintext WHERE the declaration promised encryption, is a finding. The path is
+# consumed internally and never emitted, so content suppression holds on every
+# branch. See docs/COMPLIANCE_POSTURE.md and artifact-policy.json.
+gitcrypt_magic_hex=00474954435259505400
+
+increment_covered() {
+  covered_name=$1
+  covered_increment=${2:-1}
+  covered_path="$temp_root/covered/$covered_name"
+  current_covered=0
+  if [ -f "$covered_path" ]; then
+    IFS= read -r current_covered < "$covered_path" || infra_error "covered-read"
+  fi
+  case "$current_covered:$covered_increment" in
+    *[!0-9:]*) infra_error "covered-state" ;;
+  esac
+  printf '%s\n' $((current_covered + covered_increment)) > "$covered_path" \
+    || infra_error "covered-write"
+}
+
+path_declares_git_crypt() {
+  attribute_path=$1
+  [ -n "$attribute_path" ] || return 1
+  attribute_line=$(git check-attr --cached filter -- "$attribute_path" 2>/dev/null) \
+    || infra_error "git-check-attr"
+  # Output is "<path>: filter: <value>"; <value> is a fixed word with no ": ",
+  # so stripping the longest "*: " prefix yields it whatever the path contains.
+  attribute_value=${attribute_line##*: }
+  [ "$attribute_value" = git-crypt ]
+}
+
+blob_is_git_crypt_ciphertext() {
+  ciphertext_oid=$1
+  # Bounded ten-byte read: a large encrypted artifact is classified without
+  # being read in full (so it never trips the oversized-blob rule). od renders
+  # the bytes as hex because the magic begins with NUL, which command
+  # substitution would otherwise strip. A SIGPIPE on the capped read is benign
+  # here: the value is what is tested, not the pipeline's exit status.
+  ciphertext_header=$(git cat-file blob "$ciphertext_oid" 2>/dev/null \
+    | head -c 10 | od -An -v -tx1 -N10 2>/dev/null | tr -d '[:space:]')
+  [ "$ciphertext_header" = "$gitcrypt_magic_hex" ]
 }
 
 validate_regex() {
@@ -195,15 +248,38 @@ count_non_synthetic_scp_transports() {
 scan_blob() {
   blob_oid=$1
   rule_prefix=$2
+  blob_path=${3:-}
   case "$blob_oid" in
     ''|*[!0-9a-fA-F]*) infra_error "malformed-object-id" ;;
   esac
-  [ ! -e "$temp_root/seen/$blob_oid" ] || return 0
-  : > "$temp_root/seen/$blob_oid" || infra_error "seen-state-write"
 
   object_type=$(git cat-file -t "$blob_oid" 2>/dev/null) \
     || infra_error "missing-object"
   [ "$object_type" = blob ] || infra_error "non-blob-object"
+
+  # Encryption disposition depends on the PATH (its .gitattributes declaration)
+  # and the CONTENT (whether the blob is git-crypt ciphertext), so it is decided
+  # per path, before the content-based dedup below — two paths can share one
+  # blob oid yet differ in whether they are declared encrypted. A pathless blob
+  # (a ref pointing straight at a blob object) has no declaration to resolve and
+  # falls through to the ordinary scan.
+  if [ -n "$blob_path" ]; then
+    if blob_is_git_crypt_ciphertext "$blob_oid"; then
+      if path_declares_git_crypt "$blob_path"; then
+        increment_covered "${rule_prefix}covered-by-encryption"
+      else
+        increment_rule "${rule_prefix}encrypted-path-not-declared"
+      fi
+      return 0
+    elif path_declares_git_crypt "$blob_path"; then
+      increment_rule "${rule_prefix}plaintext-at-encrypted-path"
+      # Fall through: the exposed plaintext is also shape-scanned below.
+    fi
+  fi
+
+  [ ! -e "$temp_root/seen/$blob_oid" ] || return 0
+  : > "$temp_root/seen/$blob_oid" || infra_error "seen-state-write"
+
   blob_size=$(git cat-file -s "$blob_oid" 2>/dev/null) \
     || infra_error "missing-object"
   case "$blob_size" in
@@ -326,7 +402,7 @@ scan_index() {
       increment_rule "${rule_prefix}forbidden-path"
     fi
     case "$index_mode" in
-      100644|100755|120000) scan_blob "$index_oid" "$rule_prefix" ;;
+      100644|100755|120000) scan_blob "$index_oid" "$rule_prefix" "$index_path" ;;
       160000) ;;
       *) infra_error "unsupported-index-mode" ;;
     esac
@@ -384,7 +460,7 @@ scan_history() {
       commit) printf '%s\n' "$root_oid" >> "$revision_starts" \
         || infra_error "git-ref-parse" ;;
       tree) scan_tree "$root_oid" ;;
-      blob) scan_blob "$root_oid" "historical-" ;;
+      blob) scan_blob "$root_oid" "historical-" "" ;;
       *) infra_error "unsupported-ref-object" ;;
     esac
   done < "$refs_before"
@@ -430,7 +506,7 @@ scan_tree() {
       increment_rule "historical-forbidden-path"
     fi
     case "$tree_mode:$tree_type" in
-      100644:blob|100755:blob|120000:blob) scan_blob "$tree_oid" "historical-" ;;
+      100644:blob|100755:blob|120000:blob) scan_blob "$tree_oid" "historical-" "$tree_path" ;;
       160000:commit) ;;
       *) infra_error "unsupported-tree-entry" ;;
     esac
@@ -454,6 +530,13 @@ else
   verify_refs_unchanged
 fi
 verify_index_unchanged
+
+for covered_path in "$temp_root"/covered/*; do
+  [ -f "$covered_path" ] || continue
+  covered_class=${covered_path##*/}
+  IFS= read -r covered_count < "$covered_path" || infra_error "covered-read"
+  echo "repo-hygiene: covered scope=$scope class=$covered_class paths=$covered_count" >&2
+done
 
 finding_rules=0
 for count_path in "$temp_root"/counts/*; do
