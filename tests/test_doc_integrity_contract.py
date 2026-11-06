@@ -846,6 +846,7 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         "source-of-truth comparison table",
                         "digest manifest",
                         "Content-addressed caches need a deterministic producer and an atomic publish",
+                        "A test suite the gate does not name cannot exist",
                     ):
                         self.assertIn(required, normalized_conventions, answers.name)
                     for forbidden in (

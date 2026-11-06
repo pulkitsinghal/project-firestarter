@@ -8,7 +8,7 @@ RUN_FLAGS :=
 RUN     := $(COMPOSE) --profile tools run --rm $(RUN_FLAGS) node-tools
 
 .DEFAULT_GOAL := help
-.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e e2e-prepare browser-artifact-prepare smoke docs-check repo-hygiene mutation-check gate-selftest gate-selftest-run verify-env verify-live release-parity hook-install
+.PHONY: help install build typecheck test-unit test lint precommit clean up down migrate storyboard e2e e2e-prepare browser-artifact-prepare smoke docs-check repo-hygiene check-gate-coverage mutation-check gate-selftest gate-selftest-run verify-env verify-live release-parity hook-install
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -30,11 +30,11 @@ clean: ## Remove extension/dist/
 	$(RUN) npm run clean
 
 # ── Meta-layer contract targets (this stack has no server/DB) ─────────────────
-test: gate-selftest repo-hygiene test-unit ## Run the test suite (CI "Tests" job)
+test: gate-selftest repo-hygiene check-gate-coverage test-unit ## Run the test suite (CI "Tests" job)
 
 lint: typecheck ## Type-check (CI "Lint & Typecheck" job)
 
-precommit: gate-selftest repo-hygiene smoke typecheck test-unit build ## Mirror the CI gates locally
+precommit: gate-selftest repo-hygiene check-gate-coverage smoke typecheck test-unit build ## Mirror the CI gates locally
 	@echo "✓ precommit gates passed"
 
 smoke: docs-check ## Fast shell/git-hook/doc preflight (no SDK; runs on host)
@@ -45,6 +45,16 @@ docs-check: ## Check required docs, local links, and Mermaid structure (no rende
 
 repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
 	bash scripts/repo-hygiene.sh --staged
+
+# ── Gate coverage ────────────────────────────────────────────────────────────
+# A test-root directory that no runner names is an invisible suite:
+# green but never executed. check-gate-coverage.sh discovers every test
+# root and fails the Tests job on any that TEST_SUITES does not list.
+# See docs/ENGINEERING_CONVENTIONS.md.
+TEST_SUITES := scripts/tests
+.PHONY: check-gate-coverage
+check-gate-coverage: ## Fail if a test-root directory exists that no suite runs
+	bash scripts/check-gate-coverage.sh $(TEST_SUITES)
 
 mutation-check: ## Prove configured focused tests fail under one exact source mutation
 	@bash scripts/mutation-check.sh

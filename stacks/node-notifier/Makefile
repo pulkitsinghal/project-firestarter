@@ -42,7 +42,7 @@ test-integration: ## Run Redis-backed cross-instance and recovery tests
 	$(TEST_RUN) npm run test:integration
 
 .PHONY: test test-run
-test: gate-selftest repo-hygiene test-run ## Run unit and Redis integration suites (CI "Tests")
+test: gate-selftest repo-hygiene check-gate-coverage test-run ## Run unit and Redis integration suites (CI "Tests")
 
 test-run:
 	$(TEST_RUN) npm run test:all
@@ -65,6 +65,16 @@ docs-check: ## Check required docs, local links, and Mermaid structure (no rende
 .PHONY: repo-hygiene
 repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
 	bash scripts/repo-hygiene.sh --staged
+
+# ── Gate coverage ────────────────────────────────────────────────────────────
+# A test-root directory that no runner names is an invisible suite:
+# green but never executed. check-gate-coverage.sh discovers every test
+# root and fails the Tests job on any that TEST_SUITES does not list.
+# See docs/ENGINEERING_CONVENTIONS.md.
+TEST_SUITES := scripts/tests test
+.PHONY: check-gate-coverage
+check-gate-coverage: ## Fail if a test-root directory exists that no suite runs
+	bash scripts/check-gate-coverage.sh $(TEST_SUITES)
 
 .PHONY: mutation-check
 mutation-check: ## Prove configured focused tests fail under one exact source mutation

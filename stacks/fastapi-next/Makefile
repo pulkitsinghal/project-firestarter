@@ -75,7 +75,7 @@ frontend-lockcheck: ## Guard: package-lock.json must satisfy `npm ci` on npm 11 
 
 # ── Aggregate gates ──────────────────────────────────────────────────────────
 .PHONY: test
-test: gate-selftest repo-hygiene backend-test ## Run the test suite (CI "Tests" job)
+test: gate-selftest repo-hygiene check-gate-coverage backend-test ## Run the test suite (CI "Tests" job)
 
 .PHONY: lint
 lint: backend-lint frontend-typecheck ## All lint/type checks (CI "Lint & Typecheck" job)
@@ -91,6 +91,16 @@ docs-check: ## Check required docs, local links, and Mermaid structure (no rende
 repo-hygiene: ## Scan the immutable Git index for local output, credentials, and PII shapes
 	bash scripts/repo-hygiene.sh --staged
 
+# ── Gate coverage ────────────────────────────────────────────────────────────
+# A test-root directory that no runner names is an invisible suite:
+# green but never executed. check-gate-coverage.sh discovers every test
+# root and fails the Tests job on any that TEST_SUITES does not list.
+# See docs/ENGINEERING_CONVENTIONS.md.
+TEST_SUITES := scripts/tests backend/tests
+.PHONY: check-gate-coverage
+check-gate-coverage: ## Fail if a test-root directory exists that no suite runs
+	bash scripts/check-gate-coverage.sh $(TEST_SUITES)
+
 .PHONY: mutation-check
 mutation-check: ## Prove configured focused tests fail under one exact source mutation
 	@bash scripts/mutation-check.sh
@@ -105,7 +115,7 @@ gate-selftest-run:
 	  --case frontend-tools frontend /app $(NODE)
 
 .PHONY: precommit
-precommit: gate-selftest repo-hygiene smoke backend-lint backend-test frontend-typecheck frontend-lockcheck ## Mirror CI gates locally
+precommit: gate-selftest repo-hygiene check-gate-coverage smoke backend-lint backend-test frontend-typecheck frontend-lockcheck ## Mirror CI gates locally
 	@echo "✓ precommit gates passed"
 
 # ── Storyboard & hooks ───────────────────────────────────────────────────────
