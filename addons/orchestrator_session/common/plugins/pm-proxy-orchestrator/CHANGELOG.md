@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+- Accept the documented `+codex.<timestamp>` installation cachebuster in the
+  Desktop host adapter while continuing to bind source/cache parity to the full
+  manifest version and MCP/runtime policy to the base semantic plugin version.
+- Restrict the `+codex.<timestamp>` cachebuster, and the version base, to ASCII
+  digits in both the adapter `PLUGIN_VERSION` acceptor and the MCP
+  `ADOPTION_VERSION` gate. `\d` also matches non-ASCII decimal digits (e.g.
+  Arabic-Indic), which must never be admitted into a version that feeds
+  cache/source-identity paths. No version bump: pins and adoption are unchanged.
+- Restrict the `UTC` timestamp validators (Desktop host adapter, MCP server,
+  federation transfer) to ASCII digits for the same reason. A non-ASCII-digit
+  timestamp previously passed the adapter's `UTC` gate and then raised an
+  unbounded `ValueError` from `parse_utc` instead of the bounded
+  `AdapterError("timestamp-invalid")`; it now fails closed at the regex.
+- Restrict the sibling control CLI's `TIME_RE` and dispatcher-adoption version
+  gate to ASCII digits, and wrap `utc_instant` so a malformed or non-ASCII
+  timestamp fails closed with the bounded `ControlError` instead of a raw
+  `ValueError` escaping schema validation from `datetime.fromisoformat`. `\d`
+  also matches non-ASCII decimal digits (e.g. Arabic-Indic), which must never
+  reach a cache/source-identity path. This changes the pin-bound control bundle
+  (`runtime_sha256`), so it rides a deliberate runtime re-pin; the control
+  bundle version and all schemas/interfaces are unchanged.
+
+## 0.4.12 - 2026-10-21
+
+- Expose one allowlisted `diagnostic_category` (`database`, `filesystem`, or
+  `unknown`) on a `pm_proxy_doctor` failure so an operator can tell a corrupt or
+  locked SQLite authority apart from a filesystem fault. The control CLI tags
+  the fault family in the `STATE_FAIL_CLOSED` error `details`; the MCP doctor
+  path reduces it to the fixed allowlist and discards everything else. All
+  fail-closed behavior (code, message, exit status), every non-doctor response,
+  and the doctor success response are unchanged, and no raw exception, path,
+  SQL, state, secret, or runtime-pin summary is ever surfaced on failure.
+- Bump the control bundle to `1.4.11` (no schema change: state schema stays
+  `1.4`) alongside this plugin version so source, cache, runtime pin, and
+  adoption evidence carry a version-distinct identity. Installing this release
+  requires a fresh runtime pin and covered-path adoption; the SQLite authority
+  is never edited or replaced.
 ## 0.4.11 - 2026-08-07
 
 - Add a closed stale-present archive reconciliation for one exact terminal task

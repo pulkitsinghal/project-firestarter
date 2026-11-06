@@ -91,6 +91,13 @@ Exposing a local/dev service remotely (phone, anywhere, private): [docs/REMOTE-A
    For Firestarter itself, exercise the relevant stamped project output; the
    generated-project commands in the playbook are not root-level commands.
 
+9. **Checkpoint before switching machines or sessions.** Follow the
+   [machine-switch handoff practice](template/docs/ENGINEERING_CONVENTIONS.md#10-checkpoint-work-and-verify-the-receiver-before-switching-machines).
+   Preserve eligible work under existing gates, record exact source/test
+   state, and distinguish local commit, remote push, and receiver receipt.
+   Verify exact source, required artifacts, and continuation prerequisites on
+   the receiving machine before declaring the handoff ready.
+
 ## Verify before you commit
 
 Run the generator in Docker for every stack example and check nothing leaked:

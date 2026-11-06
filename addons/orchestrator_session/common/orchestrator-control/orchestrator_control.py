@@ -41,7 +41,9 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 CONTROL_SCHEMA_HOLD_DECISION = "CONTROL_SCHEMA_DEFECT_NO_TRUTHFUL_TERMINAL_ROUTE"
 CONTROL_SCHEMA_HOLD_REPLAY_TARGET = "completed_local_only"
-TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
+# ASCII-only digits: `\d` also matches non-ASCII decimal digits (e.g.
+# Arabic-Indic), which would pass this gate and reach utc_instant's fromisoformat.
+TIME_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?Z$")
 PUBLIC_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .,&()'’+-]{0,79}$")
 PUBLIC_LABEL_SENSITIVE = re.compile(
     r"(?i)\b(?:password|passwd|secret|api[- ]?key|access[- ]?token|bearer)\b"
@@ -389,7 +391,15 @@ def bucket_for_seconds(seconds: int) -> str:
 
 
 def utc_instant(raw: str) -> datetime:
-    return datetime.fromisoformat(raw.removesuffix("Z") + "+00:00")
+    # `timestamp()` (TIME_RE) is the ASCII-only gate for request timestamps.
+    # Wrap defensively so any ungated or otherwise-malformed value fails closed
+    # with the bounded ControlError rather than a raw ValueError from
+    # fromisoformat escaping the schema-validation contract.
+    try:
+        return datetime.fromisoformat(raw.removesuffix("Z") + "+00:00")
+    except ValueError:
+        fail("SCHEMA_INVALID", "timestamp is not a valid RFC3339 UTC instant")
+    raise AssertionError("unreachable: fail() always raises")
 
 
 def duration_index(bucket: str) -> int:
@@ -5902,7 +5912,11 @@ class Plane:
             stale = utc_instant(ticket["lease_expires_at"]) <= utc_instant(
                 request["now"]
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, ControlError):
+            # A malformed stored lease timestamp now fails closed inside
+            # utc_instant with a bounded ControlError (not a raw ValueError);
+            # keep treating it as not-stale so the LEGACY_TICKET_FRESH route is
+            # preserved rather than reclassified as a schema error.
             stale = False
         if not stale:
             fail(
@@ -8533,7 +8547,7 @@ def validate_dispatcher_adoption(value: Any) -> dict[str, Any]:
     )
     if (
         re.fullmatch(
-            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8|9|10|11))(?:\+codex\.\d{14})?",
+            r"(?:0\.3\.(?:0|1|2|3|4|5|6)|0\.4\.(?:0|1|2|3|4|5|6|7|8|9|10|11|12))(?:\+codex\.[0-9]{14})?",
             plugin_version,
         )
         is None
@@ -11181,12 +11195,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except ControlError as error:
         return emit_error(error)
-    except (sqlite3.DatabaseError, OSError):
+    except sqlite3.DatabaseError:
+        # Fail closed identically to before, but tag the family of the fault
+        # with a fixed enum so an operator can tell a corrupt/locked SQLite
+        # authority apart from a filesystem fault. Never attach the raw
+        # exception, path, SQL, or state: only the allowlisted category.
         return emit_error(
             ControlError(
                 "STATE_FAIL_CLOSED",
                 "local authority is unavailable or corrupt; writes stopped",
                 exit_status=EXIT_STATE,
+                details={"diagnostic_category": "database"},
+            )
+        )
+    except OSError:
+        return emit_error(
+            ControlError(
+                "STATE_FAIL_CLOSED",
+                "local authority is unavailable or corrupt; writes stopped",
+                exit_status=EXIT_STATE,
+                details={"diagnostic_category": "filesystem"},
             )
         )
     except Exception:
