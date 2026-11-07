@@ -80,6 +80,9 @@
         "retain": {
           "type": "boolean",
           "default": false
+        },
+        "recovery": {
+          "$ref": "#/$defs/recovery"
         }
       }
     },
@@ -99,6 +102,90 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 10000
+        }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "liveness"
+      ],
+      "properties": {
+        "liveness": {
+          "$ref": "#/$defs/liveness"
+        },
+        "revive": {
+          "$ref": "#/$defs/revive"
+        },
+        "failover": {
+          "$ref": "#/$defs/failover"
+        }
+      }
+    },
+    "liveness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "interval_ms"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$"
+        },
+        "interval_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      }
+    },
+    "revive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_attempts",
+        "cooldown_ms"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "cooldown_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000
+        }
+      }
+    },
+    "failover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "retest_interval_ms"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,62}$"
+        },
+        "retest_interval_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400000
         }
       }
     }

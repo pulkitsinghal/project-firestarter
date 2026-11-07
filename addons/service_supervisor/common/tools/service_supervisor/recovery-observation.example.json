@@ -1,0 +1,10 @@
+{
+  "presence": "enumerated",
+  "liveness": "unreachable",
+  "alternative_liveness": "serving",
+  "attempts_made": 0,
+  "cooldown_active": false,
+  "failed_over": false,
+  "retest_due": false,
+  "dry_run": true
+}

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Added an opt-in, default-inert recovery ladder to the catalog. A service may
+  declare a `recovery.liveness` probe distinct from `health` (registration is
+  not readiness), a bounded `revive` with a cooldown, and a `failover` target
+  with a retest interval; both actions stay off unless enabled. The new
+  `plan_recovery` planner and `plan-recovery` CLI reason over a synthetic
+  observation and return a non-executing probe → revive → confirmed-failover →
+  retest plan. Enumerated-but-unreachable never reads healthy, failover to an
+  unconfirmed alternative is refused, revive is bounded and does not loop,
+  dead-plugged is distinguished from enumerated-but-unreachable, dry-run arms
+  nothing, and a confirmed retest reverses demotion. An already-failed-over
+  primary holds on the alternative and keeps retesting instead of re-failing-over
+  (and a double outage holds degraded rather than failing back to a dead
+  primary), and every plan step carries an explicit `armed` flag so no executor
+  can read a missing key as "execute". The runtime stays source-only and
+  non-executing.
 - Fixed repeat acquisition for independently signed permit IDs/nonces targeting
   the same deterministic plan and authority generation. State schema 2 retains
   atomic nonce replay protection, durably binds each permit ID to one exact

@@ -31,7 +31,23 @@
       "idle_timeout_ms": 30000,
       "drain_grace_ms": 250,
       "never_stop": false,
-      "retain": false
+      "retain": false,
+      "recovery": {
+        "liveness": {
+          "path": "/serves",
+          "interval_ms": 25
+        },
+        "revive": {
+          "enabled": false,
+          "max_attempts": 3,
+          "cooldown_ms": 60000
+        },
+        "failover": {
+          "enabled": false,
+          "target": "synthetic-cache",
+          "retest_interval_ms": 300000
+        }
+      }
     }
   ]
 }
