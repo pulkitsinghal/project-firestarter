@@ -59,6 +59,19 @@ the owner-only actions listed below.
    gate—the expected text appearing somewhere else in a response is not deploy
    provenance.
 
+**Prove the negative, not just the positive.** A deploy is not proven by presence
+alone. When the surface has a *negative* contract — content that must not be
+public, a route that must `404`, an admin path that must redirect — prove it is
+closed, not just that the build is present. A host accepting the bundle is not
+evidence a gate stands in front of it, and a single-page-app fallback
+(`/* /index.html 200`) makes *every* missing path answer `200 text/html`, so an
+`--expect` run passes green against a site with no gate at all. `verify-live.sh`
+takes `--absent STRING` (the protected content must be absent from the probed
+body) and `--expect-status PATH:CODE` (an unknown or privileged path must answer
+exactly that status with a body under `--max-miss-bytes`, so a fallback page or a
+soft `404` cannot masquerade as the miss). As with every other probe, the verifier
+logs only which rule fired — never the matched body or an unlisted path.
+
 Before sharing any deploy URL, classify it as public, unlisted, or authenticated
 review. `noindex` plus an unguessable link is **not** privacy; unpublished, client,
 reviewer, or competitively sensitive material requires a real access boundary. See
