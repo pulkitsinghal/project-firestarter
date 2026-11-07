@@ -76,6 +76,7 @@ BASE_ADDONS = (
     "architecture_manifest",
     "datastore_advisor",
     "work_registry",
+    "packaged_app_identity",
 )
 
 
