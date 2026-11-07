@@ -853,8 +853,14 @@ class ServiceSupervisor:
 
         steps: list[dict] = []
 
-        def add(action: str, **fields: object) -> None:
-            steps.append({"sequence": len(steps) + 1, "action": action, **fields})
+        def add(action: str, *, armed: bool = False, **fields: object) -> None:
+            # Every step carries an explicit `armed` flag so a future executor
+            # can never see a missing key and default it to "execute". It is
+            # true only for a lifecycle-mutating rung outside dry-run; a probe,
+            # hold, refusal, or block never arms.
+            steps.append(
+                {"sequence": len(steps) + 1, "action": action, "armed": armed, **fields}
+            )
 
         # Rung 1: probe the real capability, not the registration. Recording the
         # probe keeps the whole decision path auditable before it is trusted.
@@ -943,6 +949,38 @@ class ServiceSupervisor:
         armed: bool,
         service_id: str,
     ) -> None:
+        # #177 corollary: once we are already serving from the alternative, a
+        # fresh failover is redundant and "stay-on-primary" would be
+        # counterfactual -- we are not on the primary. Hold on the alternative
+        # and keep retesting the primary (any preceding revive-in-place still
+        # runs), so a recovered primary is repromoted on the next serving probe.
+        # A double outage -- failed over, yet the alternative is no longer
+        # serving -- holds degraded rather than failing back to a dead primary.
+        if observed.failed_over and recovery.failover is not None:
+            retest_ms = recovery.failover.retest_interval_ms
+            if observed.alternative_liveness == "serving":
+                add(
+                    "hold-on-alternative",
+                    on_failure="stay-on-alternative",
+                    retest_interval_ms=retest_ms,
+                    note="already serving from the alternative; do not fail over again",
+                )
+                add(
+                    "schedule-retest",
+                    target_service_id=service_id,
+                    armed=armed,
+                    retest_interval_ms=retest_ms,
+                    note="demotion is not permanent; retest the primary on this interval",
+                )
+            else:
+                add(
+                    "hold-degraded",
+                    on_failure="stay-on-alternative",
+                    observed_alternative=observed.alternative_liveness,
+                    note="failed over, but the alternative is no longer confirmed serving; hold and keep probing",
+                )
+            return
+
         # Rung 3: fail over only when the alternative is confirmed working.
         if recovery.failover is not None and recovery.failover.enabled:
             if observed.alternative_liveness == "serving":
@@ -957,6 +995,7 @@ class ServiceSupervisor:
                 add(
                     "schedule-retest",
                     target_service_id=service_id,
+                    armed=armed,
                     retest_interval_ms=recovery.failover.retest_interval_ms,
                     note="demotion is not permanent; retest the primary on this interval",
                 )

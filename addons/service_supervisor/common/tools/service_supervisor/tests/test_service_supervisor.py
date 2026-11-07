@@ -1159,7 +1159,7 @@ class RecoveryLadderContractTests(unittest.TestCase):
         )
         plan = self.plan(supervisor, **observation)
         self.assertEqual("dry-run", plan["mode"])
-        armed_flags = [s["armed"] for s in plan["steps"] if "armed" in s]
+        armed_flags = [s["armed"] for s in plan["steps"]]  # every step carries it
         self.assertTrue(armed_flags)
         self.assertTrue(all(flag is False for flag in armed_flags))
         self.assertEqual(before, supervisor.status())
@@ -1328,6 +1328,95 @@ class RecoveryLadderContractTests(unittest.TestCase):
                 )
             self.assertEqual(2, code)
             self.assertIn("refused", refused.getvalue())
+
+    def test_already_failed_over_holds_instead_of_failing_over_again(self) -> None:
+        # #177 corollary: once we are serving from the alternative, the planner
+        # must not re-emit a failover-to (we are already there), and must not
+        # annotate "stay-on-primary" (we are not on the primary). It holds on
+        # the alternative and keeps retesting the primary.
+        supervisor = self.supervisor()
+        for presence, liveness in (("enumerated", "unreachable"), ("absent", "unknown")):
+            with self.subTest(presence=presence):
+                plan = self.plan(
+                    supervisor,
+                    presence=presence,
+                    liveness=liveness,
+                    alternative_liveness="serving",
+                    failed_over=True,
+                )
+                actions = [s["action"] for s in plan["steps"]]
+                self.assertNotIn("failover-to", actions)
+                self.assertIn("hold-on-alternative", actions)
+                self.assertIn("schedule-retest", actions)
+                self.assertFalse(
+                    any(s.get("on_failure") == "stay-on-primary" for s in plan["steps"]),
+                    "must not claim stay-on-primary while serving from the alternative",
+                )
+        # The enumerated-but-unreachable primary is still revived in place while
+        # we serve from the alternative, so a recovered primary can come back;
+        # a dead-plugged (absent) primary has nothing to revive.
+        self.assertIn(
+            "revive-in-place",
+            self.actions(
+                supervisor,
+                presence="enumerated",
+                liveness="unreachable",
+                alternative_liveness="serving",
+                failed_over=True,
+            ),
+        )
+        self.assertNotIn(
+            "revive-in-place",
+            self.actions(
+                supervisor,
+                presence="absent",
+                liveness="unknown",
+                alternative_liveness="serving",
+                failed_over=True,
+            ),
+        )
+
+    def test_double_outage_after_failover_holds_degraded(self) -> None:
+        # Failed over, yet the alternative is itself no longer serving: never
+        # fail back to the dead primary and never claim a healthy alternative.
+        plan = self.plan(
+            self.supervisor(),
+            presence="enumerated",
+            liveness="unreachable",
+            alternative_liveness="unreachable",
+            failed_over=True,
+        )
+        actions = [s["action"] for s in plan["steps"]]
+        self.assertIn("hold-degraded", actions)
+        self.assertNotIn("failover-to", actions)
+        degraded = next(s for s in plan["steps"] if s["action"] == "hold-degraded")
+        self.assertEqual("stay-on-alternative", degraded["on_failure"])
+
+    def test_every_step_carries_an_armed_flag(self) -> None:
+        # #177 hardening: a future executor must never see a step with no
+        # `armed` key and default it to "execute". Every step carries the flag;
+        # in dry-run every one is false, and in armed mode only the lifecycle-
+        # mutating rungs (revive/failover/schedule-retest) are true.
+        supervisor = self.supervisor()
+        observation = dict(
+            presence="enumerated",
+            liveness="unreachable",
+            alternative_liveness="serving",
+        )
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run):
+                plan = self.plan(supervisor, dry_run=dry_run, **observation)
+                for step in plan["steps"]:
+                    self.assertIn("armed", step, step["action"])
+                    self.assertIsInstance(step["armed"], bool)
+                if dry_run:
+                    self.assertTrue(all(s["armed"] is False for s in plan["steps"]))
+        armed_plan = self.plan(supervisor, dry_run=False, **observation)
+        by_action = {s["action"]: s for s in armed_plan["steps"]}
+        self.assertTrue(by_action["revive-in-place"]["armed"])
+        self.assertTrue(by_action["failover-to"]["armed"])
+        self.assertTrue(by_action["schedule-retest"]["armed"])
+        self.assertFalse(by_action["probe-liveness"]["armed"])
 
 
 def load_tests(loader, tests, _pattern):
