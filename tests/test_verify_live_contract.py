@@ -56,6 +56,45 @@ class LiveHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+        if path.startswith("/miss404/"):
+            body = b"not found"
+            self.send_response(404)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path.startswith("/softmiss/"):
+            # 404 status, but a full-app-sized body: the soft-404 masquerade.
+            body = b"<!doctype html>" + b"x" * 5000
+            self.send_response(404)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path.startswith("/fallback/"):
+            # The classic SPA fallback: every unknown path is 200 index.html.
+            body = b"<!doctype html><div id=root></div>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path.startswith("/leaky/"):
+            # A gate page that also leaks protected content in the same body.
+            body = json.dumps(
+                {"git_sha": "wanted", "secret": "TOP-SECRET-DOSSIER"}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if path.startswith("/never/"):
             build, note = "stale", "wanted"
         elif path.startswith("/eventual/") and LiveHandler.counts[path] == 1:
@@ -139,6 +178,59 @@ class VerifyLiveContract(unittest.TestCase):
         )
         self.assertEqual(success.returncode, 0, success.stderr)
         self.assertNotIn(sensitive_path, success.stdout + success.stderr)
+
+    def test_absent_fails_when_forbidden_content_is_present_without_leaking(self) -> None:
+        result = self.run_script(
+            "--attempts", "2", "--expect", "wanted", "--contains",
+            "--absent", "TOP-SECRET-DOSSIER", f"{self.base}/leaky",
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("did not converge", result.stderr)
+        self.assertNotIn(
+            "TOP-SECRET-DOSSIER", result.stdout + result.stderr,
+            "a matched forbidden string must never be logged",
+        )
+
+    def test_absent_passes_when_the_forbidden_content_is_gone(self) -> None:
+        result = self.run_script(
+            "--attempts", "1", "--expect", "wanted", "--contains",
+            "--absent", "TOP-SECRET-DOSSIER", f"{self.base}/ready",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_expect_status_catches_spa_fallback_and_soft_404(self) -> None:
+        # A single-page-app fallback answers 200 on any unknown path.
+        fallback = self.run_script(
+            "--attempts", "1", "--expect", "wanted",
+            "--expect-status", "/fallback/missing:404", self.base,
+        )
+        self.assertEqual(fallback.returncode, 1, fallback.stdout)
+        self.assertIn("expected 404", fallback.stderr)
+
+        # A soft 404 returns the right status but a full-app body; the size
+        # bound catches the masquerade.
+        soft = self.run_script(
+            "--attempts", "1", "--expect", "wanted",
+            "--expect-status", "/softmiss/x:404", self.base,
+        )
+        self.assertEqual(soft.returncode, 1, soft.stdout)
+        self.assertIn("masquerading", soft.stderr)
+
+    def test_expect_status_passes_for_a_real_small_404(self) -> None:
+        result = self.run_script(
+            "--attempts", "1", "--expect", "wanted",
+            "--expect-status", "/miss404/x:404", self.base,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("answers 404", result.stdout)
+
+    def test_expect_status_rejects_a_malformed_spec(self) -> None:
+        bad = self.run_script(
+            "--attempts", "1", "--expect", "wanted",
+            "--expect-status", "/admin", self.base,
+        )
+        self.assertEqual(bad.returncode, 2)
+        self.assertIn("PATH:CODE", bad.stderr)
 
     def test_absolute_probe_path_and_credential_bearing_base_are_refused(self) -> None:
         absolute = self.run_script(

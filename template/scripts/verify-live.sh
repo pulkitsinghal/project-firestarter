@@ -14,15 +14,28 @@ Options:
   --field NAME      JSON provenance field (default: git_sha)
   --contains        Match BUILD_ID literally in the response instead of a JSON field
   --range PATH|URL  After convergence, require a byte-range response (206)
+  --absent STRING   Fail if the probe body contains STRING (repeatable); the
+                    matched content is never logged, only which rule fired
+  --expect-status PATH:CODE
+                    After convergence, require PATH (relative, starts with /) to
+                    answer exactly CODE with a body no larger than --max-miss-bytes
+                    (repeatable); catches a fallback page masquerading as a 404
+  --max-miss-bytes N  Max body size for an --expect-status miss (default: 4096)
   --attempts N      Maximum propagation attempts (default: 30)
   --interval N      Seconds between attempts (default: 10)
   --timeout N       Per-request timeout in seconds (default: 40)
   -h, --help        Show this help
 
+A deploy is only proven when the thing you expect is present AND the thing you
+expect to be hidden is actually hidden: a wrangler/CDN accepting the bundle is not
+evidence the gate is in front of it. --absent and --expect-status express that
+negative contract.
+
 Examples:
   scripts/verify-live.sh --expect "$(git rev-parse --short HEAD)" https://app.example.test
   scripts/verify-live.sh --expect build-42 --contains --path / https://a.example.test https://origin.example.test
   scripts/verify-live.sh --expect build-42 --contains --path / --range /media/demo.mp4 https://app.example.test
+  scripts/verify-live.sh --expect build-42 --contains --path /login --absent "private dossier" --expect-status /admin:404 https://app.example.test
 EOF
 }
 
@@ -69,6 +82,9 @@ probe_path='/health'
 json_field='git_sha'
 match_mode='json'
 range_target=''
+absent_strings=()
+expect_status_specs=()
+max_miss_bytes=4096
 attempts=30
 interval=10
 timeout=40
@@ -80,6 +96,9 @@ while [ "$#" -gt 0 ]; do
     --field) [ "$#" -ge 2 ] || die '--field needs a value'; json_field=$2; shift 2 ;;
     --contains) match_mode='contains'; shift ;;
     --range) [ "$#" -ge 2 ] || die '--range needs a value'; range_target=$2; shift 2 ;;
+    --absent) [ "$#" -ge 2 ] || die '--absent needs a value'; [ -n "$2" ] || die '--absent needs a non-empty value'; absent_strings+=("$2"); shift 2 ;;
+    --expect-status) [ "$#" -ge 2 ] || die '--expect-status needs a value'; expect_status_specs+=("$2"); shift 2 ;;
+    --max-miss-bytes) [ "$#" -ge 2 ] || die '--max-miss-bytes needs a value'; max_miss_bytes=$2; shift 2 ;;
     --attempts) [ "$#" -ge 2 ] || die '--attempts needs a value'; attempts=$2; shift 2 ;;
     --interval) [ "$#" -ge 2 ] || die '--interval needs a value'; interval=$2; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || die '--timeout needs a value'; timeout=$2; shift 2 ;;
@@ -97,7 +116,15 @@ case "$json_field" in ''|*[!A-Za-z0-9_.-]*) die 'field name contains unsupported
 case "$probe_path" in /*) ;; *) die '--path must be relative to each BASE_URL and start with /' ;; esac
 positive_integer attempts "$attempts"
 positive_integer timeout "$timeout"
+positive_integer '--max-miss-bytes' "$max_miss_bytes"
 case "$interval" in ''|*[!0-9]*) die 'interval must be a non-negative integer' ;; esac
+for spec in ${expect_status_specs[@]+"${expect_status_specs[@]}"}; do
+  case "$spec" in *:*) ;; *) die '--expect-status must be PATH:CODE' ;; esac
+  es_spec_path=${spec%:*}
+  es_spec_code=${spec##*:}
+  case "$es_spec_path" in /*) ;; *) die '--expect-status PATH must be relative to each BASE_URL and start with /' ;; esac
+  case "$es_spec_code" in [1-5][0-9][0-9]) ;; *) die '--expect-status CODE must be a 3-digit HTTP status' ;; esac
+done
 command -v curl >/dev/null 2>&1 || die 'curl is required'
 for base in "$@"; do
   case "$base" in http://*|https://*) ;; *) die 'every BASE_URL must use http:// or https://' ;; esac
@@ -140,6 +167,19 @@ probe_one() {
       printf 'field %s did not equal expected build' "$json_field" >&2
       return 1
     }
+  fi
+
+  if [ "${#absent_strings[@]}" -gt 0 ]; then
+    local absent_idx=0
+    local needle
+    for needle in ${absent_strings[@]+"${absent_strings[@]}"}; do
+      absent_idx=$((absent_idx + 1))
+      if grep -Fq -- "$needle" "$body"; then
+        # Content suppression: report which rule fired, never the match or body.
+        printf 'forbidden content present (rule %s)' "$absent_idx" >&2
+        return 1
+      fi
+    done
   fi
 }
 
@@ -188,11 +228,47 @@ check_range() {
   printf 'PASS  %s honors byte ranges\n' "$(display_origin "$target")"
 }
 
+# Prove the negative: the path must answer exactly the expected status with a
+# small body. A single-page-app fallback (every miss is 200 index.html) or a
+# soft 404 (404 status, full-app body) both fail here; a real miss is small.
+check_expect_status() {
+  local target=$1
+  local want=$2
+  local out status size
+  if ! out=$(curl --silent --max-time "$timeout" --max-filesize 1048576 \
+      --user-agent "$user_agent" --header 'Cache-Control: no-cache' \
+      --output /dev/null --write-out '%{http_code} %{size_download}' "$target"); then
+    printf 'verify-live: expect-status probe failed for %s (transport error or body over 1MB)\n' "$(display_origin "$target")" >&2
+    return 1
+  fi
+  status=${out%% *}
+  size=${out##* }
+  if [ "$status" != "$want" ]; then
+    printf 'verify-live: %s answered %s, expected %s\n' "$(display_origin "$target")" "$status" "$want" >&2
+    return 1
+  fi
+  if [ "$size" -gt "$max_miss_bytes" ]; then
+    printf 'verify-live: %s answered %s but the body is %s bytes (> %s); a fallback page may be masquerading as the miss\n' "$(display_origin "$target")" "$status" "$size" "$max_miss_bytes" >&2
+    return 1
+  fi
+  printf 'PASS  %s answers %s (%s bytes)\n' "$(display_origin "$target")" "$status" "$size"
+}
+
 if [ -n "$range_target" ]; then
   case "$range_target" in
     http://*|https://*) check_range "$range_target" ;;
     *) for base in "$@"; do check_range "$(join_url "$base" "$range_target")"; done ;;
   esac
+fi
+
+if [ "${#expect_status_specs[@]}" -gt 0 ]; then
+  for spec in ${expect_status_specs[@]+"${expect_status_specs[@]}"}; do
+    es_path=${spec%:*}
+    es_code=${spec##*:}
+    for base in "$@"; do
+      check_expect_status "$(cache_bust "$(join_url "$base" "$es_path")" status)" "$es_code"
+    done
+  done
 fi
 
 printf 'verify-live: deployed artifact verified across %s hostname(s)\n' "$#"
