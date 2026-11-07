@@ -347,6 +347,35 @@ jobs:
           test ! -e "$OUT/off-by-default/tools/work_registry"
           echo "✓ work registry verified; off by default"
 
+      - name: Verify the packaged-app-identity add-on contract
+        run: |
+          set -euo pipefail
+          # Off by default, every-stack stamp, stdlib-only observe/plan-only
+          # verifier, and the host-only acceptance check exercised hermetically
+          # (fake uname/codesign on PATH) plus its off-macOS skip path.
+          python3 -B -m unittest -v tests.test_packaged_app_identity_contract
+
+          OUT="$(mktemp -d)"
+          for values in examples/*.answers.json; do
+            ex="${values##*/}"
+            ex="${ex%.answers.json}"
+            python3 bin/generate.py --values "$values" \
+              --set include_packaged_app_identity=yes \
+              --output "$OUT/$ex"
+            test -f "$OUT/$ex/tools/packaged_app_identity/verify.py"
+            test -f "$OUT/$ex/tools/packaged_app_identity/acceptance.sh"
+            test -f "$OUT/$ex/docs/PACKAGED_APP_IDENTITY.md"
+            python3 -m py_compile "$OUT/$ex/tools/packaged_app_identity/verify.py"
+            bash -n "$OUT/$ex/tools/packaged_app_identity/acceptance.sh"
+          done
+          if grep -rIn '{{' "$OUT" | grep -vE '\$\{\{|style=\{\{'; then
+            echo "::error::token leak in packaged_app_identity add-on output"; exit 1
+          fi
+
+          python3 bin/generate.py --defaults --output "$OUT/off-by-default"
+          test ! -e "$OUT/off-by-default/tools/packaged_app_identity"
+          echo "✓ packaged app identity verified; off by default"
+
       - name: Stamp the optional k8s add-on for server-backed stacks
         run: |
           set -euo pipefail
