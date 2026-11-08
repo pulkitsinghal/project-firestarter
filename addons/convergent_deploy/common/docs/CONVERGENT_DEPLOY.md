@@ -97,3 +97,11 @@ session that has never seen this code:
 > **Deploy only with `./deploy.py`. Never call `<mirror command>` directly.** It deletes
 > anything live that is absent locally, and the artefacts are gitignored, so a fresh
 > clone lacks all of them.
+
+The manifest and the fence are gitignored too, and not only to keep the tree clean.
+`_deployed.json` enumerates every published id, and an unlisted slug is the unguessable
+half of its URL — so a tracked list of slugs is credential-class, one repository-visibility
+flip from a mass link dump, and worse if the manifest also carries human-readable titles
+(`docs/UNLISTED_PUBLISHING.md` carries the general rule). `_deploy-state.json` is the
+fencing token. Both are regenerable: `write_state` rebuilds them on every deploy and the
+live site is authoritative, so a clone never needs either and committing one only leaks.

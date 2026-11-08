@@ -78,3 +78,14 @@ storyboard/output/*.mp4
 # `deploy/cloudflared/config.example.yml` is the tracked template (see DEPLOY.md).
 deploy/cloudflared/config.yml
 deploy/cloudflared/*.json
+
+# ── Convergent-deploy manifest + fence (credential-class) ─────────────────────
+# The convergent_deploy add-on writes these two files INTO the published site;
+# never commit them. `_deployed.json` enumerates every published id, and an
+# unlisted slug is the unguessable half of its URL, so a tracked list of them
+# (worse, beside human-readable titles) is a link dump one repo-visibility flip
+# from publishing every link at once, history intact. Both are regenerable: the
+# deploy rebuilds them and the live site is authoritative, so a clone never needs
+# them. Inert until the add-on is enabled. See docs/UNLISTED_PUBLISHING.md.
+_deployed.json
+_deploy-state.json

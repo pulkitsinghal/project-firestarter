@@ -1,6 +1,8 @@
 """Contract for the public / unlisted / authenticated-review publishing posture."""
 
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 
 
@@ -46,6 +48,25 @@ class PublishingPosture(unittest.TestCase):
             "cf-access-client-secret:", "cloudflare_account_id=", "@example.com",
         ):
             self.assertNotIn(forbidden, text)
+
+    def test_repository_side_disclosure_rules_are_documented(self):
+        text = DOC.read_text()
+        self.assertIn("The repository is a disclosure surface too", text)
+        self.assertIn("A manifest of unlisted ids is credential-class", text)
+        self.assertIn("A slug-named tracked directory is the same leak", text)
+        self.assertIn("Rotate the slug; do not rewrite history", text)
+
+    def test_default_stamp_gitignores_the_deploy_manifest_and_fence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            subprocess.run(
+                ["python3", str(ROOT / "bin" / "generate.py"),
+                 "--defaults", "--output", str(out)],
+                check=True, capture_output=True, text=True,
+            )
+            gitignore = (out / ".gitignore").read_text()
+            self.assertIn("_deployed.json", gitignore)
+            self.assertIn("_deploy-state.json", gitignore)
 
     def test_existing_policy_and_security_doc_point_to_the_posture(self):
         self.assertIn(
