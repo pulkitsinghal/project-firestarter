@@ -64,9 +64,12 @@ class PublishingPosture(unittest.TestCase):
                  "--defaults", "--output", str(out)],
                 check=True, capture_output=True, text=True,
             )
-            gitignore = (out / ".gitignore").read_text()
-            self.assertIn("_deployed.json", gitignore)
-            self.assertIn("_deploy-state.json", gitignore)
+            # Bind the *active* ignore entries, not any explanatory comment that
+            # happens to quote a filename: membership in the line list requires a
+            # line equal to the bare pattern, so deleting the rule fails the test.
+            lines = (out / ".gitignore").read_text().splitlines()
+            self.assertIn("_deployed.json", lines)
+            self.assertIn("_deploy-state.json", lines)
 
     def test_existing_policy_and_security_doc_point_to_the_posture(self):
         self.assertIn(
