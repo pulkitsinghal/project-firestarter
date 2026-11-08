@@ -73,6 +73,15 @@ and commit it, so the next audit is a diff rather than a fresh act of trust.
 - **In transit:** TLS everywhere; which outbound egress is allowed.
 - **Deletion / export:** how a subject's data is removed or exported, if in scope.
 
+## Redistribution rights are a separate axis
+
+This document is about regulatory scope, not redistribution rights: regulatory
+scope answers whether you may process an input; redistribution rights answer
+whether you may ship it, and a project can be fully in the clear on the first
+while violating the second. A dataset you are allowed to analyse is not
+automatically one you are allowed to republish. Audit your inputs' terms in
+[THIRD_PARTY_INPUTS.md](THIRD_PARTY_INPUTS.md).
+
 ## Review triggers
 
 Re-check this posture when: the data classes change, a new integration sends data

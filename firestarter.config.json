@@ -8,6 +8,8 @@
   "github_owner": "pulkitsinghal",
   "github_repo": "project-acme",
 
+  "license": ["PROPRIETARY", "MIT", "Apache-2.0", "BSD-3-Clause", "CC-BY-4.0", "AGPL-3.0"],
+
   "stack": ["fastapi-next", "supabase-flutter", "chrome-extension", "node-notifier"],
 
   "include_k8s": ["no", "yes"],

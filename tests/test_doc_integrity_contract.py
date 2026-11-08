@@ -345,6 +345,54 @@ TEARDOWN_DISCLOSURE_MARKERS = (
     "source:",
 )
 
+THIRD_PARTY_INPUTS_HEADING = (
+    "# Third-party inputs — your LICENSE does not cover what you did not write"
+)
+THIRD_PARTY_INPUTS_START = "<!-- third-party-inputs:start -->"
+THIRD_PARTY_INPUTS_END = "<!-- third-party-inputs:end -->"
+THIRD_PARTY_INPUTS_REQUIREMENTS = (
+    "Your outbound LICENSE covers the first-party code you wrote, never the "
+    "third-party inputs you consume or the artifacts you derive from them",
+    "enumerate what you redistribute, record the terms it arrives under, and "
+    "never declare an outbound license broader than the narrowest input it "
+    "covers",
+    "you cannot know your license until you audit your inputs",
+    "| Input | Source | Terms | Redistributable? | Where it lives | "
+    "What we publish |",
+    "Withhold the artifact, ship the builder",
+    "the restricted artifact is not published; the script that regenerates it "
+    "from the licensed source is",
+    "Tracing one variable through prose is not auditing the schema",
+    "a terms audit that checked some inputs is recorded as incomplete, never "
+    "as clear",
+    "An input whose terms you have not verified is non-redistributable until "
+    "audited",
+    "it records a terms field beside the digest",
+)
+THIRD_PARTY_INPUTS_INTEGRATION_REQUIREMENTS = {
+    "license": (
+        "This license covers the first-party work in this repository and does "
+        "not grant rights to redistribute third-party inputs",
+    ),
+    "compliance": (
+        "regulatory scope answers whether you may process an input; "
+        "redistribution rights answer whether you may ship it",
+    ),
+    "readme": (
+        "LICENSE does not extend to third-party inputs you redistribute",
+    ),
+}
+THIRD_PARTY_INPUTS_UNSAFE_CLAIMS = (
+    "your license covers your inputs",
+    "an unaudited input is safe to redistribute",
+    "a digest proves redistribution rights",
+    "a permissive license needs no input audit",
+)
+THIRD_PARTY_INPUTS_DISCLOSURE_MARKERS = (
+    "github.com/",
+    "source:",
+)
+
 
 def platform_precept_contract_errors(conventions: str, agents: str) -> list[str]:
     errors: list[str] = []
@@ -539,6 +587,60 @@ def teardown_contract_errors(
     for disclosure in TEARDOWN_DISCLOSURE_MARKERS:
         if disclosure in teardown.lower():
             errors.append(f"teardown-disclosure:{disclosure}")
+    return errors
+
+
+def third_party_inputs_contract_errors(
+    third_party_inputs: str,
+    license_doc: str,
+    compliance: str,
+    readme: str,
+) -> list[str]:
+    errors: list[str] = []
+    for marker in (THIRD_PARTY_INPUTS_START, THIRD_PARTY_INPUTS_END):
+        if third_party_inputs.count(marker) != 1:
+            errors.append(f"marker:{marker}")
+    if third_party_inputs.count(THIRD_PARTY_INPUTS_HEADING) != 1:
+        errors.append("heading")
+    if errors:
+        return errors
+
+    start_index = third_party_inputs.index(THIRD_PARTY_INPUTS_START)
+    heading_index = third_party_inputs.index(THIRD_PARTY_INPUTS_HEADING)
+    end_index = third_party_inputs.index(THIRD_PARTY_INPUTS_END)
+    if not heading_index < start_index < end_index:
+        return ["boundary-order"]
+    section = third_party_inputs[
+        start_index + len(THIRD_PARTY_INPUTS_START) : end_index
+    ]
+    normalized_section = " ".join(section.split())
+    for requirement in THIRD_PARTY_INPUTS_REQUIREMENTS:
+        if requirement not in normalized_section:
+            errors.append(f"third-party-inputs:{requirement}")
+
+    integrations = {
+        "license": license_doc,
+        "compliance": compliance,
+        "readme": readme,
+    }
+    for name, body in integrations.items():
+        normalized_body = " ".join(body.split())
+        for requirement in THIRD_PARTY_INPUTS_INTEGRATION_REQUIREMENTS[name]:
+            if requirement not in normalized_body:
+                errors.append(f"{name}:{requirement}")
+
+    combined_lower = "\n".join((
+        third_party_inputs,
+        license_doc,
+        compliance,
+        readme,
+    )).lower()
+    for forbidden in THIRD_PARTY_INPUTS_UNSAFE_CLAIMS:
+        if forbidden in combined_lower:
+            errors.append(f"unsafe:{forbidden}")
+    for disclosure in THIRD_PARTY_INPUTS_DISCLOSURE_MARKERS:
+        if disclosure in third_party_inputs.lower():
+            errors.append(f"third-party-inputs-disclosure:{disclosure}")
     return errors
 
 
@@ -880,6 +982,34 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
             raise AssertionError(f"{context}: teardown contract errors: {errors}")
 
     @staticmethod
+    def assert_third_party_inputs_contract(output: Path, context: str) -> None:
+        inputs_path = output / "docs" / "THIRD_PARTY_INPUTS.md"
+        if not inputs_path.exists():
+            raise AssertionError(
+                f"{context}: generated docs/THIRD_PARTY_INPUTS.md is missing"
+            )
+        third_party_inputs = inputs_path.read_text(encoding="utf-8")
+        if "{{" in third_party_inputs:
+            raise AssertionError(
+                f"{context}: third-party-inputs doc contains a raw token"
+            )
+        license_doc = (output / "LICENSE").read_text(encoding="utf-8")
+        if "{{" in license_doc:
+            raise AssertionError(f"{context}: LICENSE contains a raw token")
+        errors = third_party_inputs_contract_errors(
+            third_party_inputs,
+            license_doc,
+            (output / "docs" / "COMPLIANCE_POSTURE.md").read_text(
+                encoding="utf-8"
+            ),
+            (output / "README.md").read_text(encoding="utf-8"),
+        )
+        if errors:
+            raise AssertionError(
+                f"{context}: third-party-inputs contract errors: {errors}"
+            )
+
+    @staticmethod
     def generate_and_check(output: Path, answers: Path, *settings: str) -> None:
         command = [
             "python3",
@@ -901,6 +1031,9 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
             output, f"{answers.name} {settings}"
         )
         DocIntegrityGeneratorTests.assert_teardown_contract(
+            output, f"{answers.name} {settings}"
+        )
+        DocIntegrityGeneratorTests.assert_third_party_inputs_contract(
             output, f"{answers.name} {settings}"
         )
         subprocess.run(["git", "init", "-q"], cwd=output, check=True)
@@ -937,6 +1070,9 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                     )
                     self.assert_rollback_contract(output, answers.name)
                     self.assert_teardown_contract(output, answers.name)
+                    self.assert_third_party_inputs_contract(
+                        output, answers.name
+                    )
                     script = output / "scripts" / "check-docs.sh"
                     self.assertTrue(script.exists())
                     self.assertTrue(os.access(script, os.X_OK))
@@ -1516,6 +1652,94 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                 self.assertNotEqual(
                     errors({
                         "teardown": f"{documents['teardown']}\n{disclosure}\n"
+                    }),
+                    [],
+                )
+
+    def test_third_party_inputs_is_mutation_proved(self) -> None:
+        documents = {
+            "third_party_inputs": (
+                ROOT / "template" / "docs" / "THIRD_PARTY_INPUTS.md"
+            ).read_text(encoding="utf-8"),
+            "license": (ROOT / "template" / "LICENSE").read_text(
+                encoding="utf-8"
+            ),
+            "compliance": (
+                ROOT / "template" / "docs" / "COMPLIANCE_POSTURE.md"
+            ).read_text(encoding="utf-8"),
+            "readme": (ROOT / "template" / "README.md").read_text(
+                encoding="utf-8"
+            ),
+        }
+
+        def errors(overrides: dict[str, str] | None = None) -> list[str]:
+            candidate = {**documents, **(overrides or {})}
+            return third_party_inputs_contract_errors(
+                candidate["third_party_inputs"],
+                candidate["license"],
+                candidate["compliance"],
+                candidate["readme"],
+            )
+
+        self.assertEqual(errors(), [])
+
+        for phrase in (
+            THIRD_PARTY_INPUTS_START,
+            THIRD_PARTY_INPUTS_END,
+            *THIRD_PARTY_INPUTS_REQUIREMENTS,
+        ):
+            with self.subTest(third_party_inputs_phrase=phrase):
+                self.assertNotEqual(
+                    errors({"third_party_inputs": remove_contract_phrase(
+                        documents["third_party_inputs"], phrase
+                    )}),
+                    [],
+                )
+
+        swapped_markers = documents["third_party_inputs"].replace(
+            THIRD_PARTY_INPUTS_START, "temporary-inputs-boundary", 1
+        ).replace(THIRD_PARTY_INPUTS_END, THIRD_PARTY_INPUTS_START, 1)
+        swapped_markers = swapped_markers.replace(
+            "temporary-inputs-boundary", THIRD_PARTY_INPUTS_END, 1
+        )
+        self.assertNotEqual(
+            errors({"third_party_inputs": swapped_markers}), []
+        )
+
+        heading_outside = documents["third_party_inputs"].replace(
+            THIRD_PARTY_INPUTS_HEADING, "removed-inputs-heading", 1
+        )
+        heading_outside = f"{heading_outside}\n{THIRD_PARTY_INPUTS_HEADING}\n"
+        self.assertNotEqual(
+            errors({"third_party_inputs": heading_outside}), []
+        )
+
+        for name, requirements in (
+            THIRD_PARTY_INPUTS_INTEGRATION_REQUIREMENTS.items()
+        ):
+            for phrase in requirements:
+                with self.subTest(integration=name, phrase=phrase):
+                    self.assertNotEqual(
+                        errors({name: remove_contract_phrase(
+                            documents[name], phrase
+                        )}),
+                        [],
+                    )
+
+        for forbidden in THIRD_PARTY_INPUTS_UNSAFE_CLAIMS:
+            for name, body in documents.items():
+                with self.subTest(document=name, unsafe=forbidden):
+                    self.assertNotEqual(
+                        errors({name: f"{body}\n{forbidden}\n"}),
+                        [],
+                    )
+        for disclosure in THIRD_PARTY_INPUTS_DISCLOSURE_MARKERS:
+            with self.subTest(disclosure=disclosure):
+                self.assertNotEqual(
+                    errors({
+                        "third_party_inputs": (
+                            f"{documents['third_party_inputs']}\n{disclosure}\n"
+                        )
                     }),
                     [],
                 )

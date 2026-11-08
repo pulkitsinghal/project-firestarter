@@ -180,7 +180,9 @@ Design choices were checked against current primary documentation on
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE). Before publishing a newly stamped project,
-replace or remove that license if the intended ownership terms differ.
+replace or remove that license if the intended ownership terms differ. Your
+LICENSE does not extend to third-party inputs you redistribute, so audit their
+terms in [docs/THIRD_PARTY_INPUTS.md](docs/THIRD_PARTY_INPUTS.md).
 
 ## Firestarter workflow
 

@@ -1,0 +1,27 @@
+{{ project_name }} — License
+
+Copyright (c) {{ year }} {{ github_owner }}
+
+Declared license: {{ license }}
+
+This file is a starting placeholder. Replace it with the full text of your
+chosen license once you have audited your inputs (see below), and keep the
+`license` value in firestarter.config.json in sync with whatever you put here.
+The default is the most conservative choice on purpose: an unstated license is
+treated by others as "all rights reserved", and starting there means you never
+accidentally declare more than you hold.
+
+----------------------------------------------------------------------
+Scope of this license
+----------------------------------------------------------------------
+
+This license covers the first-party work in this repository and does not grant
+rights to redistribute third-party inputs this project consumes or the
+artifacts it derives from them. Vendored blobs, fonts, icon sets, sample or
+seed data, model weights, scraped fixtures, and container base images arrive
+under their own terms, which this license neither restates nor overrides.
+
+You cannot know your outbound license until you audit your inputs. Before you
+rely on the declaration above, enumerate what you redistribute and record the
+terms each input arrives under: see docs/THIRD_PARTY_INPUTS.md. Do not declare
+an outbound license broader than the narrowest input it covers.
