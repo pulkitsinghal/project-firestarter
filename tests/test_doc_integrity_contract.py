@@ -847,6 +847,9 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         "digest manifest",
                         "Content-addressed caches need a deterministic producer and an atomic publish",
                         "A test suite the gate does not name cannot exist",
+                        "Queued is not accepted",
+                        "does not consume its requested marker",
+                        "scripts/work-receipt.sh",
                     ):
                         self.assertIn(required, normalized_conventions, answers.name)
                     for forbidden in (
@@ -870,6 +873,11 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         conventions.count(
                             "### CI integrity: unexecuted is not green"
                         ),
+                        1,
+                        answers.name,
+                    )
+                    self.assertEqual(
+                        conventions.count("### Queued is not accepted"),
                         1,
                         answers.name,
                     )

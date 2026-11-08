@@ -71,6 +71,32 @@ they recover differently. Keep the policy OS-neutral and ship it dry-run-first s
 its judgement is auditable before it is trusted. The opt-in `service_supervisor`
 add-on models this ladder, observe-only; see its `docs/RECOVERY_LADDER.md`.
 
+### Queued is not accepted
+
+The same overstatement hides in a local feature's own acknowledgement. A
+producer that hands work to a consumer must not report it **queued** unless a
+real worker or a durable handoff has actually accepted it. If the consumer,
+worker, or connector is absent, the honest receipt is **blocked** (or **no-op**
+when there was nothing to do) — never *queued*, which tells the user their work
+is on its way when nothing will carry it.
+
+The wrong word is not the whole danger. If the producer also consumes the item's
+idempotency / "requested" marker while claiming queued, a later retry is skipped
+once the consumer appears, so the work is silently dropped. So a blocked receipt
+keeps the item retryable and **does not consume its requested marker**, and the
+later retry runs exactly once when the worker is there. Preserve existing user
+work without implying background completion will occur, and distinguish the
+receipts the UI must not blur: **no-op**, **blocked**, **partial**, **completed**
+— and **queued** only after real acceptance.
+
+`scripts/work-receipt.sh` is the generic reference: `classify` maps a situation
+to the one honest receipt and `check` fails a claimed receipt that overstates it
+(a *queued* claim with no consumer exits non-zero). It is pure — enum state in, a
+receipt out, no payload — so a local pipeline can wire it straight into its
+acknowledgement path and its tests. This is the deferred-work rule's sibling:
+[`DEFERRED_WORK.md`](DEFERRED_WORK.md) persists a durable record when work is
+parked; this proves the receipt handed back is never more than what happened.
+
 ### A test suite the gate does not name cannot exist
 
 The checks above ask whether a gate *ran*, saw *current* source, drove the
