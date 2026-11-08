@@ -254,6 +254,11 @@ def next_token(base_url: str, local_token: int = 0) -> int:
 
 
 def write_state(root: pathlib.Path, merged: dict, token: int, owner: str) -> None:
+    # Both files are written into the published site (root) and are gitignored, never
+    # committed: MANIFEST_FILE enumerates every published id, and an unlisted slug is the
+    # unguessable half of its URL, so a tracked list of slugs is credential-class (see
+    # docs/UNLISTED_PUBLISHING.md). They are regenerable — this rebuilds them and the live
+    # site is authoritative — so a clone never needs them.
     (root / STATE_FILE).write_text(json.dumps(
         {"token": token, "owner": owner, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
         indent=2) + "\n")

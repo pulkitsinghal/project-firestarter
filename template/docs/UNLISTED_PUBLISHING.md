@@ -40,6 +40,29 @@ Use all of these; none substitutes for another:
 The `convergent_deploy` add-on includes a copy-ready pair under
 `docs/examples/unlisted-site/` for hosts that honor `_headers` files.
 
+### The repository is a disclosure surface too
+
+The rules above protect the *published* URL. The **repository** that builds it leaks the
+same secret by a quieter route, and that is where this posture usually fails — not at the
+host, but in a committed file or a directory name.
+
+1. **A manifest of unlisted ids is credential-class.** A slug is the unguessable half of
+   an unlisted URL, so any tracked file that enumerates slugs — and worse, pairs each with
+   a human-readable title — is a link dump one repository-visibility flip from publishing
+   every link at once, with its history intact. Gitignore it. It is regenerable: the live
+   site is authoritative and the deploy rebuilds it, so a clone never needs it. The
+   `convergent_deploy` add-on's `_deployed.json` (the manifest) and `_deploy-state.json`
+   (the fence) are gitignored for exactly this reason.
+2. **A slug-named tracked directory is the same leak.** Publishing from a directory named
+   by the random token writes the token into the tree and the history; deleting the files
+   later does not retract the path from history. Publish from a stable directory and let
+   the deploy *target* carry the random segment, or accept that the token is repo-scoped
+   and rotate it as below.
+3. **Rotate the slug; do not rewrite history.** When peers hold clones and the repo is
+   private, a history rewrite is theatre — the same lesson `SECURITY_INCIDENT_ROTATION.md`
+   records, that untracking a secret is never rotation. Rotate the slug, accept the broken
+   link, and note which old slugs remain in history rather than pretending they are gone.
+
 ### Host mapping
 
 | Host | Where the rules live |
@@ -93,6 +116,8 @@ authorization, input limits, audit trail, and retention policy.
 ## Publication-safety checklist
 
 - [ ] The content is classified as public, unlisted, or authenticated review.
+- [ ] No tracked file enumerates unlisted slugs and no tracked directory is named by one;
+      the deploy manifest and fence are gitignored and regenerated, never committed.
 - [ ] Examples and tests contain only synthetic data—no unpublished findings, real
       reviewer identities, client data, production URLs, account IDs, or secrets.
 - [ ] Every hostname and provider origin has the intended access posture.
