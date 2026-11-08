@@ -125,6 +125,11 @@ and issues are derivative views and must not override it. Every record names an
 opaque content-independent `dw-` ID, status, dependency, and concrete completion
 test.
 
+A resumable pipeline's unvalidated unit is one such deferred item: never write it
+done from transport success alone — assert the payload's shape first, else record
+it failed or deferrable, so an error page is never cached as a permanent "done"
+marker. See [transport success is not a validated payload](docs/ENGINEERING_CONVENTIONS.md#transport-success-is-not-a-validated-payload).
+
 Never put credentials, private records, regulated data, identities, production
 identifiers, parked payloads, or competitive details in the ledger or tracker.
 Keep sensitive source material in its approved private/encrypted store and use

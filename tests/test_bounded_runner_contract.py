@@ -605,6 +605,17 @@ class BoundedRunnerStaticContract(unittest.TestCase):
             self.assertFalse((disabled / "tools" / "bounded_runner").exists())
             self.assertFalse((disabled / "docs" / "BOUNDED_RUNNER.md").exists())
 
+    def test_doc_states_resume_provenance_is_not_payload_validity(self) -> None:
+        doc = (ADDON / "docs" / "BOUNDED_RUNNER.md").read_text(encoding="utf-8")
+        normalized = " ".join(doc.split())
+        for required in (
+            "attests **provenance, not payload validity**",
+            "provenance-valid and content-invalid",
+            "assert a positive shape on the payload before it records `OK`",
+            "transport success is not a validated payload",
+        ):
+            self.assertIn(required, normalized, required)
+
     def test_public_artifacts_are_generic_and_contain_no_source_secrets(self) -> None:
         text = "\n".join(
             path.read_text(encoding="utf-8", errors="replace")

@@ -990,6 +990,12 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         "Queued is not accepted",
                         "does not consume its requested marker",
                         "scripts/work-receipt.sh",
+                        "Transport success is not a validated payload",
+                        "positive content assertion",
+                        "never derived from transport status",
+                        "failed or deferrable, never done",
+                        "An error page cached as success becomes a permanent",
+                        "provenance-valid but content-invalid",
                     ):
                         self.assertIn(required, normalized_conventions, answers.name)
                     for forbidden in (
@@ -1018,6 +1024,13 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         conventions.count("### Queued is not accepted"),
+                        1,
+                        answers.name,
+                    )
+                    self.assertEqual(
+                        conventions.count(
+                            "### Transport success is not a validated payload"
+                        ),
                         1,
                         answers.name,
                     )
@@ -1122,6 +1135,16 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                     )
                     self.assertIn(
                         "docs/SAFETY_MODEL.md", normalized_claude, answers.name
+                    )
+                    self.assertIn(
+                        "assert the payload's shape first",
+                        normalized_agents,
+                        answers.name,
+                    )
+                    self.assertIn(
+                        "A cached success is only as true as its payload",
+                        normalized_claude,
+                        answers.name,
                     )
 
                     subprocess.run(["git", "init", "-q"], cwd=output, check=True)

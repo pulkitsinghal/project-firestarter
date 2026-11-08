@@ -43,6 +43,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full layer rules.
   remote push, and receiver receipt separately. Verify the exact source,
   required artifacts, and continuation prerequisites on the receiving machine
   before declaring the handoff ready; list local-only or missing items.
+- **A cached success is only as true as its payload.** A resumable pipeline (a
+  cache, checkpoint, incremental sync, or resumable download) writes a done marker
+  only after a positive content assertion on the payload; transport success —
+  `2xx`, no exception, a non-empty body — is never sufficient, and a unit that
+  fails the assertion is recorded failed or deferrable, never done, so an error
+  page is not cached as a permanent success. See [transport success is not a
+  validated payload](docs/ENGINEERING_CONVENTIONS.md#transport-success-is-not-a-validated-payload).
 - **Hand features over with evidence.** Follow
   [docs/FEATURE_HANDOFF.md](docs/FEATURE_HANDOFF.md): every change needs exact
   acceptance, failure/recovery, and verification evidence. Visible UI work adds

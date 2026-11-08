@@ -148,6 +148,16 @@ Only `OK` and `SKIPPED` satisfy required coverage. Every declared `MISSING`
 unit fails coverage even when it was marked optional. An active or stale run
 lease also makes standalone `status`/`aggregate` fail.
 
+Fingerprint-bound resume attests **provenance, not payload validity**: `SKIPPED`
+proves this run's exact unit produced the prior record, never that the bytes that
+record points at are the payload the unit needed. A poisoned entry — an error
+page, a rate-limit notice, or a truncated body recorded as success — is
+provenance-valid and content-invalid, and resume will skip it forever. So a
+unit's own command and verification must assert a positive shape on the payload
+before it records `OK`; transport success is not a validated payload. See the
+`transport success is not a validated payload` convention in the stamped
+project's engineering conventions.
+
 ## Boundaries
 
 This module does not assign tasks, issue leases to agents, manage long-lived
