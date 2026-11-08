@@ -128,6 +128,10 @@ jobs:
               """) + loop_note + "\nEnd your response with exactly one of these on its own line " \
               "(no surrounding text): BLOCKING, NON-BLOCKING, or LGTM.\n\nDiff:\n" + diff
 
+          # Send only `model` and `max_tokens` here. Do not add a `temperature`,
+          # `top_p`, or `top_k` field.
+          # Current Claude models reject sampling parameters with a 400, and
+          # anthropic-version 2026-10-21 and later reject them on every model.
           payload = json.dumps({
               "model": os.environ.get("CLAUDE_MODEL", "{{ claude_model }}"),
               "max_tokens": 4096,

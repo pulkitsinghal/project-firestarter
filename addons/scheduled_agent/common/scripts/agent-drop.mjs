@@ -53,6 +53,10 @@ async function askClaude(prompt) {
       "x-api-key": ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
     },
+    // Send only `model` and `max_tokens` here. Do not add a `temperature`,
+    // `top_p`, or `top_k` field.
+    // Current Claude models reject sampling parameters with a 400, and
+    // anthropic-version 2026-10-21 and later reject them on every model.
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 2048,
