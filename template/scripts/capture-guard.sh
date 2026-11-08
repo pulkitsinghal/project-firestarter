@@ -51,12 +51,18 @@ command -v pgrep >/dev/null 2>&1 && enumerator_ok=1
 
 # capture_pattern <process-name pattern>  (called by capture-guard-patterns.sh).
 # An extended regex matched against the process NAME by pgrep. The pattern is
-# never echoed; a blank or flag-shaped declaration fails closed.
+# never echoed; a blank, whitespace-only, or flag-shaped declaration fails closed.
 capture_pattern() {
   _pattern=${1:-}
   case "$_pattern" in
-    "") echo "${prog}: BLOCK code=empty-pattern (do not capture)" >&3; exit 2 ;;
     -*) echo "${prog}: BLOCK code=unsafe-pattern (do not capture)" >&3; exit 2 ;;
+  esac
+  # A declaration with no non-whitespace character is blank in substance: counting
+  # it and handing " " to pgrep would report a hollow PASS for a pattern that
+  # matches nothing the author meant.
+  case "$_pattern" in
+    *[![:space:]]*) : ;;
+    *) echo "${prog}: BLOCK code=empty-pattern (do not capture)" >&3; exit 2 ;;
   esac
   patterns_count=$((patterns_count + 1))
   if [ "$enumerator_ok" -ne 1 ]; then
@@ -77,7 +83,10 @@ capture_pattern() {
   exit 2
 }
 # shellcheck source=/dev/null
-. "$patterns_file" 2>/dev/null || {
+# stdout is suppressed too: a project-owned declaration should only call
+# capture_pattern (which reports via fd 3), never write to stdout; squelching
+# both keeps the guard's output to its own fixed codes and counts.
+. "$patterns_file" >/dev/null 2>&1 || {
   echo "${prog}: BLOCK code=patterns-source-failed (do not capture)" >&3
   exit 2
 }
@@ -85,6 +94,15 @@ capture_pattern() {
 if [ "$patterns_count" -eq 0 ]; then
   echo "${prog}: SKIP patterns=0 (no sensitive-process patterns declared)"
   exit 0
+fi
+# Positive control: before trusting any "no match", confirm the enumerator can
+# match a universally-present process. A pgrep that exists but silently reports
+# "no match" for everything would otherwise turn a running sensitive process into
+# a hollow PASS -- the one enumeration failure the present/erroring checks above
+# cannot see. "." matches any process name, so on a live host it always matches;
+# an enumerator that cannot even match "." is broken, and its no-match is a lie.
+if [ "$enum_failed" -eq 0 ] && [ "$enumerator_ok" -eq 1 ]; then
+  pgrep '.' >/dev/null 2>&1 || enum_failed=1
 fi
 if [ "$enum_failed" -ne 0 ]; then
   echo "${prog}: BLOCK code=enumeration-unavailable patterns=${patterns_count} (do not capture)" >&3

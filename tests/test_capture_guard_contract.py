@@ -56,10 +56,14 @@ class CaptureGuardContract(unittest.TestCase):
         self.patterns.write_text(body, encoding="utf-8")
 
     def write_fake_pgrep(self) -> None:
+        # The guard's positive control probes a universally-present process with
+        # ".". A healthy enumerator (the default here) matches it; set
+        # FAKE_PGREP_CONTROL_RC to model a pgrep that is present but broken.
         fake = self.tool_bin / "pgrep"
         fake.write_text(
             "#!/bin/sh\n"
             'printf "%s\\n" "$*" >> "$FAKE_PGREP_LOG"\n'
+            'if [ "$1" = "." ]; then exit "${FAKE_PGREP_CONTROL_RC:-0}"; fi\n'
             'if [ -n "${FAKE_PGREP_STDOUT:-}" ]; then printf "%s\\n" "$FAKE_PGREP_STDOUT"; fi\n'
             'exit "${FAKE_PGREP_RC:-1}"\n',
             encoding="utf-8",
@@ -187,12 +191,47 @@ class CaptureGuardContract(unittest.TestCase):
         self.assertIn("patterns-file-missing", output)
 
     def test_unsourceable_patterns_file_fails_closed(self) -> None:
-        self.write_patterns('capture_pattern "ok"\n)\n')  # stray token -> parse error
+        # A sentinel ON the malformed line: bash's parse error would echo this
+        # line, so the source-time suppression must keep the declaration content
+        # out of the guard's output even when the file does not parse.
+        self.write_patterns(f'capture_pattern "{SENTINEL}" )\n')  # stray token -> parse error
         self.write_fake_pgrep()
         result = self.run_guard(env={"FAKE_PGREP_RC": "1"})
         output = self.combined(result)
         self.assertEqual(result.returncode, 2, output)
         self.assertIn("patterns-source-failed", output)
+        self.assertNotIn(SENTINEL, output)
+
+    def test_broken_enumerator_reporting_no_match_blocks_closed(self) -> None:
+        """A present pgrep that cannot even match a universally-present process is
+        broken or lying; its "no match" must never clear a declared process to PASS."""
+        self.write_patterns(f'capture_pattern "{SENTINEL}"\n')
+        self.write_fake_pgrep()
+        for control_rc in ("1", "2"):  # 1 = silently always "no match"; 2 = errors
+            with self.subTest(control_rc=control_rc):
+                result = self.run_guard(
+                    env={"FAKE_PGREP_RC": "1", "FAKE_PGREP_CONTROL_RC": control_rc}
+                )
+                output = self.combined(result)
+                self.assertEqual(result.returncode, 2, output)
+                self.assertIn("enumeration-unavailable", output)
+                self.assertNotIn(SENTINEL, output)
+                if self.pgrep_log.exists():
+                    self.pgrep_log.unlink()
+
+    def test_whitespace_only_declaration_fails_closed(self) -> None:
+        self.write_fake_pgrep()
+        for label, body in (
+            ("spaces", 'capture_pattern "   "\n'),
+            ("tab", 'capture_pattern "\t"\n'),
+            ("mixed", 'capture_pattern " \t "\n'),
+        ):
+            with self.subTest(case=label):
+                self.write_patterns(body)
+                result = self.run_guard(env={"FAKE_PGREP_RC": "1"})
+                output = self.combined(result)
+                self.assertEqual(result.returncode, 2, output)
+                self.assertIn("empty-pattern", output)
 
     # -- structural safety ----------------------------------------------
 
