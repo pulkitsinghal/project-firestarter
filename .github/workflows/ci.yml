@@ -149,6 +149,9 @@ jobs:
       - name: Verify the Anthropic payload-hygiene contract
         run: python3 -B -m unittest -v tests.test_anthropic_payload_hygiene_contract
 
+      - name: Verify the production-hosting doc contract
+        run: python3 -B -m unittest -v tests.test_hosting_contract
+
       - name: Verify the issue-closing intent guard
         run: python3 -B -m unittest -v tests.test_closing_keyword_guard
 
