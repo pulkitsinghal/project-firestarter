@@ -199,3 +199,13 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+----------------------------------------------------------------------
+Third-party inputs
+----------------------------------------------------------------------
+
+This license covers the first-party work in this repository and does not grant
+rights to redistribute third-party inputs this project consumes or the
+artifacts it derives from them. Those arrive under their own terms, which this
+license neither restates nor overrides. Audit them before you rely on it: see
+docs/THIRD_PARTY_INPUTS.md.

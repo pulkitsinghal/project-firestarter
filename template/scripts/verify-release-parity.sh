@@ -444,14 +444,25 @@ if [ "$vendor_option_count" -eq 3 ]; then
       '#'*"$tab"*) record_violation; continue ;;
       '#'*) continue ;;
     esac
+    # Each row carries three tab-separated fields: the sha256 digest, the
+    # vendored path, and a non-empty terms note recording the licence the
+    # bytes arrive under. The digest proves the bytes did not drift; the terms
+    # field records whether they may be redistributed. A row missing the terms
+    # field, or carrying an empty or whitespace-only one, is a violation.
     case "$line" in
-      *"$tab"*) ;;
+      *"$tab"*"$tab"*) ;;
       *) record_violation; continue ;;
     esac
     expected_digest=${line%%"$tab"*}
-    relative_path=${line#*"$tab"}
-    case "$relative_path" in
+    vendor_rest=${line#*"$tab"}
+    relative_path=${vendor_rest%%"$tab"*}
+    vendor_terms=${vendor_rest#*"$tab"}
+    case "$vendor_terms" in
       *"$tab"*) record_violation; continue ;;
+    esac
+    case "$vendor_terms" in
+      *[![:space:]]*) ;;
+      *) record_violation; continue ;;
     esac
     case "$expected_digest" in
       *[!0-9a-f]*) record_violation; continue ;;

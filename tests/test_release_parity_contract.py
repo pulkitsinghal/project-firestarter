@@ -73,7 +73,7 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
         digest = hashlib.sha256(body).hexdigest()
         self.write_text(
             "config/vendor.sha256.tsv",
-            f"{digest}\tnested/library.bin\n",
+            f"{digest}\tnested/library.bin\tMIT\n",
         )
         return [
             "--vendor-manifest",
@@ -83,6 +83,55 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
             "--vendor-release",
             "dist/vendor",
         ]
+
+    def test_vendor_manifest_requires_a_terms_field(self) -> None:
+        body = b"synthetic vendor bytes\x00\n"
+        self.write_bytes("vendor/source/nested/library.bin", body)
+        self.write_bytes("dist/vendor/nested/library.bin", body)
+        digest = hashlib.sha256(body).hexdigest()
+        vendor_args = [
+            "--vendor-manifest",
+            "config/vendor.sha256.tsv",
+            "--vendor-source",
+            "vendor/source",
+            "--vendor-release",
+            "dist/vendor",
+        ]
+
+        # A three-field row (digest, path, terms) passes.
+        self.write_text(
+            "config/vendor.sha256.tsv",
+            f"{digest}\tnested/library.bin\tMIT\n",
+        )
+        result = self.run_guard(*vendor_args)
+        self.assertEqual(result.returncode, 0, self.combined(result))
+        self.assertIn("vendor=1", result.stdout)
+
+        # The legacy two-field row carries no terms and is now rejected.
+        self.write_text(
+            "config/vendor.sha256.tsv",
+            f"{digest}\tnested/library.bin\n",
+        )
+        self.assertEqual(self.run_guard(*vendor_args).returncode, 1)
+
+        # An empty or whitespace-only terms field is rejected.
+        self.write_text(
+            "config/vendor.sha256.tsv",
+            f"{digest}\tnested/library.bin\t\n",
+        )
+        self.assertEqual(self.run_guard(*vendor_args).returncode, 1)
+        self.write_text(
+            "config/vendor.sha256.tsv",
+            f"{digest}\tnested/library.bin\t   \n",
+        )
+        self.assertEqual(self.run_guard(*vendor_args).returncode, 1)
+
+        # A fourth tab-separated field is rejected.
+        self.write_text(
+            "config/vendor.sha256.tsv",
+            f"{digest}\tnested/library.bin\tMIT\textra\n",
+        )
+        self.assertEqual(self.run_guard(*vendor_args).returncode, 1)
 
     def test_text_and_binary_pairs_require_exact_bytes(self) -> None:
         args = self.seed_pair(b"same\r\nbytes\x00", b"same\r\nbytes\x00")
@@ -236,7 +285,7 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
 
         self.write_text(
             "config/vendor.sha256.tsv",
-            f"{'0' * 64}\tnested/library.bin\n",
+            f"{'0' * 64}\tnested/library.bin\tMIT\n",
         )
         result = self.run_guard(*args)
         self.assertEqual(result.returncode, 1)
@@ -249,11 +298,11 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
         self.write_bytes(f"dist/vendor/{private_name}", body)
         self.write_text(
             "config/vendor.sha256.tsv",
-            "not-a-hash\tmalformed.bin\n"
-            f"{digest}\t{private_name}\n"
-            f"{digest}\t{private_name.lower()}\n"
-            f"{digest}\t../escape.bin\n"
-            f"{digest}\tmissing.bin\n",
+            "not-a-hash\tmalformed.bin\tMIT\n"
+            f"{digest}\t{private_name}\tMIT\n"
+            f"{digest}\t{private_name.lower()}\tMIT\n"
+            f"{digest}\t../escape.bin\tMIT\n"
+            f"{digest}\tmissing.bin\tMIT\n",
         )
         args = [
             "--vendor-manifest",
@@ -272,7 +321,7 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
 
         self.write_text(
             "config/vendor.sha256.tsv",
-            f"{digest}\t{private_name}\n",
+            f"{digest}\t{private_name}\tMIT\n",
         )
         try:
             os.symlink(
@@ -478,8 +527,8 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
         self.write_bytes("dist/vendor/second.bin", second)
         self.write_text(
             "config/vendor.sha256.tsv",
-            f"{first_digest}\tnested/library.bin\n"
-            f"{hashlib.sha256(second).hexdigest()}\tsecond.bin\n",
+            f"{first_digest}\tnested/library.bin\tMIT\n"
+            f"{hashlib.sha256(second).hexdigest()}\tsecond.bin\tMIT\n",
         )
         result = self.run_with_manifest_removed_after_open(
             "config/vendor.sha256.tsv", vendor_args
@@ -692,7 +741,7 @@ class ReleaseParityBehaviorTests(unittest.TestCase):
         )
         self.write_text(
             "config/vendor.sha256.tsv",
-            f"{'0' * 64}\tnested/library.bin\n",
+            f"{'0' * 64}\tnested/library.bin\tMIT\n",
         )
         digest_needle = (
             '[ "$actual_digest" = "$expected_digest" ] || record_violation'

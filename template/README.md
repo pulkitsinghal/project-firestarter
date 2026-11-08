@@ -35,3 +35,10 @@ See [AGENTS.md](AGENTS.md) (full engineering brief), [CONTRIBUTING.md](CONTRIBUT
 
 The AI reviewer needs `ANTHROPIC_API_KEY`. Never paste secret values anywhere —
 set them with `gh secret set`. See [docs/ci-secrets.md](docs/ci-secrets.md).
+
+## License & third-party inputs
+
+See [LICENSE](LICENSE) for the outbound terms. Your LICENSE does not extend to
+third-party inputs you redistribute — fonts, datasets, model weights, vendored
+blobs — so audit their terms before you rely on it:
+[docs/THIRD_PARTY_INPUTS.md](docs/THIRD_PARTY_INPUTS.md).
