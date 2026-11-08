@@ -49,11 +49,13 @@ jobs:
             test -x "$generated/scripts/mutation-check.sh"
             test -x "$generated/scripts/defer-work.sh"
             test -x "$generated/scripts/work-receipt.sh"
+            test -x "$generated/scripts/capture-guard.sh"
             test -x "$generated/scripts/check-docs.sh"
             test -x "$generated/scripts/check-closing-keywords.sh"
             test -x "$generated/scripts/gate-selftest.sh"
             test -f "$generated/scripts/tests/test-gate-selftest.sh"
             test -f "$generated/scripts/mutation-cases.sh"
+            test -f "$generated/scripts/capture-guard-patterns.sh"
             test -f "$generated/docs/DEFERRED_WORK.md"
             grep -Fq 'docs/DEFERRED_WORK.md' "$generated/AGENTS.md"
             grep -Fq 'docs/DEFERRED_WORK.md' "$generated/CLAUDE.md"
@@ -167,6 +169,9 @@ jobs:
 
       - name: Verify the queued-is-not-accepted receipt contract
         run: python3 -B -m unittest -v tests.test_work_receipt_contract
+
+      - name: Verify the pre-capture workstation-hygiene contract
+        run: python3 -B -m unittest -v tests.test_capture_guard_contract
 
       - name: Verify the bounded-execution runner contract
         run: python3 -B -m unittest -v tests.test_bounded_runner_contract
@@ -578,6 +583,8 @@ jobs:
             "$VENV/bin/python" -B -m unittest -v tests.test_deferred_work_contract
           WORK_RECEIPT_BASH=/bin/bash \
             "$VENV/bin/python" -B -m unittest -v tests.test_work_receipt_contract
+          CAPTURE_GUARD_BASH=/bin/bash \
+            "$VENV/bin/python" -B -m unittest -v tests.test_capture_guard_contract
           DOC_CHECK_BASH=/bin/bash \
             "$VENV/bin/python" -B -m unittest -v tests.test_doc_integrity_contract
           RELEASE_PARITY_BASH=/bin/bash \

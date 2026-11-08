@@ -21,6 +21,18 @@ the behavior from a diff.
    workstation content in screenshots, recordings, logs, captions, or examples.
    If a feature handles private data, demonstrate it with synthetic stand-ins
    and verify storage/access controls separately without copying the real data.
+   Before any host-side screenshot or computer-use capture, run the
+   `scripts/capture-guard.sh` precondition and **prefer a window-targeted
+   capture** over a full-screen or full-desktop grab. The guard reads a
+   project-owned list of sensitive-process name patterns
+   (`scripts/capture-guard-patterns.sh`, seeded empty) and **fails closed** — the
+   capture does not proceed — when a declared process is running or the
+   workstation cannot be enumerated at all; it emits only fixed rule codes and
+   counts, never a process name, window title, or path. Targeting the window
+   under test excludes bystander content structurally, instead of relying on
+   remembering to close things at the one moment the rule is easiest to forget.
+   The in-container storyboard harness is out of scope — it is headless and
+   app-only, so there is no bystander surface.
 6. **Self-contained handoff.** Lead with the outcome, identify known limits and
    rollback, and name the next action that requires user authority.
 

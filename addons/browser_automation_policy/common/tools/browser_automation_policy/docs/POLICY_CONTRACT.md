@@ -8,6 +8,16 @@ a future executor. No observer, browser extension, input driver, executor,
 network client, credential flow, screenshot/OCR path, or deployment is
 included.
 
+This add-on is the one that drives a real browser on the host once it graduates
+past v0.1. When a future executor authorized here runs on a developer
+workstation and takes a host-side screenshot or OCR capture, that capture is
+subject to the pre-capture workstation-hygiene precondition in
+`docs/FEATURE_HANDOFF.md` §5 (`scripts/capture-guard.sh`): enumerate the
+project-declared sensitive processes and **fail closed**, and prefer a
+window-targeted capture. v0.1 includes no such path, so the precondition does
+not yet bind here; the cross-reference keeps the boundary explicit for the
+executor that will take one.
+
 The design was informed by a 2026-07-28 public-source browser-automation
 research checkpoint. That checkpoint was treated as untrusted design input:
 the committed schemas, finite state, and adversarial tests in this package are
