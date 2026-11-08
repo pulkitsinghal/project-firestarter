@@ -5,6 +5,7 @@ it, and take it live. Everything runs in Docker — no host SDKs.
 
 > This is the *checklist*. For **when a deploy may ship without a separate owner
 > sign-off** (vs. what stays owner-only), see [DEPLOY_POLICY.md](DEPLOY_POLICY.md).
+> For **where to host each piece in production**, see [HOSTING.md](HOSTING.md).
 
 ## 1. Run it (clean slate)
 

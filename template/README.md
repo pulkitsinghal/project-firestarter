@@ -27,6 +27,7 @@ App: http://localhost:{{ port_web }} · API: http://localhost:{{ port_api }}
 - **Conventional Commits**, enforced by the `commit-msg` hook and CI.
 - **AI-reviewed PRs.** `ai-pr-review.yml` posts a verdict; `auto-merge.yml`
   squash-merges green PRs labelled `auto-merge`.
+- **Managed-first hosting.** Where each piece runs in production: [docs/HOSTING.md](docs/HOSTING.md).
 
 See [AGENTS.md](AGENTS.md) (full engineering brief), [CONTRIBUTING.md](CONTRIBUTING.md)
 (short version), and [ARCHITECTURE.md](ARCHITECTURE.md).
