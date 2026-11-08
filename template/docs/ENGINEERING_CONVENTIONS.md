@@ -97,6 +97,32 @@ acknowledgement path and its tests. This is the deferred-work rule's sibling:
 [`DEFERRED_WORK.md`](DEFERRED_WORK.md) persists a durable record when work is
 parked; this proves the receipt handed back is never more than what happened.
 
+### Transport success is not a validated payload
+
+The most durable form of the overstatement is a persisted one. A resumable
+pipeline — a cache, a checkpoint, an incremental sync, a resumable download, a
+build-artifact cache, any "skip what we already have" step — writes a per-unit
+marker so the next run skips completed work. If that marker is keyed on
+**transport success** — bytes came back, no exception was raised, the body was
+non-empty, the status was `2xx` — then a rate-limit notice, an interstitial, a
+login redirect, a truncated body, or a provider error page all satisfy the test
+and are written **as done**. Every later run then skips the poisoned entry, so
+the pipeline is permanently, silently wrong and grows *more* confident with each
+run: the failure is invisible precisely because the resume logic is working
+correctly. An error page cached as success becomes a permanent "done" marker.
+
+So a cache, checkpoint, or resume entry is written only after a **positive
+content assertion** on the payload — the shape the unit actually needed is
+present — and the marker is **never derived from transport status**. A unit that
+fails the assertion is recorded as **failed or deferrable, never done**; that is
+exactly a deferred-work leaf record, so [`DEFERRED_WORK.md`](DEFERRED_WORK.md)
+composes with this precept instead of overlapping. Pair the assertion with a rate
+floor so the pipeline stops manufacturing the error pages in the first place.
+This is distinct from resume *provenance*: fingerprint-bound resume evidence (the
+opt-in `bounded_runner` add-on) proves *this run produced the marker*, not that
+the payload it attests is valid — a poisoned entry is provenance-valid but
+content-invalid, so the unit's own success predicate must assert content.
+
 ### A test suite the gate does not name cannot exist
 
 The checks above ask whether a gate *ran*, saw *current* source, drove the
