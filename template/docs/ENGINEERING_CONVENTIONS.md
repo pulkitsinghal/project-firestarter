@@ -373,8 +373,11 @@ make release-parity \
 ```
 
 The pair manifest is `source/path<TAB>release/path`. The vendor manifest is
-`lowercase-sha256<TAB>path-relative-to-vendor-roots`; it must describe the exact
-regular-file inventory in both roots. Missing, extra, duplicate, malformed,
+`lowercase-sha256<TAB>path-relative-to-vendor-roots<TAB>terms`, where `terms` is
+the redistribution terms the blob arrives under (required and non-empty, so
+provenance rides beside integrity — a row missing it, carrying empty or
+whitespace-only terms, or carrying a fourth field is a malformed row); it must
+describe the exact regular-file inventory in both roots. Missing, extra, duplicate, malformed,
 case-drifted, absolute/traversing, symlinked, unreadable, hash-mismatched, and
 byte-mismatched entries fail closed; identical, nested, or hard-linked source and
 release boundaries are also rejected as false proof. Diagnostics print no paths,

@@ -2,7 +2,10 @@
 # Fail-closed, content-suppressed release parity for deterministic assets.
 #
 # Pair manifest:   source/path<TAB>release/path
-# Vendor manifest: lowercase-sha256<TAB>path-relative-to-vendor-roots
+# Vendor manifest: lowercase-sha256<TAB>path-relative-to-vendor-roots<TAB>terms
+#   terms is the redistribution terms the blob arrives under and is required and
+#   non-empty, so provenance rides beside integrity; a row missing it, carrying
+#   empty or whitespace-only terms, or carrying a fourth field is a malformed row.
 # Blank lines and tab-free lines beginning with # are ignored. A tab-bearing #
 # line is a malformed row, never a comment. Paths are repository-relative,
 # printable ASCII, forward-slash paths with no . or .. segments.
