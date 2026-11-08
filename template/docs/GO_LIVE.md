@@ -57,3 +57,12 @@ First classify the application, database, and external-effect lanes with
 [docs/ROLLBACK.md](ROLLBACK.md). Prefer a forward corrective migration when the
 database is involved—see [docs/migration-rollback.md](migration-rollback.md)—and
 write a blameless postmortem under `docs/postmortems/`.
+
+## 5. When you take it down
+
+Teardown closes the lifecycle this runbook opens. Scope it to every control plane
+provisioning touched, not just the primary resource, so no DNS record, grant,
+enrollment, webhook, or CI secret is left standing after the resource is gone.
+Spend reaching zero is not proof of teardown. See
+[docs/TEARDOWN.md](TEARDOWN.md); teardown of a provisioned resource is an
+owner-gated, destructive external action, not a self-authorized one.

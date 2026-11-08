@@ -277,6 +277,73 @@ ROLLBACK_DISCLOSURE_SENTINELS = (
     "provider-account-identifier.example",
     "competitive-implementation-detail.example",
 )
+TEARDOWN_HEADING = (
+    "# Teardown — scope it to every control plane, not the primary resource"
+)
+TEARDOWN_START = "<!-- teardown-lane:start -->"
+TEARDOWN_END = "<!-- teardown-lane:end -->"
+TEARDOWN_REQUIREMENTS = (
+    "Teardown is scoped to the union of control planes provisioning touched, "
+    "not the primary resource",
+    "Enumerate that union at provisioning time",
+    "make teardown assert each plane is gone rather than assuming the primary "
+    "delete cascaded",
+    "Teardown of a provisioned resource is an owner-gated, live, destructive "
+    "external action",
+    "route it through the `owner-action` hand-off and the preview-first "
+    "irreversible-action precept",
+    "A trusted identity must not outlive the resource it was issued for",
+    "The inventory and reality have diverged, silently",
+    "Spend reaching zero is not proof of teardown",
+    "a credential that never leaked and was never revoked",
+    "the same standing-authority risk, opposite trigger",
+    "What provisioning created",
+    "How to verify it is gone",
+    "Who can delete it",
+    "DNS records",
+    "TLS certificates and their ACME accounts",
+    "firewall / security-group rules",
+    "mesh or VPN enrollments",
+    "service accounts and their keys",
+    "OAuth app grants",
+    "container or artifact-registry images",
+    "object-storage buckets",
+    "log sinks",
+    "monitoring targets",
+    "webhooks",
+    "scheduled jobs",
+    "CI secrets",
+    "the sharing and access-grant plane",
+    "An unverifiable plane is recorded as outstanding, never as clean",
+    "A plane that was never checked is outstanding, not clean",
+)
+TEARDOWN_INTEGRATION_REQUIREMENTS = {
+    "deploy": (
+        "names its control planes at provisioning time",
+        "teardown reads an inventory instead of reconstructing one from memory",
+    ),
+    "go-live": (
+        "Scope it to every control plane",
+        "owner-gated, destructive external action, not a self-authorized one",
+    ),
+    "agents": (
+        "Route it through the preview-first precept below and the",
+        "residue inventory and fail-closed clauses",
+    ),
+}
+TEARDOWN_UNSAFE_CLAIMS = (
+    "spend reaching zero proves teardown",
+    "the primary delete cascades to every plane",
+    "deleting the primary resource cascades to every plane",
+    "an offline device is harmless",
+    "an unverifiable plane is clean",
+    "teardown is self-authorized",
+)
+TEARDOWN_DISCLOSURE_MARKERS = (
+    "github.com/",
+    "multi-homing",
+    "source:",
+)
 
 
 def platform_precept_contract_errors(conventions: str, agents: str) -> list[str]:
@@ -420,6 +487,58 @@ def rollback_contract_errors(
     for disclosure in ROLLBACK_CANONICAL_DISCLOSURE_MARKERS:
         if disclosure in rollback.lower():
             errors.append(f"rollback-disclosure:{disclosure}")
+    return errors
+
+
+def teardown_contract_errors(
+    teardown: str,
+    agents: str,
+    deploy_policy: str,
+    go_live: str,
+) -> list[str]:
+    errors: list[str] = []
+    for marker in (TEARDOWN_START, TEARDOWN_END):
+        if teardown.count(marker) != 1:
+            errors.append(f"marker:{marker}")
+    if teardown.count(TEARDOWN_HEADING) != 1:
+        errors.append("heading")
+    if errors:
+        return errors
+
+    start_index = teardown.index(TEARDOWN_START)
+    heading_index = teardown.index(TEARDOWN_HEADING)
+    end_index = teardown.index(TEARDOWN_END)
+    if not heading_index < start_index < end_index:
+        return ["boundary-order"]
+    section = teardown[start_index + len(TEARDOWN_START) : end_index]
+    normalized_section = " ".join(section.split())
+    for requirement in TEARDOWN_REQUIREMENTS:
+        if requirement not in normalized_section:
+            errors.append(f"teardown:{requirement}")
+
+    integrations = {
+        "deploy": deploy_policy,
+        "go-live": go_live,
+        "agents": agents,
+    }
+    for name, body in integrations.items():
+        normalized_body = " ".join(body.split())
+        for requirement in TEARDOWN_INTEGRATION_REQUIREMENTS[name]:
+            if requirement not in normalized_body:
+                errors.append(f"{name}:{requirement}")
+
+    combined_lower = "\n".join((
+        teardown,
+        agents,
+        deploy_policy,
+        go_live,
+    )).lower()
+    for forbidden in TEARDOWN_UNSAFE_CLAIMS:
+        if forbidden in combined_lower:
+            errors.append(f"unsafe:{forbidden}")
+    for disclosure in TEARDOWN_DISCLOSURE_MARKERS:
+        if disclosure in teardown.lower():
+            errors.append(f"teardown-disclosure:{disclosure}")
     return errors
 
 
@@ -744,6 +863,23 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
             raise AssertionError(f"{context}: rollback contract errors: {errors}")
 
     @staticmethod
+    def assert_teardown_contract(output: Path, context: str) -> None:
+        teardown_path = output / "docs" / "TEARDOWN.md"
+        if not teardown_path.exists():
+            raise AssertionError(f"{context}: generated docs/TEARDOWN.md is missing")
+        teardown = teardown_path.read_text(encoding="utf-8")
+        if "{{" in teardown:
+            raise AssertionError(f"{context}: teardown lane contains a raw token")
+        errors = teardown_contract_errors(
+            teardown,
+            (output / "AGENTS.md").read_text(encoding="utf-8"),
+            (output / "docs" / "DEPLOY_POLICY.md").read_text(encoding="utf-8"),
+            (output / "docs" / "GO_LIVE.md").read_text(encoding="utf-8"),
+        )
+        if errors:
+            raise AssertionError(f"{context}: teardown contract errors: {errors}")
+
+    @staticmethod
     def generate_and_check(output: Path, answers: Path, *settings: str) -> None:
         command = [
             "python3",
@@ -762,6 +898,9 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
             text=True,
         )
         DocIntegrityGeneratorTests.assert_rollback_contract(
+            output, f"{answers.name} {settings}"
+        )
+        DocIntegrityGeneratorTests.assert_teardown_contract(
             output, f"{answers.name} {settings}"
         )
         subprocess.run(["git", "init", "-q"], cwd=output, check=True)
@@ -797,6 +936,7 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                         text=True,
                     )
                     self.assert_rollback_contract(output, answers.name)
+                    self.assert_teardown_contract(output, answers.name)
                     script = output / "scripts" / "check-docs.sh"
                     self.assertTrue(script.exists())
                     self.assertTrue(os.access(script, os.X_OK))
@@ -1277,6 +1417,82 @@ class DocIntegrityGeneratorTests(unittest.TestCase):
                 self.assertNotEqual(
                     errors({
                         "rollback": f"{documents['rollback']}\n{disclosure}\n"
+                    }),
+                    [],
+                )
+
+    def test_teardown_lane_is_mutation_proved(self) -> None:
+        documents = {
+            "teardown": (ROOT / "template" / "docs" / "TEARDOWN.md").read_text(
+                encoding="utf-8"
+            ),
+            "agents": (ROOT / "template" / "AGENTS.md").read_text(
+                encoding="utf-8"
+            ),
+            "deploy": (
+                ROOT / "template" / "docs" / "DEPLOY_POLICY.md"
+            ).read_text(encoding="utf-8"),
+            "go-live": (ROOT / "template" / "docs" / "GO_LIVE.md").read_text(
+                encoding="utf-8"
+            ),
+        }
+
+        def errors(overrides: dict[str, str] | None = None) -> list[str]:
+            candidate = {**documents, **(overrides or {})}
+            return teardown_contract_errors(
+                candidate["teardown"],
+                candidate["agents"],
+                candidate["deploy"],
+                candidate["go-live"],
+            )
+
+        self.assertEqual(errors(), [])
+
+        for phrase in (TEARDOWN_START, TEARDOWN_END, *TEARDOWN_REQUIREMENTS):
+            with self.subTest(teardown_phrase=phrase):
+                self.assertNotEqual(
+                    errors({"teardown": remove_contract_phrase(
+                        documents["teardown"], phrase
+                    )}),
+                    [],
+                )
+
+        swapped_markers = documents["teardown"].replace(
+            TEARDOWN_START, "temporary-teardown-boundary", 1
+        ).replace(TEARDOWN_END, TEARDOWN_START, 1)
+        swapped_markers = swapped_markers.replace(
+            "temporary-teardown-boundary", TEARDOWN_END, 1
+        )
+        self.assertNotEqual(errors({"teardown": swapped_markers}), [])
+
+        heading_outside = documents["teardown"].replace(
+            TEARDOWN_HEADING, "removed-teardown-heading", 1
+        )
+        heading_outside = f"{heading_outside}\n{TEARDOWN_HEADING}\n"
+        self.assertNotEqual(errors({"teardown": heading_outside}), [])
+
+        for name, requirements in TEARDOWN_INTEGRATION_REQUIREMENTS.items():
+            for phrase in requirements:
+                with self.subTest(integration=name, phrase=phrase):
+                    self.assertNotEqual(
+                        errors({name: remove_contract_phrase(
+                            documents[name], phrase
+                        )}),
+                        [],
+                    )
+
+        for forbidden in TEARDOWN_UNSAFE_CLAIMS:
+            for name, body in documents.items():
+                with self.subTest(document=name, unsafe=forbidden):
+                    self.assertNotEqual(
+                        errors({name: f"{body}\n{forbidden}\n"}),
+                        [],
+                    )
+        for disclosure in TEARDOWN_DISCLOSURE_MARKERS:
+            with self.subTest(disclosure=disclosure):
+                self.assertNotEqual(
+                    errors({
+                        "teardown": f"{documents['teardown']}\n{disclosure}\n"
                     }),
                     [],
                 )

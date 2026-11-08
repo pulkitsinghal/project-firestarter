@@ -99,6 +99,20 @@ The policy loosens *approval*, not these hard lines:
 - **Account / billing.** Creating or changing hosting / payment / app-store
   accounts, plans, DNS, or billing stays owner-only.
 
+## Tearing it back down
+
+Deploy and teardown are two ends of one lifecycle. Whatever a deploy path stands
+up, it **names its control planes at provisioning time** — the DNS record, TLS
+certificate, mesh enrollment, service account, OAuth grant, webhook, bucket,
+scheduled job, log sink, and CI secret it creates alongside the primary
+resource — so teardown reads an inventory instead of reconstructing one from
+memory. Deleting the primary resource does not revoke those grants; a trusted
+identity that outlives the resource it was issued for is a standing authority
+attached to nothing you control, and "spend stopped" is not "torn down."
+Teardown of a provisioned resource is itself an owner-gated, destructive external
+action that routes through the preview-first irreversible-action precept, never
+the self-authorized lane. See [`TEARDOWN.md`](TEARDOWN.md).
+
 ## Mechanism (reference)
 
 Fill in {{ project_name }}'s actual command and target here (e.g. `make deploy`

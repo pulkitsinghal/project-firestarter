@@ -232,6 +232,15 @@ and optional history cleanup stay owner actions.
   ```
   Reuse an existing `owner-action` issue if one already tracks the task instead of
   filing a duplicate.
+- **Tearing a provisioned resource down is owner-gated too, and scoped to every
+  control plane provisioning touched — not just the primary object.** Deleting the
+  VM, container, or deploy does not revoke the DNS record, TLS cert, mesh
+  enrollment, service account, OAuth grant, webhook, or CI secret that standing it
+  up created; a trusted identity that outlives the resource it was issued for is a
+  standing grant attached to nothing you control, and spend reaching zero is not
+  proof of teardown. Route it through the preview-first precept below and the
+  `owner-action` hand-off above, and read [docs/TEARDOWN.md](docs/TEARDOWN.md)
+  first.
 
 <!-- irreversible-action-precept:start -->
 ### Irreversible external actions are preview-first (a precept)
@@ -587,3 +596,5 @@ Adding a toolchain means: add a profiled Compose service, pin the image, add
 - Project-earned rules and their evidence: `docs/PRACTICES.md`
 - Whole-system safety model (per-layer resting state and failure direction, how
   controls interact, dated interaction gaps): `docs/SAFETY_MODEL.md`
+- Teardown scoped to every control plane provisioning touched (owner-gated;
+  residue inventory and fail-closed clauses): `docs/TEARDOWN.md`
