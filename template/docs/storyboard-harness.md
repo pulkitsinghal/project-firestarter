@@ -16,6 +16,14 @@ right. It runs:
 It is intentionally **non-blocking** — it never fails a PR. It exists so a human
 (or agent) can *see* what changed without booting the stack locally.
 
+> **Pre-capture hygiene boundary.** This harness is out of scope for the
+> `scripts/capture-guard.sh` pre-capture precondition (FEATURE_HANDOFF.md §5):
+> it is headless, runs in-container, and drives only the app artifact, so it has
+> no bystander surface to leak. The precondition applies to **host-side**
+> captures — a real-browser add-on, a headed desktop E2E, or any agent
+> screenshot taken on a developer workstation — where other open windows,
+> notification banners, or a second monitor can be caught in frame.
+
 `make storyboard` is the canonical seam. Server-backed stacks keep their normal
 HMR service for local development but give the storyboard a separate
 production-build/start target with readiness. Static/package stacks clean and
