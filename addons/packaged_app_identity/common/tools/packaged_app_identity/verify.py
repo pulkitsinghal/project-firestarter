@@ -58,7 +58,15 @@ def _load_plist(path: str):
     except FileNotFoundError:
         print("error: property list not found at the given path", file=sys.stderr)
         return None
-    except (OSError, ValueError, plistlib.InvalidFileException):
+    except Exception:
+        # Any failure to open or parse the file is "unreadable or malformed" to
+        # this tool, and must stay a bounded exit-2 error rather than a traceback.
+        # plistlib raises format-specific types that are NOT all ValueError
+        # subclasses -- a malformed XML plist (with an <?xml header) surfaces an
+        # xml.parsers.expat.ExpatError, and a malformed binary plist can raise
+        # struct.error -- so we catch broadly at this parse boundary (never
+        # BaseException, so KeyboardInterrupt/SystemExit still propagate) and
+        # never echo the file's contents.
         print("error: property list is unreadable or malformed", file=sys.stderr)
         return None
     if not isinstance(data, dict):
@@ -115,8 +123,16 @@ def cmd_usage_description(args) -> int:
 
 
 def cmd_identity(args) -> int:
+    running_exec = (args.running_exec or "").strip()
+    bundle = (args.bundle or "").strip()
     running_id = (args.running_identity or "").strip()
     bundle_id = (args.bundle_identity or "").strip()
+    if not running_exec or not bundle:
+        print(
+            "error: --running-exec and --bundle must be non-empty",
+            file=sys.stderr,
+        )
+        return 2
     if not running_id or not bundle_id:
         print(
             "error: --running-identity and --bundle-identity must be non-empty",
@@ -125,11 +141,11 @@ def cmd_identity(args) -> int:
         return 2
 
     problems = []
-    if not _inside(args.running_exec, args.bundle):
+    if not _inside(running_exec, bundle):
         problems.append(
             "running executable is outside the installed bundle "
-            f"(running={os.path.basename(os.path.normpath(args.running_exec))}, "
-            f"bundle={os.path.basename(os.path.normpath(args.bundle))})"
+            f"(running={os.path.basename(os.path.normpath(running_exec))}, "
+            f"bundle={os.path.basename(os.path.normpath(bundle))})"
         )
     if running_id != bundle_id:
         problems.append(

@@ -220,6 +220,21 @@ class PackagedAppIdentityContract(unittest.TestCase):
                               self._plist_file("this is not a property list"))
         self.assertEqual(result.returncode, 2)
 
+    def test_malformed_xml_with_header_is_bounded_not_a_traceback(self) -> None:
+        # A malformed plist that still carries an <?xml header routes through the
+        # XML parser (expat), which raises a type that is NOT a ValueError; the
+        # loader must still exit 2 with a bounded message -- never a traceback,
+        # and never an echo of the (malformed) body. Both subcommands share the
+        # loader, so both are checked. The secret is planted in the broken body.
+        malformed = f'<?xml version="1.0"?>\n<plist version="1.0"><dict><key>{SECRET}</key><string>x\n'
+        for sub, flag in (("entitlement", "--entitlements"),
+                          ("usage-description", "--info-plist")):
+            with self.subTest(subcommand=sub):
+                result = self._verify(sub, flag, self._plist_file(malformed))
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertNotIn(SECRET, result.stdout + result.stderr)
+
     # -- usage description -----------------------------------------------------
 
     def test_usage_description_present_passes(self) -> None:
@@ -281,6 +296,16 @@ class PackagedAppIdentityContract(unittest.TestCase):
             "--running-exec", "/Applications/Example.app/Contents/MacOS/Example",
             "--bundle", "/Applications/Example.app",
             "--running-identity", "", "--bundle-identity", "2.3.1+ab12cd",
+        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_identity_empty_paths_are_usage_error(self) -> None:
+        # Empty --running-exec/--bundle must not make the containment check
+        # vacuously true (normpath("") -> "."); guard them symmetrically.
+        result = self._verify(
+            "identity",
+            "--running-exec", "", "--bundle", "",
+            "--running-identity", "2.3.1+ab12cd", "--bundle-identity", "2.3.1+ab12cd",
         )
         self.assertEqual(result.returncode, 2)
 
