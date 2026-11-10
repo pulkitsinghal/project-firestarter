@@ -181,3 +181,11 @@ any generated stack *require* a paid feature to function.
   evidence bundle required when a feature goes to user/dev review
 - [template/docs/LOCAL_TLS.md](template/docs/LOCAL_TLS.md) — shared local-CA policy
 - [firestarter.config.json](firestarter.config.json) — the variable manifest
+
+## Evidence-bound claims in Firestarter work
+
+For categorical absence, source provenance, active-worker, or confirmed
+appointment claims, follow `template/docs/CLAIM_EVIDENCE.md` and evaluate the
+source envelope with `template/scripts/claim-evidence.py` in Docker. Treat
+nonzero as a required qualification or blocked claim. This complements the
+existing receipt/lifecycle controls and does not deploy a live send interceptor.

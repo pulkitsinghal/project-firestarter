@@ -474,3 +474,7 @@ Declared in `firestarter.config.json` and substituted as `{{ key }}`:
 The generator replaces only the **exact declared keys**, so GitHub Actions
 expressions like `${{ github.sha }}` are never touched, they aren't in the
 whitelist.
+
+- `template/scripts/claim-evidence.py` and `template/docs/CLAIM_EVIDENCE.md`:
+  offline evidence classification, freshness, coverage, conflict, provenance,
+  lifecycle, and appointment claim gate; complements existing work receipts.

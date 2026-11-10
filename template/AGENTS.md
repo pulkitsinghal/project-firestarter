@@ -603,3 +603,14 @@ Adding a toolchain means: add a profiled Compose service, pin the image, add
   controls interact, dated interaction gaps): `docs/SAFETY_MODEL.md`
 - Teardown scoped to every control plane provisioning touched (owner-gated;
   residue inventory and fail-closed clauses): `docs/TEARDOWN.md`
+
+## Evidence-bound status and source claims
+
+Before categorical absence, source provenance, active-worker, or confirmed
+appointment claims, follow `docs/CLAIM_EVIDENCE.md` and validate the scope/evidence
+envelope with `scripts/claim-evidence.py` using the project Docker runner.
+Nonzero requires qualification or blocks the claim. Explicitly separate observed,
+reported, inferred, synthetic, and unknown information. A partial search cannot
+prove global absence. Do not equate a scheduled check or idle worker with active
+implementation, or a generic calendar block with a confirmed appointment.
+The validator is an integration point, not a deployed chat-send interceptor.
