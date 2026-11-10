@@ -173,6 +173,9 @@ jobs:
       - name: Verify the file-first deferred-work contract
         run: python3 -B -m unittest -v tests.test_deferred_work_contract
 
+      - name: Evidence-bound claim regressions
+        run: python3 -B -m unittest -v tests.test_claim_evidence_contract
+
       - name: Verify the queued-is-not-accepted receipt contract
         run: python3 -B -m unittest -v tests.test_work_receipt_contract
 
