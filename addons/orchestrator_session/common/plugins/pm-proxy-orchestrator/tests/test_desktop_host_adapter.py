@@ -1483,7 +1483,7 @@ print("codex-cli 9.9.9-synthetic")
             ):
                 ADAPTER.installed_plugin(Path("/synthetic/codex"), "0.3.4")
 
-    def test_installed_plugin_must_resolve_to_exact_adapter_source(self):
+    def test_installed_plugin_rejects_missing_reported_source(self):
         response = subprocess.CompletedProcess(
             args=[],
             returncode=0,
@@ -1626,6 +1626,29 @@ print("codex-cli 9.9.9-synthetic")
                 ),
             ):
                 ADAPTER.installed_plugin(Path("/synthetic/codex"), version)
+
+    def test_installed_plugin_rejects_non_canonical_reported_source(self):
+        version = ADAPTER.manifest()["version"]
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-source-") as raw:
+            root = private(Path(raw))
+            real = private(root / "real")
+            link = root / "link"
+            link.symlink_to(real, target_is_directory=True)
+            for reported in (link, root / "real" / ".." / "real"):
+                with (
+                    mock.patch.object(
+                        ADAPTER.subprocess,
+                        "run",
+                        return_value=self._installed_response(version, reported),
+                    ),
+                    mock.patch.object(
+                        ADAPTER, "secure_plugin_dir", side_effect=lambda path: path
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        ADAPTER.AdapterError, "installed-plugin-version-mismatch"
+                    ):
+                        ADAPTER.installed_plugin(Path("/synthetic/codex"), version)
 
     def test_installed_plugin_rejects_adapter_outside_source_and_cache(self):
         version = ADAPTER.manifest()["version"]
