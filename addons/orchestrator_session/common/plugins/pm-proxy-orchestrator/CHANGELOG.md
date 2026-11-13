@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Desktop host adapter: answer Codex Desktop's bare `--version` CLI probe inside
+  a valid armed host session by running the recorded real CLI with exactly
+  `--version` (no stdin, private adapter variables and root role stripped, 10 s
+  timeout). Without a valid session the probe fails closed before the real CLI
+  runs, and every other non-app-server invocation is still refused. Current
+  Desktop builds probe the CLI before the app server, and the adapter's refusal
+  is the suspected cause of the isolated host's startup `policy-read` failure.
+- Document the current bundled CLI path
+  (`Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`); the old
+  `Resources/codex` path no longer exists in current Desktop builds.
 - Accept the documented `+codex.<timestamp>` installation cachebuster in the
   Desktop host adapter while continuing to bind source/cache parity to the full
   manifest version and MCP/runtime policy to the base semantic plugin version.
