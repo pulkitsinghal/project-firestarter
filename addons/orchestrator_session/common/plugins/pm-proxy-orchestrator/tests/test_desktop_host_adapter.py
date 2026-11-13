@@ -26,6 +26,28 @@ ADAPTER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ADAPTER)
 
 
+_MODULE_CODEX_HOME: tempfile.TemporaryDirectory | None = None
+_MODULE_ENVIRONMENT: mock._patch_dict | None = None
+
+
+def setUpModule() -> None:
+    # launch() records the shared Codex tool table; never let a test read or
+    # rewrite the developer's own Codex config.
+    global _MODULE_CODEX_HOME, _MODULE_ENVIRONMENT
+    _MODULE_CODEX_HOME = tempfile.TemporaryDirectory(prefix="pm-proxy-codex-home-")
+    home = Path(_MODULE_CODEX_HOME.name).resolve(strict=True)
+    os.chmod(home, 0o700)
+    _MODULE_ENVIRONMENT = mock.patch.dict(os.environ, {"CODEX_HOME": str(home)})
+    _MODULE_ENVIRONMENT.start()
+
+
+def tearDownModule() -> None:
+    if _MODULE_ENVIRONMENT is not None:
+        _MODULE_ENVIRONMENT.stop()
+    if _MODULE_CODEX_HOME is not None:
+        _MODULE_CODEX_HOME.cleanup()
+
+
 def private(path: Path) -> Path:
     path.mkdir(parents=True, mode=0o700, exist_ok=True)
     path = path.resolve(strict=True)
@@ -1052,6 +1074,8 @@ print("codex-cli 9.9.9-synthetic")
             ):
                 result = ADAPTER.launch(args)
             self.assertTrue(result["ok"])
+            self.assertEqual("active", result["result"]["shared_tool_config_guard"])
+            self.assertTrue((instance / ADAPTER.SHARED_TOOL_CONFIG_NAME).is_file())
             environment = captured["env"]
             self.assertNotIn("ROOT_ORCHESTRATOR_ROLE", environment)
             self.assertEqual(str(ADAPTER_PATH), environment["CODEX_CLI_PATH"])
@@ -1110,6 +1134,10 @@ print("codex-cli 9.9.9-synthetic")
                 def terminate(cls):
                     cls.terminated = True
 
+                @classmethod
+                def wait(cls, timeout=None):
+                    return 0
+
             with (
                 mock.patch.object(ADAPTER, "probe_hook"),
                 mock.patch.object(ADAPTER, "installed_plugin"),
@@ -1124,6 +1152,9 @@ print("codex-cli 9.9.9-synthetic")
                 ),
                 mock.patch.object(ADAPTER.time, "sleep"),
                 mock.patch.object(ADAPTER, "wait_for_proxy", return_value=False),
+                mock.patch.object(
+                    ADAPTER, "restore_shared_tool_config", return_value=False
+                ) as restore,
                 mock.patch.dict(os.environ, {"ROOT_ORCHESTRATOR_ROLE": ""}),
             ):
                 with self.assertRaisesRegex(
@@ -1133,6 +1164,9 @@ print("codex-cli 9.9.9-synthetic")
             session = ADAPTER.read_private_json(instance / "session.json")
             self.assertFalse(session["armed"])
             self.assertTrue(FakeProcess.terminated)
+            # A failed launch must still undo the Desktop's shared-config write.
+            restore.assert_called_with(instance)
+            self.assertTrue((instance / ADAPTER.SHARED_TOOL_CONFIG_NAME).is_file())
 
     def test_wait_for_proxy_fails_closed_without_exact_desktop_isolation(self):
         with tempfile.TemporaryDirectory(prefix="pm-proxy-host-isolation-loss-") as raw:
@@ -1857,6 +1891,457 @@ print("codex-cli 9.9.9-synthetic")
             self.assertFalse(
                 ADAPTER.read_private_json(root / "session.json")["armed"]
             )
+
+
+ORDINARY_TOOL_TABLE = """[mcp_servers.node_repl.env]
+CODEX_HOME = "/synthetic/codex-home"
+NODE_REPL_TRUSTED_SERVICES = '{"browser":"/synthetic/browser-service.mjs","sky":"@oai/sky/service"}'
+CODEX_CLI_PATH = "/synthetic/ChatGPT.app/codex"
+SKY_CUA_SERVICE_PATH = "/synthetic/codex-home/computer-use/Codex Computer Use.app"
+
+"""
+OTHER_TABLES_BEFORE = """model = "synthetic-model"
+
+[mcp_servers.node_repl]
+command = "/synthetic/ChatGPT.app/node_repl"
+args = []
+
+"""
+OTHER_TABLES_AFTER = """[projects."/synthetic/project"]
+trust_level = "trusted"
+
+[hooks.state."synthetic@example:hooks/hooks.json:pre_tool_use:0:0"]
+trusted_hash = "sha256:synthetic"
+"""
+DISABLED_CUA_TABLE = (
+    "[mcp_servers.cua_repl]\n"
+    'command = "/synthetic/ChatGPT.app/ChatGPT"\n'
+    "enabled = false\n\n"
+)
+
+
+def isolated_tool_table(cua: str = DISABLED_CUA_TABLE) -> str:
+    # What the isolated Desktop writes: the adapter as CLI, no computer use.
+    return (
+        "[mcp_servers.node_repl.env]\n"
+        'CODEX_HOME = "/synthetic/codex-home"\n'
+        "NODE_REPL_TRUSTED_SERVICES = "
+        "'{\"browser\":\"/synthetic/browser-service.mjs\"}'\n"
+        + ADAPTER.cli_path_line(ADAPTER_PATH)
+        + "\n\n"
+        + cua
+    )
+
+
+@unittest.skipIf(ADAPTER.tomllib is None, "shared-config guard needs tomllib")
+class SharedToolConfigGuardTest(unittest.TestCase):
+    def setUp(self):
+        self._temporary = tempfile.TemporaryDirectory(prefix="pm-proxy-shared-config-")
+        self.addCleanup(self._temporary.cleanup)
+        root = private(Path(self._temporary.name))
+        self.home = private(root / "codex-home")
+        self.instance = private(root / "instance")
+        self.config = self.home / "config.toml"
+        self.original = OTHER_TABLES_BEFORE + ORDINARY_TOOL_TABLE + OTHER_TABLES_AFTER
+        self.write(self.original)
+        os.chmod(self.config, 0o600)
+        patcher = mock.patch.dict(os.environ, {"CODEX_HOME": str(self.home)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.real_cli = Path("/synthetic/ChatGPT.app/codex")
+
+    def write(self, text: str) -> str:
+        with open(self.config, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+        return text
+
+    def read(self) -> str:
+        with open(self.config, encoding="utf-8", newline="") as handle:
+            return handle.read()
+
+    def snapshot(self) -> str:
+        return ADAPTER.snapshot_shared_tool_config(self.instance, self.real_cli)
+
+    def restore(self) -> bool:
+        return ADAPTER.restore_shared_tool_config(self.instance)
+
+    def isolated_rewrite(self, cua: str = DISABLED_CUA_TABLE) -> str:
+        return self.write(OTHER_TABLES_BEFORE + isolated_tool_table(cua) + OTHER_TABLES_AFTER)
+
+    def test_restore_undoes_isolated_desktop_rewrite_exactly(self):
+        self.assertEqual("active", self.snapshot())
+        self.isolated_rewrite()
+        self.assertTrue(self.restore())
+        self.assertEqual(self.original, self.read())
+        self.assertEqual(0o600, self.config.stat().st_mode & 0o777)
+        # Idempotent: nothing left to restore.
+        self.assertFalse(self.restore())
+        self.assertEqual(self.original, self.read())
+
+    def test_restore_leaves_a_table_the_ordinary_desktop_wrote_later(self):
+        self.snapshot()
+        later = self.write(
+            self.original.replace("/synthetic/ChatGPT.app/codex", "/synthetic/New.app/codex")
+        )
+        self.assertFalse(self.restore())
+        self.assertEqual(later, self.read())
+
+    def test_restore_keeps_unrelated_changes_made_while_the_host_ran(self):
+        self.snapshot()
+        added = '\n[projects."/synthetic/new"]\ntrust_level = "trusted"\n'
+        self.write(self.isolated_rewrite() + added)
+        self.assertTrue(self.restore())
+        self.assertEqual(self.original + added, self.read())
+
+    def test_restore_removes_a_disabled_cua_table_with_its_sub_tables(self):
+        self.snapshot()
+        cua = DISABLED_CUA_TABLE + '[mcp_servers.cua_repl.env]\nSYNTHETIC = "1"\n\n'
+        self.isolated_rewrite(cua)
+        self.assertTrue(self.restore())
+        self.assertEqual(self.original, self.read())
+        self.assertNotIn("cua_repl", ADAPTER.tomllib.loads(self.read())["mcp_servers"])
+
+    def test_restore_puts_back_a_cua_table_that_existed_before(self):
+        enabled = (
+            "[mcp_servers.cua_repl]\n"
+            'command = "/synthetic/ChatGPT.app/ChatGPT"\n\n'
+        )
+        self.original = self.write(
+            OTHER_TABLES_BEFORE + ORDINARY_TOOL_TABLE + enabled + OTHER_TABLES_AFTER
+        )
+        self.snapshot()
+        self.isolated_rewrite()
+        self.assertTrue(self.restore())
+        self.assertEqual(self.original, self.read())
+
+    def test_relaunch_restores_first_and_never_replaces_the_only_good_record(self):
+        self.snapshot()
+        self.isolated_rewrite()
+        # No restore ran (crash).  A second launch of the same instance must
+        # use the first record, not record the isolated table as the original.
+        self.assertEqual("active", self.snapshot())
+        self.assertEqual(self.original, self.read())
+        self.isolated_rewrite()
+        self.assertTrue(self.restore())
+        self.assertEqual(self.original, self.read())
+
+    def test_snapshot_keeps_an_existing_record_while_the_table_names_the_adapter(self):
+        self.snapshot()
+        record = (self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME).read_text(encoding="utf-8")
+        self.isolated_rewrite()
+        with mock.patch.object(ADAPTER, "restore_shared_tool_config", return_value=False):
+            self.assertEqual("active", self.snapshot())
+        self.assertEqual(
+            record,
+            (self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME).read_text(encoding="utf-8"),
+        )
+
+    def test_snapshot_without_a_record_repairs_only_the_cli_line(self):
+        # An earlier host left the adapter behind and its record is gone.
+        for line in (
+            ADAPTER.cli_path_line(ADAPTER_PATH),
+            "CODEX_CLI_PATH='" + str(ADAPTER_PATH) + "'",
+        ):
+            with self.subTest(line=line):
+                (self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME).unlink(missing_ok=True)
+                self.write(
+                    self.original.replace(
+                        'CODEX_CLI_PATH = "/synthetic/ChatGPT.app/codex"', line
+                    )
+                )
+                self.assertEqual("active", self.snapshot())
+                self.assertTrue(self.restore())
+                self.assertEqual(self.original, self.read())
+
+    def test_table_absent_before_launch_is_removed_again(self):
+        self.original = self.write(OTHER_TABLES_BEFORE + OTHER_TABLES_AFTER)
+        self.assertEqual("active", self.snapshot())
+        self.isolated_rewrite()
+        self.assertTrue(self.restore())
+        self.assertEqual(self.original, self.read())
+
+    def test_config_absent_before_launch_loses_only_the_guarded_tables(self):
+        self.config.unlink()
+        self.assertEqual("active", self.snapshot())
+        self.isolated_rewrite()
+        self.assertTrue(self.restore())
+        self.assertEqual(OTHER_TABLES_BEFORE + OTHER_TABLES_AFTER, self.read())
+
+    def test_crlf_and_missing_final_newline_are_preserved(self):
+        crlf = self.original.replace("\n", "\r\n")
+        self.write(crlf)
+        self.snapshot()
+        self.write(
+            (OTHER_TABLES_BEFORE + isolated_tool_table() + OTHER_TABLES_AFTER).replace(
+                "\n", "\r\n"
+            )
+        )
+        self.assertTrue(self.restore())
+        self.assertEqual(crlf, self.read())
+        # The guarded table last in the file, without a final newline.
+        (self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME).unlink()
+        last = OTHER_TABLES_BEFORE + OTHER_TABLES_AFTER + "\n" + ORDINARY_TOOL_TABLE.rstrip("\n")
+        self.write(last)
+        self.assertEqual("active", self.snapshot())
+        self.isolated_rewrite()
+        self.assertTrue(self.restore())
+        # The recorded table gains the one newline it needs to sit mid-file.
+        self.assertEqual(
+            OTHER_TABLES_BEFORE
+            + ORDINARY_TOOL_TABLE.rstrip("\n")
+            + "\n"
+            + OTHER_TABLES_AFTER,
+            self.read(),
+        )
+
+    def test_restore_refuses_unparseable_config(self):
+        self.snapshot()
+        broken = self.write(self.isolated_rewrite() + "\nthis is not toml = = =\n")
+        self.assertFalse(self.restore())
+        self.assertEqual(broken, self.read())
+
+    def test_symlinked_config_is_never_followed(self):
+        self.snapshot()
+        target = self.home / "elsewhere.toml"
+        rewritten = OTHER_TABLES_BEFORE + isolated_tool_table() + OTHER_TABLES_AFTER
+        target.write_text(rewritten, encoding="utf-8")
+        self.config.unlink()
+        self.config.symlink_to(target)
+        self.assertFalse(self.restore())
+        self.assertEqual(rewritten, target.read_text(encoding="utf-8"))
+        (self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME).unlink()
+        self.assertEqual("inactive:shared-config-not-an-ordinary-file", self.snapshot())
+        self.assertFalse((self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME).exists())
+
+    def test_restore_aborts_when_the_config_changes_under_it(self):
+        self.snapshot()
+        rewritten = self.isolated_rewrite()
+        real_mkstemp = ADAPTER.tempfile.mkstemp
+        newer = rewritten + '\n[projects."/synthetic/raced"]\ntrust_level = "trusted"\n'
+
+        def racing_mkstemp(*args, **kwargs):
+            self.write(newer)
+            return real_mkstemp(*args, **kwargs)
+
+        with mock.patch.object(ADAPTER.tempfile, "mkstemp", side_effect=racing_mkstemp):
+            self.assertFalse(self.restore())
+        self.assertEqual(newer, self.read())
+        self.assertEqual(["config.toml"], sorted(item.name for item in self.home.iterdir()))
+        # The next poll restores on top of the newer content.
+        self.assertTrue(self.restore())
+        self.assertIn("/synthetic/raced", self.read())
+
+    def test_tampered_record_cannot_write_outside_the_guarded_tables(self):
+        self.snapshot()
+        record_path = self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME
+        record = ADAPTER.read_private_json(record_path)
+        rewritten = self.isolated_rewrite()
+        for field, value in (
+            ("node_repl_env_block", record["node_repl_env_block"]
+             + '[projects."/synthetic/evil"]\ntrust_level = "trusted"\n'),
+            ("node_repl_env_block", record["node_repl_env_block"]
+             + '[mcp_servers.cua_repl]\ncommand = "/synthetic/evil"\n'),
+            ("node_repl_env_block", "[mcp_servers.node_repl.env]\n"
+             + ADAPTER.cli_path_line(ADAPTER_PATH) + "\n"),
+            ("cua_repl_block", '[mcp_servers.other]\ncommand = "/synthetic/evil"\n'),
+            ("config_path", str(self.home / "other.toml")),
+            ("version", "0.9"),
+        ):
+            with self.subTest(field=field):
+                ADAPTER.atomic_private_json(record_path, {**record, field: value})
+                self.assertFalse(self.restore())
+                self.assertEqual(rewritten, self.read())
+
+    def test_guard_reports_why_it_is_inactive(self):
+        with mock.patch.object(ADAPTER, "tomllib", None):
+            self.assertEqual("inactive:python-without-tomllib", self.snapshot())
+            self.assertFalse(self.restore())
+        with mock.patch.dict(os.environ, {"CODEX_HOME": "relative/home"}):
+            self.assertEqual("inactive:codex-home-not-absolute", self.snapshot())
+        self.write("not toml = = =\n")
+        self.assertEqual("inactive:shared-config-unparseable", self.snapshot())
+        self.write(
+            self.original.replace(
+                'CODEX_HOME = "/synthetic/codex-home"', "NESTED = { a = 1 }"
+            )
+        )
+        self.assertEqual("inactive:shared-tool-table-not-recognised", self.snapshot())
+
+    def test_unusable_record_is_replaced_instead_of_reported_active(self):
+        record_path = self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME
+        self.snapshot()
+        good = ADAPTER.read_private_json(record_path)
+        for damaged in (
+            {**good, "version": "0.9"},
+            {**good, "config_path": str(self.home / "other.toml")},
+            {**good, "node_repl_env_block": "mcp_servers = 1\n"},
+        ):
+            with self.subTest(damaged=sorted(damaged.items())[0]):
+                ADAPTER.atomic_private_json(record_path, damaged)
+                self.isolated_rewrite()
+                self.assertEqual("active", self.snapshot())
+                # The record was rebuilt from what is known now, so the adapter
+                # really does leave the table again.
+                self.assertTrue(self.restore())
+                self.assertFalse(
+                    ADAPTER.tool_env_names_adapter(ADAPTER.tomllib.loads(self.read()))
+                )
+                self.write(self.original)
+                self.snapshot()
+
+    def test_table_spelled_in_an_unseen_way_makes_the_guard_inactive(self):
+        record_path = self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME
+        for text in (
+            OTHER_TABLES_BEFORE.replace(
+                "args = []\n",
+                'args = []\nenv = { CODEX_CLI_PATH = "/synthetic/ChatGPT.app/codex" }\n',
+            )
+            + OTHER_TABLES_AFTER,
+            self.original.replace(
+                "[mcp_servers.node_repl.env]", "[mcp_servers.node_repl.env] # note"
+            ),
+            self.original
+            + '\n[mcp_servers]\ncua_repl = { command = "/synthetic/x" }\n',
+        ):
+            with self.subTest(text=text[-60:]):
+                record_path.unlink(missing_ok=True)
+                self.write(text)
+                self.assertEqual(
+                    "inactive:shared-tool-table-not-recognised", self.snapshot()
+                )
+                self.assertFalse(record_path.exists())
+                self.isolated_rewrite()
+                self.assertFalse(self.restore())
+
+    def test_inactive_snapshot_keeps_a_record_that_may_still_be_needed(self):
+        record_path = self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME
+        self.snapshot()
+        record = record_path.read_text(encoding="utf-8")
+        broken = self.write(self.isolated_rewrite() + "\nnot toml = = =\n")
+        self.assertEqual("inactive:shared-config-unparseable", self.snapshot())
+        self.assertEqual(record, record_path.read_text(encoding="utf-8"))
+        # Once the operator repairs the file the original can still come back.
+        self.write(broken.replace("\nnot toml = = =\n", ""))
+        self.assertTrue(self.restore())
+        self.assertEqual(self.original, self.read())
+
+    def test_cua_table_that_cannot_be_removed_does_not_block_the_env_restore(self):
+        self.snapshot()
+        rewritten = (
+            OTHER_TABLES_BEFORE
+            + isolated_tool_table()
+            + OTHER_TABLES_AFTER
+            + '\n[mcp_servers.cua_repl.env]\nSYNTHETIC = "1"\n'
+        )
+        self.write(rewritten)
+        self.assertTrue(self.restore())
+        restored = ADAPTER.tomllib.loads(self.read())
+        self.assertEqual(
+            ADAPTER.tomllib.loads(self.original)["mcp_servers"]["node_repl"],
+            restored["mcp_servers"]["node_repl"],
+        )
+        # The separated cua_repl table is left exactly as the Desktop wrote it.
+        self.assertEqual(
+            ADAPTER.tomllib.loads(rewritten)["mcp_servers"]["cua_repl"],
+            restored["mcp_servers"]["cua_repl"],
+        )
+
+    def test_adapter_path_left_by_another_copy_is_still_recognised(self):
+        # The adapter runs from the source checkout or a versioned plugin
+        # cache, so an earlier host may have left a different path behind.
+        foreign = "/synthetic/plugins/cache/0.0.1/scripts/" + ADAPTER_PATH.name
+        self.snapshot()
+        polluted = (OTHER_TABLES_BEFORE + isolated_tool_table() + OTHER_TABLES_AFTER).replace(
+            ADAPTER.cli_path_line(ADAPTER_PATH), ADAPTER.cli_path_line(foreign)
+        )
+        self.write(polluted)
+        self.assertTrue(ADAPTER.tool_env_names_adapter(ADAPTER.tomllib.loads(polluted)))
+        # A relaunch from this copy uses the good record instead of recording
+        # the foreign adapter path as the original.
+        self.assertEqual("active", self.snapshot())
+        self.assertEqual(self.original, self.read())
+        self.write(polluted)
+        self.assertTrue(self.restore())
+        self.assertEqual(self.original, self.read())
+        # And a record can never carry any adapter path back into the config.
+        record_path = self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME
+        record = ADAPTER.read_private_json(record_path)
+        ADAPTER.atomic_private_json(
+            record_path,
+            {
+                **record,
+                "node_repl_env_block": "[mcp_servers.node_repl.env]\n"
+                + ADAPTER.cli_path_line(foreign)
+                + "\n",
+            },
+        )
+        self.write(polluted)
+        self.assertFalse(self.restore())
+        self.assertEqual(polluted, self.read())
+
+    def test_restore_without_a_snapshot_is_a_no_op(self):
+        rewritten = self.isolated_rewrite()
+        self.assertFalse(self.restore())
+        self.assertEqual(rewritten, self.read())
+
+    def test_stop_restores_and_reports_the_shared_tool_table(self):
+        self.snapshot()
+        self.isolated_rewrite()
+        ADAPTER.atomic_private_json(
+            self.instance / "session.json", {"armed": True, "desktop_pid": None}
+        )
+        with mock.patch.object(ADAPTER, "process_command", return_value=None):
+            result = ADAPTER.stop(self.instance, timeout=0)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["result"]["shared_tool_config_restored"])
+        self.assertEqual(self.original, self.read())
+
+    def test_stop_survives_a_guard_failure(self):
+        ADAPTER.atomic_private_json(
+            self.instance / "session.json", {"armed": True, "desktop_pid": None}
+        )
+        with (
+            mock.patch.object(ADAPTER, "process_command", return_value=None),
+            mock.patch.object(
+                ADAPTER, "restore_shared_tool_config", side_effect=RecursionError
+            ),
+        ):
+            result = ADAPTER.stop(self.instance, timeout=0)
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["result"]["shared_tool_config_restored"])
+
+    def test_watcher_restores_and_backs_off_while_the_proxy_lives(self):
+        self.snapshot()
+        stopping = threading.Event()
+        waits: list[float] = []
+        real_wait = stopping.wait
+
+        def recording_wait(timeout):
+            waits.append(timeout)
+            return real_wait(0.02)
+
+        with (
+            mock.patch.object(ADAPTER, "SHARED_TOOL_CONFIG_POLL_SECONDS", 1.0),
+            mock.patch.object(stopping, "wait", side_effect=recording_wait),
+        ):
+            thread = threading.Thread(
+                target=ADAPTER.watch_shared_tool_config,
+                args=(self.instance, stopping),
+                daemon=True,
+            )
+            self.isolated_rewrite()
+            thread.start()
+            try:
+                deadline = dt.datetime.now() + dt.timedelta(seconds=5)
+                while (2.0 not in waits or waits[-1] != 1.0) and dt.datetime.now() < deadline:
+                    real_wait(0.02)
+            finally:
+                stopping.set()
+                thread.join(timeout=2)
+        self.assertEqual(self.original, self.read())
+        self.assertFalse(thread.is_alive())
+        self.assertEqual([1.0, 2.0, 1.0], waits[:3])
+
 
 
 if __name__ == "__main__":

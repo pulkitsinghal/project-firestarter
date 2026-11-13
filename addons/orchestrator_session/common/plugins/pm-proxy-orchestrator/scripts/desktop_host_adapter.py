@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Opt-in Codex Desktop host adapter for one exact root-orchestrator task.
 
-The adapter never changes global Codex configuration.  It launches a separate
-Electron data directory, makes Desktop execute this file as its app-server
-proxy, and answers hook identity queries for one exact root thread ID.  Every
-other thread in that host is attested as a worker.
+The adapter makes no change of its own to global Codex configuration.  It
+launches a separate Electron data directory, makes Desktop execute this file as
+its app-server proxy, and answers hook identity queries for one exact root
+thread ID.  Every other thread in that host is attested as a worker.  Its only
+write to the shared Codex config undoes the isolated Desktop's own rewrite of
+the ``node_repl`` tool table (see ``restore_shared_tool_config``).
 """
 
 from __future__ import annotations
@@ -30,6 +32,11 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Mapping
+
+try:  # Python 3.11+; the shared-config guard is skipped without it
+    import tomllib
+except ImportError:  # pragma: no cover - exercised only on older interpreters
+    tomllib = None  # type: ignore[assignment]
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -321,6 +328,372 @@ def session_lock(instance_dir: Path) -> Iterator[None]:
         yield
     finally:
         os.close(descriptor)
+
+
+SHARED_TOOL_CONFIG_NAME = "shared-tool-config.json"
+SHARED_TOOL_CONFIG_VERSION = "1.0"
+SHARED_TOOL_CONFIG_MAX_BYTES = 4_000_000
+SHARED_TOOL_CONFIG_POLL_SECONDS = 1.0
+SHARED_TOOL_CONFIG_MAX_BACKOFF_SECONDS = 60.0
+SHARED_TOOL_CONFIG_LOCK_ATTEMPTS = 20
+NODE_REPL_ENV_HEADER = "[mcp_servers.node_repl.env]"
+CUA_REPL_HEADER = "[mcp_servers.cua_repl]"
+CLI_PATH_LINE = re.compile(r"^CODEX_CLI_PATH[ \t]*=[^\r\n]*", re.MULTILINE)
+
+
+def shared_codex_config_path() -> Path | None:
+    raw = os.environ.get("CODEX_HOME", "").strip()
+    home = Path(raw) if raw else Path.home() / ".codex"
+    return home / "config.toml" if home.is_absolute() else None
+
+
+def toml_table_span(text: str, header: str) -> tuple[int, int] | None:
+    """Return the ``[start, end)`` offsets of one table and its sub-tables."""
+
+    child_prefix = header[:-1] + "."
+    offset = 0
+    start: int | None = None
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if start is None:
+            if stripped == header:
+                start = offset
+        elif stripped.startswith("[") and not stripped.startswith(child_prefix):
+            return start, offset
+        offset += len(line)
+    return None if start is None else (start, len(text))
+
+
+def cli_path_line(path: Path | str) -> str:
+    return "CODEX_CLI_PATH = " + json.dumps(str(path), ensure_ascii=False)
+
+
+def read_shared_codex_config(path: Path) -> tuple[str, os.stat_result] | None:
+    """Read the shared Codex config only when it is an ordinary owned file.
+
+    Newlines are kept exactly as stored so a restore never rewrites them.
+    """
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_size > SHARED_TOOL_CONFIG_MAX_BYTES
+        ):
+            return None
+        with os.fdopen(descriptor, "r", encoding="utf-8", newline="") as handle:
+            descriptor = -1
+            return handle.read(), metadata
+    except (OSError, UnicodeDecodeError):
+        return None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def guarded_table(config: Mapping[str, Any], server: str, *keys: str) -> Any:
+    """Return ``mcp_servers.<server>[.<keys>]`` or ``None``, whatever the shape."""
+
+    value: Any = config.get("mcp_servers") if isinstance(config, dict) else None
+    for key in (server, *keys):
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
+
+
+def names_an_adapter(value: Any) -> bool:
+    """True for any copy of this adapter, whatever checkout or cache it ran from.
+
+    The adapter runs from the source checkout or from a versioned plugin cache,
+    so the path an earlier host left behind need not be this file's own path.
+    """
+
+    return isinstance(value, str) and Path(value).name == ADAPTER_PATH.name
+
+
+def tool_env_names_adapter(config: Mapping[str, Any]) -> bool:
+    env = guarded_table(config, "node_repl", "env")
+    return isinstance(env, dict) and names_an_adapter(env.get("CODEX_CLI_PATH"))
+
+
+def saved_tool_blocks_valid(saved: Any, saved_cua: Any) -> bool:
+    """Accept only a record that can touch nothing but the two guarded tables."""
+
+    if tomllib is None:
+        return False
+    try:
+        if saved is not None:
+            if not isinstance(saved, str) or not saved.endswith("\n"):
+                return False
+            parsed = tomllib.loads(saved)
+            env = guarded_table(parsed, "node_repl", "env")
+            if (
+                parsed != {"mcp_servers": {"node_repl": {"env": env}}}
+                or not isinstance(env, dict)
+                or any(not isinstance(value, str) for value in env.values())
+                or names_an_adapter(env.get("CODEX_CLI_PATH"))
+            ):
+                return False
+        if saved_cua is not None:
+            if not isinstance(saved_cua, str) or not saved_cua.endswith("\n"):
+                return False
+            parsed = tomllib.loads(saved_cua)
+            cua = guarded_table(parsed, "cua_repl")
+            if parsed != {"mcp_servers": {"cua_repl": cua}} or not isinstance(cua, dict):
+                return False
+    except (tomllib.TOMLDecodeError, RecursionError, AttributeError, TypeError):
+        return False
+    return True
+
+
+def usable_tool_record(instance_dir: Path, path: Path) -> dict[str, Any] | None:
+    """Return this instance's record only if a restore could actually use it."""
+
+    record_path = instance_dir / SHARED_TOOL_CONFIG_NAME
+    if not record_path.is_file():
+        return None
+    try:
+        record = read_private_json(record_path)
+    except AdapterError:
+        return None
+    if (
+        record.get("version") != SHARED_TOOL_CONFIG_VERSION
+        or record.get("config_path") != str(path)
+        or not saved_tool_blocks_valid(
+            record.get("node_repl_env_block"), record.get("cua_repl_block")
+        )
+    ):
+        return None
+    return record
+
+
+def snapshot_shared_tool_config(instance_dir: Path, real_cli: Path) -> str:
+    """Record the shared ``node_repl`` tool table before the isolated launch.
+
+    Codex Desktop writes the tool environment it was started with, including
+    ``CODEX_CLI_PATH``, into ``[mcp_servers.node_repl.env]`` of the shared
+    ``config.toml``.  The isolated host is started with the adapter as its CLI,
+    so without this record every ordinary Codex task that later loads the
+    shared config would run the adapter instead of the real CLI and be refused.
+
+    Returns the guard state for the launch result: ``active`` or
+    ``inactive:<reason>``.
+    """
+
+    if tomllib is None:
+        return "inactive:python-without-tomllib"
+    path = shared_codex_config_path()
+    if path is None:
+        return "inactive:codex-home-not-absolute"
+    record_path = instance_dir / SHARED_TOOL_CONFIG_NAME
+    if record_path.is_file():
+        # A previous launch of this instance may not have been cleaned up.  Its
+        # record is the only copy of the ordinary table, so use it first and
+        # never replace or delete it while it could still be needed.
+        restore_shared_tool_config_quietly(instance_dir)
+    loaded = read_shared_codex_config(path)
+    if loaded is None:
+        if path.exists() or path.is_symlink():
+            return "inactive:shared-config-not-an-ordinary-file"
+        text = ""
+    else:
+        text = loaded[0]
+    try:
+        current = tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, RecursionError):
+        return "inactive:shared-config-unparseable"
+    polluted = tool_env_names_adapter(current)
+    if polluted and usable_tool_record(instance_dir, path) is not None:
+        return "active"
+    env_span = toml_table_span(text, NODE_REPL_ENV_HEADER)
+    cua_span = toml_table_span(text, CUA_REPL_HEADER)
+    if (guarded_table(current, "node_repl", "env") is not None and env_span is None) or (
+        guarded_table(current, "cua_repl") is not None and cua_span is None
+    ):
+        # The table exists but is spelled in a way the span finder cannot see
+        # (inline table, header with a trailing comment).  Recording "no table"
+        # here would make a later restore delete it.
+        if not polluted:
+            record_path.unlink(missing_ok=True)
+        return "inactive:shared-tool-table-not-recognised"
+    record: dict[str, Any] = {
+        "config_path": str(path),
+        "cua_repl_block": None,
+        "node_repl_env_block": None,
+        "version": SHARED_TOOL_CONFIG_VERSION,
+    }
+    span = env_span
+    if span is not None:
+        block = text[span[0] : span[1]]
+        if polluted:
+            # An earlier isolated host left the adapter here and its record is
+            # gone.  Only the CLI line can be repaired from what is known now.
+            block = CLI_PATH_LINE.sub(lambda _match: cli_path_line(real_cli), block)
+        record["node_repl_env_block"] = block if block.endswith("\n") else block + "\n"
+    span = cua_span
+    if span is not None and not polluted:
+        block = text[span[0] : span[1]]
+        record["cua_repl_block"] = block if block.endswith("\n") else block + "\n"
+    if not saved_tool_blocks_valid(
+        record["node_repl_env_block"], record["cua_repl_block"]
+    ):
+        record_path.unlink(missing_ok=True)
+        return "inactive:shared-tool-table-not-recognised"
+    atomic_private_json(record_path, record)
+    return "active"
+
+
+def without_guarded_tables(config: Mapping[str, Any]) -> dict[str, Any]:
+    value = json.loads(json.dumps(config, default=str))
+    servers = value.get("mcp_servers")
+    if isinstance(servers, dict):
+        servers.pop("cua_repl", None)
+        node_repl = servers.get("node_repl")
+        if isinstance(node_repl, dict):
+            node_repl.pop("env", None)
+    return value
+
+
+def restore_shared_tool_config(instance_dir: Path) -> bool:
+    """Put back the recorded tool table if the isolated Desktop replaced it.
+
+    Acts only while the shared table still names this adapter as the Codex CLI,
+    which shows the isolated host was its last writer.  Text outside the two
+    guarded tables is copied through unchanged, and nothing is written unless
+    the result parses and differs from the current file only in those tables.
+    Returns ``True`` only when the shared config was rewritten.
+    """
+
+    path = shared_codex_config_path()
+    if tomllib is None or path is None:
+        return False
+    record = usable_tool_record(instance_dir, path)
+    if record is None:
+        return False
+    saved = record.get("node_repl_env_block")
+    saved_cua = record.get("cua_repl_block")
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        lock = os.open(instance_dir / ".shared-tool-config.lock", flags, 0o600)
+    except OSError:
+        return False
+    temporary_path: Path | None = None
+    try:
+        for attempt in range(SHARED_TOOL_CONFIG_LOCK_ATTEMPTS):
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if attempt + 1 == SHARED_TOOL_CONFIG_LOCK_ATTEMPTS:
+                    return False
+                time.sleep(0.05)
+        loaded = read_shared_codex_config(path)
+        if loaded is None:
+            return False
+        text, metadata = loaded
+        if ADAPTER_PATH.name not in text:
+            return False
+        try:
+            current = tomllib.loads(text)
+        except (tomllib.TOMLDecodeError, RecursionError):
+            return False
+        if not tool_env_names_adapter(current):
+            return False
+        span = toml_table_span(text, NODE_REPL_ENV_HEADER)
+        if span is None:
+            return False
+        # ``saved`` is None when the table did not exist before the launch.
+        env_only = text[: span[0]] + (saved or "") + text[span[1] :]
+        candidates: list[tuple[str, bool]] = []
+        cua_span = toml_table_span(env_only, CUA_REPL_HEADER)
+        if cua_span is not None:
+            cua = guarded_table(current, "cua_repl")
+            if saved_cua is not None:
+                candidates.append(
+                    (env_only[: cua_span[0]] + saved_cua + env_only[cua_span[1] :], False)
+                )
+            elif isinstance(cua, dict) and cua.get("enabled") is False:
+                candidates.append(
+                    (env_only[: cua_span[0]] + env_only[cua_span[1] :], True)
+                )
+        # If the cua_repl table cannot be handled cleanly, still take the
+        # adapter out of the tool table rather than leaving it in place.
+        candidates.append((env_only, False))
+        updated: str | None = None
+        for candidate, cua_removed in candidates:
+            try:
+                restored = tomllib.loads(candidate)
+            except (tomllib.TOMLDecodeError, RecursionError):
+                continue
+            if (
+                tool_env_names_adapter(restored)
+                or without_guarded_tables(restored) != without_guarded_tables(current)
+                or (cua_removed and guarded_table(restored, "cua_repl") is not None)
+            ):
+                continue
+            updated = candidate
+            break
+        if updated is None:
+            return False
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{path.name}.", dir=path.parent
+        )
+        temporary_path = Path(temporary)
+        try:
+            os.fchmod(descriptor, stat.S_IMODE(metadata.st_mode))
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+                descriptor = -1
+                handle.write(updated)
+                handle.flush()
+                os.fsync(handle.fileno())
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        # Best effort: Codex takes no lock, so a write that lands between this
+        # check and the rename below cannot be detected.
+        latest = path.lstat()
+        if (
+            latest.st_mtime_ns != metadata.st_mtime_ns
+            or latest.st_size != metadata.st_size
+            or latest.st_ino != metadata.st_ino
+        ):
+            return False
+        os.replace(temporary_path, path)
+        temporary_path = None
+        return True
+    except OSError:
+        return False
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        os.close(lock)
+
+
+def restore_shared_tool_config_quietly(instance_dir: Path) -> bool:
+    try:
+        return restore_shared_tool_config(instance_dir)
+    except Exception:  # noqa: BLE001 - the guard must never break its caller
+        return False
+
+
+def watch_shared_tool_config(instance_dir: Path, stopping: threading.Event) -> None:
+    """Restore the shared tool table for as long as this proxy lives.
+
+    Backs off after each rewrite so a Desktop that keeps writing the table
+    cannot make the adapter rewrite the shared config once a second.
+    """
+
+    delay = SHARED_TOOL_CONFIG_POLL_SECONDS
+    while not stopping.wait(delay):
+        if restore_shared_tool_config_quietly(instance_dir):
+            delay = min(delay * 2, SHARED_TOOL_CONFIG_MAX_BACKOFF_SECONDS)
+        else:
+            delay = SHARED_TOOL_CONFIG_POLL_SECONDS
 
 
 def plugin_base_version(value: Any) -> str:
@@ -1339,6 +1712,12 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
         if isinstance(exc, AdapterError):
             raise
         raise AdapterError("desktop-log-invalid") from exc
+    try:
+        shared_tool_config_guard = snapshot_shared_tool_config(instance_dir, codex_cli)
+    except (AdapterError, OSError) as exc:
+        os.close(descriptor)
+        disarm_session(instance_dir, session_path)
+        raise AdapterError("shared-tool-config-snapshot-failed") from exc
     environment = dict(os.environ)
     for name in ADAPTER_ENV_VARS:
         environment.pop(name, None)
@@ -1368,6 +1747,7 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
     time.sleep(1)
     if process.poll() is not None:
         disarm_session(instance_dir, session_path)
+        restore_shared_tool_config_quietly(instance_dir)
         raise AdapterError("desktop-host-exited-during-startup")
     with session_lock(instance_dir):
         current = read_private_json(session_path)
@@ -1381,6 +1761,11 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
         disarm_session(instance_dir, session_path)
         if process.poll() is None:
             process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        restore_shared_tool_config_quietly(instance_dir)
         raise AdapterError("desktop-host-proxy-not-observed")
     return {
         "ok": True,
@@ -1396,6 +1781,7 @@ def launch(args: argparse.Namespace) -> dict[str, Any]:
             "bootstrap_recovery_grant_bound": bootstrap_grant is not None,
             "prompt_free_control_grant_verified": grant_enabled,
             "runtime_pin_verified": True,
+            "shared_tool_config_guard": shared_tool_config_guard,
             "status": "STARTING",
             "valid_until": current["expires_at"],
         },
@@ -1467,11 +1853,13 @@ def stop(instance_dir: Path, timeout: float) -> dict[str, Any]:
             break
         time.sleep(0.1)
     survivors = [pid for pid in signaled if process_command(pid) is not None]
+    shared_tool_config_restored = restore_shared_tool_config_quietly(directory)
     return {
         "ok": not survivors,
         "result": {
             "forced_kill_used": False,
             "global_configuration_changed": False,
+            "shared_tool_config_restored": shared_tool_config_restored,
             "signaled_pids": signaled,
             "status": "STOPPED" if not survivors else "STOPPING",
             "surviving_pids": survivors,
@@ -1812,7 +2200,14 @@ def run_proxy(arguments: list[str]) -> int:
     output_thread: threading.Thread | None = None
     input_stopping = threading.Event()
     output_stopping = threading.Event()
+    config_stopping = threading.Event()
+    config_thread = threading.Thread(
+        target=watch_shared_tool_config,
+        args=(session_path.parent, config_stopping),
+        daemon=True,
+    )
     try:
+        config_thread.start()
         child_environment = dict(os.environ)
         for name in ADAPTER_ENV_VARS:
             child_environment.pop(name, None)
@@ -1880,6 +2275,7 @@ def run_proxy(arguments: list[str]) -> int:
     finally:
         input_stopping.set()
         output_stopping.set()
+        config_stopping.set()
         if child is not None and child.poll() is None:
             child.terminate()
             try:
@@ -1889,6 +2285,9 @@ def run_proxy(arguments: list[str]) -> int:
         for thread in (input_thread, output_thread):
             if thread is not None:
                 thread.join(timeout=2)
+        if config_thread.is_alive():
+            config_thread.join(timeout=2)
+        restore_shared_tool_config_quietly(session_path.parent)
         server.stop()
         with session_lock(session_path.parent):
             current = read_private_json(session_path)
