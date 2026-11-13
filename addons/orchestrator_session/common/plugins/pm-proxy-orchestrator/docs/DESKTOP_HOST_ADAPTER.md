@@ -196,8 +196,9 @@ shared config, and it only undoes the isolated Desktop's own rewrite:
   Desktop started check once more. `stop` reports `shared_tool_config_restored`,
   which is true only when it rewrote the file; false means either that nothing
   needed restoring or that the guard could not act.
-- A restore happens only while the shared table still names this adapter as the
-  Codex CLI, which shows the isolated Desktop was its last writer. It puts back
+- A restore happens only while the shared table still names the adapter as the
+  Codex CLI (any copy of it, from the source checkout or a plugin cache), which
+  shows an isolated Desktop was its last writer. It puts back
   the recorded table (or removes the table if none existed before), removes a
   disabled `cua_repl` table that was not there before, and copies the rest of
   the file through unchanged, line endings included. Nothing is written unless
@@ -212,8 +213,8 @@ Limits, stated plainly:
   settings, or is written in a form it does not read (an inline table, or a
   header line with a trailing comment). In each case `launch` reports
   `inactive:<reason>` and the operator must repair the table by hand after the
-  host stops. An existing record is kept in these cases, so it can still be
-  used once the file is repaired.
+  host stops. An existing record is kept whenever the shared table still names
+  an adapter, so it can still be used once the file is repaired.
 - When an earlier host left the adapter path behind and no usable record
   exists, only the `CODEX_CLI_PATH` line can be repaired, using the CLI passed
   to `launch`. Anything else that earlier host removed stays removed, and a

@@ -2246,6 +2246,39 @@ class SharedToolConfigGuardTest(unittest.TestCase):
             restored["mcp_servers"]["cua_repl"],
         )
 
+    def test_adapter_path_left_by_another_copy_is_still_recognised(self):
+        # The adapter runs from the source checkout or a versioned plugin
+        # cache, so an earlier host may have left a different path behind.
+        foreign = "/synthetic/plugins/cache/0.0.1/scripts/" + ADAPTER_PATH.name
+        self.snapshot()
+        polluted = (OTHER_TABLES_BEFORE + isolated_tool_table() + OTHER_TABLES_AFTER).replace(
+            ADAPTER.cli_path_line(ADAPTER_PATH), ADAPTER.cli_path_line(foreign)
+        )
+        self.write(polluted)
+        self.assertTrue(ADAPTER.tool_env_names_adapter(ADAPTER.tomllib.loads(polluted)))
+        # A relaunch from this copy uses the good record instead of recording
+        # the foreign adapter path as the original.
+        self.assertEqual("active", self.snapshot())
+        self.assertEqual(self.original, self.read())
+        self.write(polluted)
+        self.assertTrue(self.restore())
+        self.assertEqual(self.original, self.read())
+        # And a record can never carry any adapter path back into the config.
+        record_path = self.instance / ADAPTER.SHARED_TOOL_CONFIG_NAME
+        record = ADAPTER.read_private_json(record_path)
+        ADAPTER.atomic_private_json(
+            record_path,
+            {
+                **record,
+                "node_repl_env_block": "[mcp_servers.node_repl.env]\n"
+                + ADAPTER.cli_path_line(foreign)
+                + "\n",
+            },
+        )
+        self.write(polluted)
+        self.assertFalse(self.restore())
+        self.assertEqual(polluted, self.read())
+
     def test_restore_without_a_snapshot_is_a_no_op(self):
         rewritten = self.isolated_rewrite()
         self.assertFalse(self.restore())

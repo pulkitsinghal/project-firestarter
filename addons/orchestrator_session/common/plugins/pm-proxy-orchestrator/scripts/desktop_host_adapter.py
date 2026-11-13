@@ -406,9 +406,19 @@ def guarded_table(config: Mapping[str, Any], server: str, *keys: str) -> Any:
     return value
 
 
+def names_an_adapter(value: Any) -> bool:
+    """True for any copy of this adapter, whatever checkout or cache it ran from.
+
+    The adapter runs from the source checkout or from a versioned plugin cache,
+    so the path an earlier host left behind need not be this file's own path.
+    """
+
+    return isinstance(value, str) and Path(value).name == ADAPTER_PATH.name
+
+
 def tool_env_names_adapter(config: Mapping[str, Any]) -> bool:
     env = guarded_table(config, "node_repl", "env")
-    return isinstance(env, dict) and env.get("CODEX_CLI_PATH") == str(ADAPTER_PATH)
+    return isinstance(env, dict) and names_an_adapter(env.get("CODEX_CLI_PATH"))
 
 
 def saved_tool_blocks_valid(saved: Any, saved_cua: Any) -> bool:
@@ -426,7 +436,7 @@ def saved_tool_blocks_valid(saved: Any, saved_cua: Any) -> bool:
                 parsed != {"mcp_servers": {"node_repl": {"env": env}}}
                 or not isinstance(env, dict)
                 or any(not isinstance(value, str) for value in env.values())
-                or env.get("CODEX_CLI_PATH") == str(ADAPTER_PATH)
+                or names_an_adapter(env.get("CODEX_CLI_PATH"))
             ):
                 return False
         if saved_cua is not None:
@@ -586,7 +596,7 @@ def restore_shared_tool_config(instance_dir: Path) -> bool:
         if loaded is None:
             return False
         text, metadata = loaded
-        if str(ADAPTER_PATH) not in text:
+        if ADAPTER_PATH.name not in text:
             return False
         try:
             current = tomllib.loads(text)
