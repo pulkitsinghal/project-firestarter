@@ -864,7 +864,10 @@ with open(os.environ["FAKE_RECORD"], "w", encoding="utf-8") as handle:
     json.dump(
         {
             "args": sys.argv[1:],
-            "stdin_is_tty_or_null": sys.stdin.read() == "",
+            "stdin_is_devnull": (
+                os.fstat(0).st_rdev == os.stat(os.devnull).st_rdev
+                and os.path.samestat(os.fstat(0), os.stat(os.devnull))
+            ),
             "private_env": sorted(
                 key for key in os.environ if key.startswith("ORC_DESKTOP_")
             ),
@@ -900,6 +903,7 @@ print("codex-cli 9.9.9-synthetic")
             )
             completed = subprocess.run(
                 [sys.executable, str(ADAPTER_PATH), "--version"],
+                input="caller stdin must not reach the real CLI\n",
                 text=True,
                 capture_output=True,
                 check=False,
@@ -910,7 +914,7 @@ print("codex-cli 9.9.9-synthetic")
             self.assertEqual("codex-cli 9.9.9-synthetic\n", completed.stdout)
             observed = json.loads(record.read_text(encoding="utf-8"))
             self.assertEqual(["--version"], observed["args"])
-            self.assertTrue(observed["stdin_is_tty_or_null"])
+            self.assertTrue(observed["stdin_is_devnull"])
             self.assertEqual([], observed["private_env"])
             self.assertFalse(observed["root_role_present"])
 

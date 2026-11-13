@@ -7,7 +7,8 @@ model-visible field.
 
 The owner supplies the exact existing root task ID. The adapter launches a
 separate Electron data directory and acts as the CLI path selected by Codex
-Desktop. It accepts only a foreground `app-server` invocation, proxies the
+Desktop. It accepts only a foreground `app-server` invocation (plus Desktop's
+bare `--version` probe, answered from the recorded real CLI), proxies the
 stdio protocol byte-for-byte, and runs an owner-private local attestation
 socket. The native pre/post hooks query that socket for every task:
 
