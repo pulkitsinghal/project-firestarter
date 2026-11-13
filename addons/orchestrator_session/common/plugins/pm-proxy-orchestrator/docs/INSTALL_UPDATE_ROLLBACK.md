@@ -105,6 +105,19 @@ plugin-creator `update_plugin_cachebuster.py` helper for iterative local
 reinstalls rather than editing marketplace JSON by hand. Reinstall from the
 configured local marketplace name, then test in a new task.
 
+Observed with Codex CLI 0.167.0-alpha (2026-11-13): plugin hook trust is bound
+to the plugin's contents, so a reinstall, including a cachebuster-only one,
+left the plugin's `PreToolUse` and `PostToolUse` hooks untrusted, and Codex
+skipped them without an error until the owner reviewed and trusted them again (`/hooks` in the Codex CLI, or
+the Desktop hook review). Until then the adapter's live hook canary fails with
+`live-hook-canary-failed`. Re-trusting is an owner security step; never use
+`--dangerously-bypass-hook-trust` to get past it.
+
+A reinstall also replaces the versioned cache directory. MCP servers started
+from the previous cache keep running against the removed directory; controls
+that re-read plugin files (for example the grant and runtime-pin checks) then
+fail closed, so restart those Codex tasks after a reinstall.
+
 The Desktop adapter accepts only the exact optional
 `+codex.<14-digit-UTC-timestamp>` cachebuster. It binds installed source/cache
 parity to that full manifest version while comparing the typed MCP server and

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Desktop host adapter `verify` and `launch` now accept the adapter run from
+  the installed plugin's versioned Codex cache as well as from its local source,
+  as already documented; it previously required the source path. Source/cache
+  tree parity is still required.
+- Document that current Codex builds require the owner to re-trust the
+  plugin's hooks after every reinstall, and that MCP servers from the previous
+  cache fail closed until their tasks restart.
 - Desktop host adapter: answer Codex Desktop's bare `--version` CLI probe inside
   a valid armed host session by running the recorded real CLI with exactly
   `--version` (no stdin, private adapter variables and root role stripped, 10 s
