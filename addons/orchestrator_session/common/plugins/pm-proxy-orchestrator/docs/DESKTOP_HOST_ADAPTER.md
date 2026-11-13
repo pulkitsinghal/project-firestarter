@@ -168,6 +168,81 @@ that isolated host with its matching adapter, run `verify` again, and relaunch.
 `prompt_free_control_grant_verified=true` before the repeated typed MCP prompts
 are considered fixed. Never edit the session or transplant an adoption receipt.
 
+## Shared Codex tool configuration
+
+The isolated host shares the ordinary `CODEX_HOME`, because it needs the same
+plugin install, hook trust, sign-in and task history. Current Codex Desktop
+builds write the tool environment they were started with into the
+`[mcp_servers.node_repl.env]` table of the shared `config.toml`. The isolated
+Desktop is started with this adapter as `CODEX_CLI_PATH`, so it writes the
+adapter there, and because computer use is unavailable in its private profile it
+can also drop the computer-use entries and add a disabled
+`[mcp_servers.cua_repl]` table. Any ordinary Codex task that loads the shared
+config in that state runs the adapter for its tools and is refused with
+`only-foreground-app-server-is-allowed`.
+
+The adapter therefore guards that one table. This is its only write to the
+shared config, and it only undoes the isolated Desktop's own rewrite:
+
+- `launch` records the table, with its sub-tables and any `cua_repl` table, in
+  the private instance directory before the Desktop starts, and reports the
+  guard as `shared_tool_config_guard`: `active`, or `inactive:<reason>` when it
+  cannot protect the config (see the limits below).
+- A relaunch of the same instance first restores from the record it already
+  has and never replaces that record while the shared table still names the
+  adapter, because the record is the only copy of the ordinary table.
+- While a proxy lives it checks the shared config about once a second, backing
+  off after each rewrite. Proxy exit, `stop`, and a launch that fails after the
+  Desktop started check once more. `stop` reports `shared_tool_config_restored`,
+  which is true only when it rewrote the file; false means either that nothing
+  needed restoring or that the guard could not act.
+- A restore happens only while the shared table still names this adapter as the
+  Codex CLI, which shows the isolated Desktop was its last writer. It puts back
+  the recorded table (or removes the table if none existed before), removes a
+  disabled `cua_repl` table that was not there before, and copies the rest of
+  the file through unchanged, line endings included. Nothing is written unless
+  the result parses and differs from the current file only in those two tables,
+  and the file is an ordinary file owned by the user.
+
+Limits, stated plainly:
+
+- The guard needs Python 3.11 or newer (`tomllib`), an absolute `CODEX_HOME`,
+  and a `config.toml` that is an ordinary file (not a symlink) and parses. It
+  also stays inactive if a guarded table holds anything but plain string
+  settings, or is written in a form it does not read (an inline table, or a
+  header line with a trailing comment). In each case `launch` reports
+  `inactive:<reason>` and the operator must repair the table by hand after the
+  host stops. An existing record is kept in these cases, so it can still be
+  used once the file is repaired.
+- When an earlier host left the adapter path behind and no usable record
+  exists, only the `CODEX_CLI_PATH` line can be repaired, using the CLI passed
+  to `launch`. Anything else that earlier host removed stays removed, and a
+  disabled `cua_repl` table is then removed even if it predates the host,
+  because the adapter can no longer tell.
+- The record belongs to one instance. If a second instance is launched while
+  the first one's adapter path is still in the shared table, it takes the
+  repair path above and the first instance's better record goes unused. Run
+  one isolated host at a time.
+- If the `cua_repl` table cannot be put back or removed cleanly, the adapter
+  still takes itself out of the tool table and leaves `cua_repl` as it found
+  it.
+- Codex takes no lock on its config. The adapter checks that the file did not
+  change while it prepared the restore, but a write by Codex that lands in the
+  final instant before the rename can be lost.
+- A comment placed inside the guarded table comes back as it was recorded.
+- There is a window of about a second after the isolated Desktop writes the
+  table, and longer (up to a minute) if the Desktop keeps rewriting it, because
+  the check backs off after each rewrite. Codex keeps tool configuration per
+  task in memory, so an ordinary task
+  that loads its configuration inside that window keeps the adapter path for
+  its lifetime. Start a new task to recover; restoring the file does not reach
+  tasks that are already running.
+- After a restore, tasks inside the isolated host also read the real CLI path
+  for their tools. The proxy, the attestation socket and the root guard do not
+  depend on that table.
+- Keep the isolated host up only as long as the work needs, and avoid starting
+  ordinary Codex tasks that need tools in the seconds after a launch.
+
 ## Status and recovery
 
 Status reads only the private adapter session:
