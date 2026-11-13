@@ -820,6 +820,160 @@ for line in sys.stdin:
         self.assertEqual(2, completed.returncode)
         self.assertIn("only-foreground-app-server-is-allowed", completed.stderr)
 
+    def test_version_probe_requires_host_session_before_real_cli(self):
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-version-nosession-") as raw:
+            root = private(Path(raw))
+            marker = root / "invoked"
+            fake = write_executable(
+                root / "fake-codex",
+                f"#!/bin/sh\ntouch '{marker}'\necho codex-cli 9.9.9\n",
+            )
+            environment = {
+                key: value
+                for key, value in os.environ.items()
+                if key not in ADAPTER.ADAPTER_ENV_VARS
+            }
+            environment[ADAPTER.REAL_CODEX_ENV] = str(fake)
+            completed = subprocess.run(
+                [sys.executable, str(ADAPTER_PATH), "--version"],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env=environment,
+            )
+            self.assertEqual(2, completed.returncode)
+            self.assertIn("host-session-environment-missing", completed.stderr)
+            self.assertEqual("", completed.stdout)
+            self.assertFalse(marker.exists())
+
+    def test_version_probe_delegates_exactly_to_recorded_real_cli(self):
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-version-probe-") as raw:
+            home = private(Path(raw))
+            private(home / ".codex" / "orchestrator-state")
+            instance = private(home / "instance")
+            record = instance / "record.json"
+            fake = write_executable(
+                instance / "fake-codex",
+                """#!/usr/bin/env python3
+import json
+import os
+import sys
+
+with open(os.environ["FAKE_RECORD"], "w", encoding="utf-8") as handle:
+    json.dump(
+        {
+            "args": sys.argv[1:],
+            "stdin_is_devnull": (
+                os.fstat(0).st_rdev == os.stat(os.devnull).st_rdev
+                and os.path.samestat(os.fstat(0), os.stat(os.devnull))
+            ),
+            "private_env": sorted(
+                key for key in os.environ if key.startswith("ORC_DESKTOP_")
+            ),
+            "root_role_present": "ROOT_ORCHESTRATOR_ROLE" in os.environ,
+        },
+        handle,
+        sort_keys=True,
+    )
+print("codex-cli 9.9.9-synthetic")
+""",
+            )
+            token = "-".join(("synthetic", "version", "token"))
+            session_path = instance / "session.json"
+            ADAPTER.atomic_private_json(
+                session_path,
+                self.full_session(
+                    instance=instance,
+                    fake_codex=fake,
+                    token=token,
+                    now=ADAPTER.utc_now(),
+                ),
+            )
+            environment = dict(os.environ)
+            environment.update(
+                {
+                    "HOME": str(home),
+                    "FAKE_RECORD": str(record),
+                    "ROOT_ORCHESTRATOR_ROLE": "trusted-project-hook",
+                    ADAPTER.SESSION_ENV: str(session_path),
+                    ADAPTER.TOKEN_ENV: token,
+                    ADAPTER.REAL_CODEX_ENV: str(fake),
+                }
+            )
+            completed = subprocess.run(
+                [sys.executable, str(ADAPTER_PATH), "--version"],
+                input="caller stdin must not reach the real CLI\n",
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env=environment,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertEqual("codex-cli 9.9.9-synthetic\n", completed.stdout)
+            observed = json.loads(record.read_text(encoding="utf-8"))
+            self.assertEqual(["--version"], observed["args"])
+            self.assertTrue(observed["stdin_is_devnull"])
+            self.assertEqual([], observed["private_env"])
+            self.assertFalse(observed["root_role_present"])
+
+    def test_version_probe_refuses_wrong_token_before_real_cli(self):
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-version-token-") as raw:
+            root = private(Path(raw))
+            marker = root / "invoked"
+            fake = write_executable(
+                root / "fake-codex", f"#!/bin/sh\ntouch '{marker}'\n"
+            )
+            session_path = root / "session.json"
+            ADAPTER.atomic_private_json(
+                session_path,
+                self.full_session(
+                    instance=root,
+                    fake_codex=fake,
+                    token="correct-token",
+                    now=ADAPTER.utc_now(),
+                ),
+            )
+            environment = dict(os.environ)
+            environment.update(
+                {
+                    ADAPTER.SESSION_ENV: str(session_path),
+                    ADAPTER.TOKEN_ENV: "wrong-token",
+                    ADAPTER.REAL_CODEX_ENV: str(fake),
+                }
+            )
+            completed = subprocess.run(
+                [sys.executable, str(ADAPTER_PATH), "--version"],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env=environment,
+            )
+            self.assertEqual(2, completed.returncode)
+            self.assertIn("host-session-invalid", completed.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_only_bare_version_probe_is_delegated(self):
+        for arguments in (
+            ["--version", "app-server"],
+            ["-V"],
+            ["version"],
+            ["--version", "--json"],
+        ):
+            completed = subprocess.run(
+                [sys.executable, str(ADAPTER_PATH), *arguments],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=5,
+            )
+            self.assertEqual(2, completed.returncode, arguments)
+            self.assertIn(
+                "only-foreground-app-server-is-allowed", completed.stderr, arguments
+            )
+
     def test_mac_single_instance_fixture_reproduces_environment_only_redirect(self):
         with tempfile.TemporaryDirectory(prefix="pm-proxy-mac-redirect-") as raw:
             root = private(Path(raw))

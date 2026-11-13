@@ -1956,8 +1956,54 @@ def emit(value: Mapping[str, Any], *, stream: Any = sys.stdout) -> None:
     print(json.dumps(value, sort_keys=True, separators=(",", ":")), file=stream)
 
 
+VERSION_PROBE_ARGUMENTS = ["--version"]
+VERSION_PROBE_TIMEOUT_SECONDS = 10
+
+
+def run_version_probe() -> int:
+    """Answer Codex Desktop's ``--version`` probe from the recorded real CLI.
+
+    Current Codex Desktop builds probe the CLI selected by ``CODEX_CLI_PATH``
+    with a bare ``--version`` before starting the app server.  The adapter is
+    that CLI inside the isolated host, so it must answer.  The probe is only
+    honoured inside a valid armed host session; it runs the exact recorded real
+    CLI with exactly ``--version``, no stdin, and none of the private adapter
+    variables, and never starts the attestation socket or an app server.
+    """
+
+    _session_path, session = validate_session_from_environment()
+    real_codex = Path(str(session["codex_cli"]))
+    environment = dict(os.environ)
+    for name in ADAPTER_ENV_VARS:
+        environment.pop(name, None)
+    environment.pop("ROOT_ORCHESTRATOR_ROLE", None)
+    try:
+        completed = subprocess.run(
+            [str(real_codex), *VERSION_PROBE_ARGUMENTS],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            close_fds=True,
+            env=environment,
+            timeout=VERSION_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AdapterError("real-cli-version-probe-failed") from exc
+    sys.stdout.buffer.write(completed.stdout)
+    sys.stdout.buffer.flush()
+    sys.stderr.buffer.write(completed.stderr)
+    sys.stderr.buffer.flush()
+    return completed.returncode
+
+
 def main() -> int:
     arguments = sys.argv[1:]
+    if arguments == VERSION_PROBE_ARGUMENTS:
+        try:
+            return run_version_probe()
+        except AdapterError as exc:
+            print(f"desktop-host-adapter: {exc}", file=sys.stderr)
+            return 2
     if arguments and arguments[0] not in {
         "verify",
         "issue-bootstrap-recovery-grant",

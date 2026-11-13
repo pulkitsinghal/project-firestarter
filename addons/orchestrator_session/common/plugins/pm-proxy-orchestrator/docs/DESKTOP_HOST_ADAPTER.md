@@ -7,7 +7,8 @@ model-visible field.
 
 The owner supplies the exact existing root task ID. The adapter launches a
 separate Electron data directory and acts as the CLI path selected by Codex
-Desktop. It accepts only a foreground `app-server` invocation, proxies the
+Desktop. It accepts only a foreground `app-server` invocation (plus Desktop's
+bare `--version` probe, answered from the recorded real CLI), proxies the
 stdio protocol byte-for-byte, and runs an owner-private local attestation
 socket. The native pre/post hooks query that socket for every task:
 
@@ -103,7 +104,7 @@ checkout, or a stale cache, with the same version string:
 orc_adapter=/absolute/installed/pm-proxy-orchestrator/scripts/desktop_host_adapter.py
 orc_instance="$HOME/.codex/orchestrator-hosts/primary-root"
 orc_state="$HOME/.codex/orchestrator-state/intended-state"
-codex_cli=/Applications/ChatGPT.app/Contents/Resources/codex
+codex_cli=/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex
 
 "$orc_adapter" verify \
   --instance-dir "$orc_instance" \
@@ -125,6 +126,14 @@ root_task_id=019f-example-root-task
   --codex-cli "$codex_cli" \
   --desktop-executable /Applications/ChatGPT.app/Contents/MacOS/ChatGPT
 ```
+
+Pass the CLI bundled inside the Desktop app (path above, current Desktop builds),
+not a standalone `codex` from `PATH`: the isolated Desktop speaks the app-server
+protocol of its own bundled CLI, and an older standalone CLI can fail Desktop's
+startup policy read. Current Desktop builds also probe the selected CLI with a
+bare `--version` before starting the app server; inside a valid armed host
+session the adapter answers that probe from the recorded real CLI and refuses
+every other non-app-server invocation.
 
 Pass the real Desktop executable above, not a launcher shim. The adapter adds
 the isolated `--user-data-dir` argument itself. The private session path and
