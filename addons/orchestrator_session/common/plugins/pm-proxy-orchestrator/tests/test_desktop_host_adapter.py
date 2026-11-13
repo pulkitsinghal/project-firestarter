@@ -1584,6 +1584,71 @@ print("codex-cli 9.9.9-synthetic")
         ):
             ADAPTER.installed_plugin(Path("/synthetic/codex"), version)
 
+    def _installed_response(self, version: str, source_path: Path):
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "installed": [
+                        {
+                            "pluginId": "pm-proxy-orchestrator@project-firestarter",
+                            "installed": True,
+                            "enabled": True,
+                            "version": version,
+                            "source": {"source": "local", "path": str(source_path)},
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+
+    def test_installed_plugin_accepts_adapter_run_from_matching_cache(self):
+        version = ADAPTER.manifest()["version"]
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-source-") as raw:
+            source = private(Path(raw))
+            with (
+                mock.patch.object(
+                    ADAPTER.subprocess,
+                    "run",
+                    return_value=self._installed_response(version, source),
+                ),
+                mock.patch.object(
+                    ADAPTER,
+                    "secure_plugin_dir",
+                    side_effect=lambda path: (
+                        PLUGIN_ROOT if "plugins/cache" in str(path) else path
+                    ),
+                ),
+                mock.patch.object(
+                    ADAPTER, "plugin_tree_digest", side_effect=["same", "same"]
+                ),
+            ):
+                ADAPTER.installed_plugin(Path("/synthetic/codex"), version)
+
+    def test_installed_plugin_rejects_adapter_outside_source_and_cache(self):
+        version = ADAPTER.manifest()["version"]
+        with tempfile.TemporaryDirectory(prefix="pm-proxy-source-") as raw:
+            source = private(Path(raw))
+            with (
+                mock.patch.object(
+                    ADAPTER.subprocess,
+                    "run",
+                    return_value=self._installed_response(version, source),
+                ),
+                mock.patch.object(
+                    ADAPTER, "secure_plugin_dir", side_effect=lambda path: path
+                ),
+                mock.patch.object(
+                    ADAPTER, "plugin_tree_digest", side_effect=["same", "same"]
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ADAPTER.AdapterError, "adapter-not-from-installed-plugin"
+                ):
+                    ADAPTER.installed_plugin(Path("/synthetic/codex"), version)
+
     def test_plugin_tree_digest_covers_contents_and_executable_modes(self):
         with tempfile.TemporaryDirectory(prefix="pm-proxy-plugin-tree-") as raw:
             root = private(Path(raw))

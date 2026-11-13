@@ -475,7 +475,7 @@ def installed_plugin(codex_cli: Path, expected_version: str) -> None:
             and isinstance(source_path, str)
             and Path(source_path).is_absolute()
             and not Path(source_path).is_symlink()
-            and Path(source_path).resolve(strict=True) == PLUGIN_ROOT
+            and Path(source_path).resolve(strict=True) == Path(source_path)
         )
     except OSError:
         source_matches = False
