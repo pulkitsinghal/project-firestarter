@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import select
@@ -62,6 +64,67 @@ def write_executable(path: Path, text: str) -> Path:
 
 
 class DesktopHostAdapterTest(unittest.TestCase):
+    def test_verify_verbose_sanitizes_failures_and_preserves_cli_result(self):
+        argv = [
+            "adapter", "verify", "--instance-dir", "/synthetic-instance",
+            "--state-dir", "/synthetic-state", "--codex-cli", "/synthetic-cli",
+        ]
+        secret = "do-not-log-arguments-child-output-or-exception-message"
+        for failure, category in (
+            (subprocess.TimeoutExpired([secret], 30, output=secret), "TimeoutExpired"),
+            (PermissionError(13, secret, "/synthetic-secret-path"), "OSError"),
+        ):
+            with self.subTest(category=category), contextlib.ExitStack() as stack:
+                for check in ("ensure_private_dir", "existing_private_dir", "secure_file"):
+                    stack.enter_context(mock.patch.object(ADAPTER, check))
+                stack.enter_context(
+                    mock.patch.object(ADAPTER, "manifest", return_value={"version": "0.4.12"})
+                )
+                stack.enter_context(
+                    mock.patch.object(ADAPTER, "installed_plugin", side_effect=failure)
+                )
+                hook = stack.enter_context(mock.patch.object(ADAPTER, "probe_hook"))
+                write = stack.enter_context(mock.patch.object(ADAPTER, "atomic_private_json"))
+                for extra in ([], ["--verbose"]):
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with (
+                        mock.patch.object(sys, "argv", argv + extra),
+                        mock.patch.object(
+                            ADAPTER.time, "monotonic_ns",
+                            side_effect=[0, 0, 7_000_000, 8_000_000, 8_000_000, 13_000_000],
+                        ) as clock,
+                        contextlib.redirect_stdout(stdout),
+                        contextlib.redirect_stderr(stderr),
+                    ):
+                        self.assertEqual(ADAPTER.main(), 2)
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertNotIn(secret, stderr.getvalue())
+                    self.assertNotIn("/synthetic", stderr.getvalue())
+                    records = [json.loads(line) for line in stderr.getvalue().splitlines()]
+                    self.assertEqual(records[-1], {
+                        "ok": False, "error": {"code": "desktop-host-operation-failed"},
+                    })
+                    self.assertEqual(records[:-1], [
+                        {"phase": "preflight", "outcome": "started", "elapsed_ms": 0},
+                        {"phase": "preflight", "outcome": "passed", "elapsed_ms": 7},
+                        {"phase": "installed-plugin", "outcome": "started", "elapsed_ms": 0},
+                        {"phase": "installed-plugin", "outcome": "failed", "elapsed_ms": 5,
+                         "exception_class": category},
+                    ] if extra else [])
+                    self.assertEqual(clock.call_count, 6 if extra else 0)
+                hook.assert_not_called()
+                write.assert_not_called()
+
+    def test_verify_verbose_keeps_typed_error_if_diagnostic_stream_unavailable(self):
+        class BrokenDiagnosticStream:
+            def write(self, ignored):
+                raise OSError("unavailable")
+
+        with contextlib.redirect_stderr(BrokenDiagnosticStream()):
+            with self.assertRaisesRegex(ADAPTER.AdapterError, "^synthetic-denial$"):
+                with ADAPTER.verify_phase(True, "typed-doctor"):
+                    raise ADAPTER.AdapterError("synthetic-denial")
+
     def test_plugin_version_normalizes_documented_cachebuster(self):
         version = ADAPTER.manifest()["version"]
         self.assertEqual(version, ADAPTER.plugin_base_version(version))
@@ -167,6 +230,9 @@ class DesktopHostAdapterTest(unittest.TestCase):
                     },
                 ),
                 mock.patch.object(ADAPTER, "installed_plugin") as installed,
+                mock.patch.object(
+                    ADAPTER, "utc_now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+                ),
                 mock.patch.object(ADAPTER, "probe_hook"),
                 mock.patch.object(
                     ADAPTER, "mcp_doctor", return_value=(version, pin)
@@ -178,7 +244,41 @@ class DesktopHostAdapterTest(unittest.TestCase):
                 ),
             ):
                 result = ADAPTER.verify(args)
-            installed.assert_called_once_with(codex, cachebusted)
+                baseline_proof = (instance / "live-proof.json").read_bytes()
+                argv = [
+                    "adapter", "verify", "--instance-dir", str(instance),
+                    "--state-dir", str(state), "--codex-cli", str(codex),
+                    "--timeout", "30",
+                ]
+                for mode in ([], ["--verbose"]):
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with (
+                        mock.patch.object(sys, "argv", argv + mode),
+                        mock.patch.object(ADAPTER.emit, "__kwdefaults__", {"stream": stdout}),
+                        contextlib.redirect_stdout(stdout),
+                        contextlib.redirect_stderr(stderr),
+                    ):
+                        self.assertEqual(ADAPTER.main(), 0)
+                    self.assertEqual(json.loads(stdout.getvalue()), result)
+                    self.assertEqual(
+                        (instance / "live-proof.json").read_bytes(), baseline_proof
+                    )
+                    if mode:
+                        phases = [
+                            "preflight", "installed-plugin", "direct-hook",
+                            "typed-doctor", "live-hook-canary", "write-proof",
+                        ]
+                        records = [json.loads(line) for line in stderr.getvalue().splitlines()]
+                        self.assertEqual(
+                            [(r["phase"], r["outcome"]) for r in records],
+                            [(p, o) for p in phases for o in ("started", "passed")],
+                        )
+                        for record in records:
+                            self.assertEqual(set(record), {"phase", "outcome", "elapsed_ms"})
+                            self.assertGreaterEqual(record["elapsed_ms"], 0)
+                    else:
+                        self.assertEqual(stderr.getvalue(), "")
+            self.assertEqual(installed.call_args_list, [mock.call(codex, cachebusted)] * 3)
             self.assertTrue(result["ok"])
             self.assertEqual(version, result["result"]["plugin_version"])
             self.assertFalse(
