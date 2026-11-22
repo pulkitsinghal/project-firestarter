@@ -230,6 +230,9 @@ class DesktopHostAdapterTest(unittest.TestCase):
                     },
                 ),
                 mock.patch.object(ADAPTER, "installed_plugin") as installed,
+                mock.patch.object(
+                    ADAPTER, "utc_now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+                ),
                 mock.patch.object(ADAPTER, "probe_hook"),
                 mock.patch.object(
                     ADAPTER, "mcp_doctor", return_value=(version, pin)
@@ -241,7 +244,41 @@ class DesktopHostAdapterTest(unittest.TestCase):
                 ),
             ):
                 result = ADAPTER.verify(args)
-            installed.assert_called_once_with(codex, cachebusted)
+                baseline_proof = (instance / "live-proof.json").read_bytes()
+                argv = [
+                    "adapter", "verify", "--instance-dir", str(instance),
+                    "--state-dir", str(state), "--codex-cli", str(codex),
+                    "--timeout", "30",
+                ]
+                for mode in ([], ["--verbose"]):
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with (
+                        mock.patch.object(sys, "argv", argv + mode),
+                        mock.patch.object(ADAPTER.emit, "__kwdefaults__", {"stream": stdout}),
+                        contextlib.redirect_stdout(stdout),
+                        contextlib.redirect_stderr(stderr),
+                    ):
+                        self.assertEqual(ADAPTER.main(), 0)
+                    self.assertEqual(json.loads(stdout.getvalue()), result)
+                    self.assertEqual(
+                        (instance / "live-proof.json").read_bytes(), baseline_proof
+                    )
+                    if mode:
+                        phases = [
+                            "preflight", "installed-plugin", "direct-hook",
+                            "typed-doctor", "live-hook-canary", "write-proof",
+                        ]
+                        records = [json.loads(line) for line in stderr.getvalue().splitlines()]
+                        self.assertEqual(
+                            [(r["phase"], r["outcome"]) for r in records],
+                            [(p, o) for p in phases for o in ("started", "passed")],
+                        )
+                        for record in records:
+                            self.assertEqual(set(record), {"phase", "outcome", "elapsed_ms"})
+                            self.assertGreaterEqual(record["elapsed_ms"], 0)
+                    else:
+                        self.assertEqual(stderr.getvalue(), "")
+            self.assertEqual(installed.call_args_list, [mock.call(codex, cachebusted)] * 3)
             self.assertTrue(result["ok"])
             self.assertEqual(version, result["result"]["plugin_version"])
             self.assertFalse(
