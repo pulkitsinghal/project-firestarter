@@ -112,6 +112,12 @@ codex_cli=/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Co
   --codex-cli "$codex_cli"
 ```
 
+For diagnosis, append `--verbose` to the `verify` command. It adds JSON
+lines to stderr with the current phase, outcome, elapsed monotonic milliseconds,
+and a fixed exception class when a phase fails. It does not log exception text,
+child output, inputs, or paths, and does not change the normal output, exit code,
+or proof. This is a verify-only option; it does not launch or enable a host.
+
 Within 15 minutes, bind one exact existing task ID and launch the isolated
 Desktop host:
 

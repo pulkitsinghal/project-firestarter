@@ -1154,31 +1154,75 @@ def proof_material(
     }
 
 
-def verify(args: argparse.Namespace) -> dict[str, Any]:
-    instance_dir = ensure_private_dir(Path(args.instance_dir))
-    state_dir = existing_private_dir(Path(args.state_dir))
-    codex_cli = secure_file(Path(args.codex_cli), executable=True)
-    current_manifest = manifest()
-    installed_plugin(codex_cli, current_manifest["version"])
-    probe_hook()
-    server_version, pin = mcp_doctor(state_dir)
-    if server_version != plugin_base_version(current_manifest["version"]):
-        raise AdapterError("plugin-version-mismatch")
-    denial = live_hook_canary(codex_cli, instance_dir, args.timeout)
-    now = utc_now()
-    proof = {
-        "proof_version": PROOF_VERSION,
-        **proof_material(
-            codex_cli=codex_cli,
-            state_dir=state_dir,
-            version=server_version,
-            pin=pin,
-        ),
-        "denial_reason": denial,
-        "verified_at": iso(now),
-        "valid_until": iso(now + dt.timedelta(seconds=PROOF_TTL_SECONDS)),
+def emit_verify_phase(
+    phase: str, outcome: str, started_ns: int, exception_class: str | None = None
+) -> None:
+    record = {
+        "phase": phase,
+        "outcome": outcome,
+        "elapsed_ms": (time.monotonic_ns() - started_ns) // 1_000_000,
     }
-    atomic_private_json(instance_dir / "live-proof.json", proof)
+    if exception_class is not None:
+        record["exception_class"] = exception_class
+    # A closed diagnostic stream must not change verification behavior.
+    with contextlib.suppress(OSError, ValueError):
+        print(json.dumps(record, separators=(",", ":")), file=sys.stderr, flush=True)
+
+
+@contextlib.contextmanager
+def verify_phase(enabled: bool, phase: str) -> Iterator[None]:
+    if not enabled:
+        yield
+        return
+    started_ns = time.monotonic_ns()
+    emit_verify_phase(phase, "started", started_ns)
+    try:
+        yield
+    except Exception as exc:
+        # Fixed categories only: no exception text, arguments or child output.
+        exception_class = "Exception"
+        for category in (AdapterError, subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+            if isinstance(exc, category):
+                exception_class = category.__name__
+                break
+        emit_verify_phase(phase, "failed", started_ns, exception_class)
+        raise
+    else:
+        emit_verify_phase(phase, "passed", started_ns)
+
+
+def verify(args: argparse.Namespace) -> dict[str, Any]:
+    verbose = getattr(args, "verbose", False)
+    with verify_phase(verbose, "preflight"):
+        instance_dir = ensure_private_dir(Path(args.instance_dir))
+        state_dir = existing_private_dir(Path(args.state_dir))
+        codex_cli = secure_file(Path(args.codex_cli), executable=True)
+        current_manifest = manifest()
+    with verify_phase(verbose, "installed-plugin"):
+        installed_plugin(codex_cli, current_manifest["version"])
+    with verify_phase(verbose, "direct-hook"):
+        probe_hook()
+    with verify_phase(verbose, "typed-doctor"):
+        server_version, pin = mcp_doctor(state_dir)
+        if server_version != plugin_base_version(current_manifest["version"]):
+            raise AdapterError("plugin-version-mismatch")
+    with verify_phase(verbose, "live-hook-canary"):
+        denial = live_hook_canary(codex_cli, instance_dir, args.timeout)
+    with verify_phase(verbose, "write-proof"):
+        now = utc_now()
+        proof = {
+            "proof_version": PROOF_VERSION,
+            **proof_material(
+                codex_cli=codex_cli,
+                state_dir=state_dir,
+                version=server_version,
+                pin=pin,
+            ),
+            "denial_reason": denial,
+            "verified_at": iso(now),
+            "valid_until": iso(now + dt.timedelta(seconds=PROOF_TTL_SECONDS)),
+        }
+        atomic_private_json(instance_dir / "live-proof.json", proof)
     return {
         "ok": True,
         "result": {
@@ -2304,6 +2348,9 @@ def parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--instance-dir", required=True)
     verify_parser.add_argument("--state-dir", required=True)
     verify_parser.add_argument("--codex-cli", required=True)
+    verify_parser.add_argument(
+        "--verbose", action="store_true", help="emit sanitized verify phase diagnostics to stderr"
+    )
     verify_parser.add_argument("--timeout", type=int, default=120, choices=range(30, 301))
     launch_parser = sub.add_parser("launch")
     launch_parser.add_argument("--instance-id", required=True)
